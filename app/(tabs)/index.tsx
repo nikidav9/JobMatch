@@ -1,0 +1,582 @@
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import {
+  View, Text, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView,
+  Animated, PanResponder, Dimensions,
+} from 'react-native';
+import { useRouter } from 'expo-router';
+import { Colors, Radius, Shadow } from '@/constants/theme';
+import { useApp } from '@/hooks/useApp';
+import { Vacancy } from '@/constants/types';
+import { getTodayDates, formatDate, scoreVacancy } from '@/services/storage';
+import {
+  dbUpsertLike, dbCheckAndCreateMatch, dbRemoveLike, dbAddSaved,
+} from '@/services/db';
+import { notifyMatch, notifyNewApplicant } from '@/services/notifications';
+import { Chip } from '@/components/ui/Chip';
+import { VacancyDetailModal } from '@/components/feature/VacancyDetailModal';
+
+const { width: SW } = Dimensions.get('window');
+const SWIPE_THRESHOLD = 80;
+const VELOCITY_THRESHOLD = 0.3;
+
+// ─────────────────────────────────────────────────
+// Worker swipe feed
+// ─────────────────────────────────────────────────
+function WorkerFeed() {
+  const router = useRouter();
+  const { currentUser, users, vacancies, likes, savedIds, refreshAll, refreshLikes, showToast } = useApp();
+  const [dates] = useState(getTodayDates(7));
+  const [selectedDate, setSelectedDate] = useState(getTodayDates(7)[0]);
+  const [cards, setCards] = useState<Vacancy[]>([]);
+  const [history, setHistory] = useState<Vacancy[]>([]);
+  const [expandedConditions, setExpandedConditions] = useState(false);
+  const [swiping, setSwiping] = useState(false);
+  const [localSaved, setLocalSaved] = useState<string[]>(savedIds);
+  const [detailVacancy, setDetailVacancy] = useState<Vacancy | null>(null);
+
+  const pan = useRef(new Animated.ValueXY()).current;
+
+  useEffect(() => { setLocalSaved(savedIds); }, [savedIds]);
+
+  const wantOpacity = pan.x.interpolate({ inputRange: [0, SWIPE_THRESHOLD], outputRange: [0, 1], extrapolate: 'clamp' });
+  const skipOpacity = pan.x.interpolate({ inputRange: [-SWIPE_THRESHOLD, 0], outputRange: [1, 0], extrapolate: 'clamp' });
+  const rotate = pan.x.interpolate({ inputRange: [-SW / 2, 0, SW / 2], outputRange: ['-8deg', '0deg', '8deg'], extrapolate: 'clamp' });
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const filtered = vacancies
+      .filter(v => {
+        if (v.status !== 'open') return false;
+        if (v.date !== selectedDate) return false;
+        if (!currentUser.workTypes?.includes(v.workType)) return false;
+        const liked = likes.find(l => l.vacancyId === v.id && l.workerId === currentUser.id);
+        if (liked) return false;
+        return true;
+      })
+      .sort((a, b) => scoreVacancy(b, currentUser) - scoreVacancy(a, currentUser));
+    setCards(filtered);
+    setExpandedConditions(false);
+    pan.setValue({ x: 0, y: 0 });
+  }, [selectedDate, vacancies, likes, currentUser]);
+
+  const currentCard = cards[0];
+
+  const animateCard = useCallback((dir: 'left' | 'right', velocity: number, cb: () => void) => {
+    const targetX = dir === 'right' ? SW * 1.5 : -SW * 1.5;
+    const duration = Math.max(180, Math.min(300, 250 / (Math.abs(velocity) + 0.5)));
+    setSwiping(true);
+    Animated.parallel([
+      Animated.timing(pan.x, { toValue: targetX, duration, useNativeDriver: false }),
+      Animated.timing(pan.y, { toValue: dir === 'right' ? -40 : 40, duration, useNativeDriver: false }),
+    ]).start(() => {
+      pan.setValue({ x: 0, y: 0 });
+      setSwiping(false);
+      cb();
+    });
+  }, [pan]);
+
+  const snapBack = useCallback(() => {
+    Animated.spring(pan, {
+      toValue: { x: 0, y: 0 },
+      tension: 250,
+      friction: 22,
+      useNativeDriver: false,
+    }).start();
+  }, [pan]);
+
+  const doSkip = useCallback((vx = 0.5) => {
+    if (!currentCard || !currentUser || swiping) return;
+    animateCard('left', vx, async () => {
+      await dbUpsertLike(currentCard.id, currentUser.id, currentCard.employerId, {
+        workerLiked: false,
+        workerSkipped: true,
+      });
+      await refreshLikes();
+      setHistory(h => [currentCard, ...h.slice(0, 9)]);
+      setCards(prev => prev.slice(1));
+    });
+  }, [currentCard, currentUser, swiping, animateCard, refreshLikes]);
+
+  const doWant = useCallback((vx = 0.5) => {
+    if (!currentCard || !currentUser || swiping) return;
+    animateCard('right', vx, async () => {
+      await dbUpsertLike(currentCard.id, currentUser.id, currentCard.employerId, {
+        workerLiked: true,
+        workerSkipped: false,
+      });
+
+      // Notify employer of new applicant
+      const workerName = `${currentUser.firstName} ${currentUser.lastName}`;
+      await notifyNewApplicant({ workerName, vacancyTitle: currentCard.title });
+
+      // Check if employer already approved → match
+      const result = await dbCheckAndCreateMatch(currentCard.id, currentUser.id);
+      await refreshAll();
+
+      if (result.matched) {
+        const employer = users.find(u => u.id === currentCard.employerId);
+        await notifyMatch({
+          companyName: currentCard.company,
+          vacancyTitle: currentCard.title,
+          otherName: employer ? `${employer.firstName} ${employer.lastName}` : currentCard.company,
+          role: 'worker',
+        });
+        router.push({ pathname: '/match', params: { vacancyId: currentCard.id, chatId: result.chatId } });
+      } else {
+        setCards(prev => prev.slice(1));
+        showToast('Отклик отправлен! Ждём решения работодателя 👍', 'success');
+      }
+    });
+  }, [currentCard, currentUser, swiping, animateCard, refreshAll, router, users, showToast]);
+
+  const doUndo = useCallback(async () => {
+    if (!history.length || !currentUser || swiping) return;
+    const last = history[0];
+    await dbRemoveLike(last.id, currentUser.id);
+    await refreshLikes();
+    setHistory(h => h.slice(1));
+    setCards(prev => [last, ...prev]);
+    pan.setValue({ x: -SW, y: 0 });
+    Animated.spring(pan, { toValue: { x: 0, y: 0 }, tension: 200, friction: 20, useNativeDriver: false }).start();
+  }, [history, currentUser, swiping, refreshLikes, pan]);
+
+  const doSave = useCallback(async () => {
+    if (!currentCard || !currentUser) return;
+    if (localSaved.includes(currentCard.id)) {
+      showToast('Уже в избранном', 'success');
+      return;
+    }
+    await dbAddSaved(currentUser.id, currentCard.id);
+    setLocalSaved(prev => [...prev, currentCard.id]);
+    showToast('Сохранено в избранное ❤️', 'success');
+  }, [currentCard, currentUser, localSaved, showToast]);
+
+  const swipeCbRef = useRef<((dir: 'want' | 'skip', vx: number) => void) | null>(null);
+  const snapBackRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    swipeCbRef.current = (dir, vx) => { if (dir === 'want') doWant(vx); else doSkip(vx); };
+    snapBackRef.current = snapBack;
+  });
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 8,
+      onPanResponderGrant: () => {
+        pan.setOffset({ x: (pan.x as any)._value, y: (pan.y as any)._value });
+        pan.setValue({ x: 0, y: 0 });
+      },
+      onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false }),
+      onPanResponderRelease: (_, { dx, vx }) => {
+        pan.flattenOffset();
+        if (dx > SWIPE_THRESHOLD || vx > VELOCITY_THRESHOLD) {
+          swipeCbRef.current?.('want', Math.abs(vx));
+        } else if (dx < -SWIPE_THRESHOLD || vx < -VELOCITY_THRESHOLD) {
+          swipeCbRef.current?.('skip', Math.abs(vx));
+        } else {
+          snapBackRef.current?.();
+        }
+      },
+      onPanResponderTerminate: () => { snapBackRef.current?.(); },
+    })
+  ).current;
+
+  // Date count — excludes already-swiped vacancies
+  const getDateCount = (d: string) => {
+    if (!currentUser) return 0;
+    return vacancies.filter(v => {
+      if (v.status !== 'open') return false;
+      if (v.date !== d) return false;
+      if (!currentUser.workTypes?.includes(v.workType)) return false;
+      const alreadySwiped = likes.find(l => l.vacancyId === v.id && l.workerId === currentUser.id);
+      if (alreadySwiped) return false;
+      return true;
+    }).length;
+  };
+
+  const getRuDay = (iso: string) => {
+    const d = new Date(iso + 'T00:00:00');
+    return ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'][d.getDay()];
+  };
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.logo}>
+          <Text style={styles.logoB}>Job</Text>
+          <Text style={styles.logoO}>Ty</Text>
+        </Text>
+      </View>
+
+      {/* Date strip */}
+      <View style={styles.dateStrip}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateRow}>
+          {dates.map(d => {
+            const active = d === selectedDate;
+            const cnt = getDateCount(d);
+            return (
+              <TouchableOpacity key={d} style={[styles.dateChip, active && styles.dateChipActive]} onPress={() => setSelectedDate(d)} activeOpacity={0.8}>
+                <Text style={[styles.dcDay, active && styles.dcDayActive]}>{getRuDay(d)}</Text>
+                <Text style={[styles.dcNum, active && styles.dcNumActive]}>{new Date(d + 'T00:00:00').getDate()}</Text>
+                <Text style={[styles.dcCnt, active && styles.dcCntActive]}>{cnt}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      {/* Card area */}
+      <View style={styles.cardArea}>
+        {!currentCard ? (
+          <View style={styles.emptyState}>
+            <Text style={{ fontSize: 52 }}>😔</Text>
+            <Text style={styles.emptyTitle}>Новых вакансий пока нет</Text>
+            <Text style={styles.emptySubtitle}>Попробуй другую дату или дождись новых объявлений</Text>
+            <Text style={styles.emptyHint}>Вакансии появятся когда работодатели их добавят</Text>
+          </View>
+        ) : (
+          <>
+            {cards[2] ? <View style={styles.ghost2} /> : null}
+            {cards[1] ? <View style={styles.ghost1} /> : null}
+
+            <Animated.View
+              style={[styles.card, { transform: [{ translateX: pan.x }, { translateY: pan.y }, { rotate }] }]}
+              {...panResponder.panHandlers}
+            >
+              {/* Overlays */}
+              <Animated.View style={[styles.wantOverlay, { opacity: wantOpacity }]}>
+                <Text style={styles.wantText}>ХОЧУ ♥</Text>
+              </Animated.View>
+              <Animated.View style={[styles.skipOverlay, { opacity: skipOpacity }]}>
+                <Text style={styles.skipText}>НЕТ ✕</Text>
+              </Animated.View>
+
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.cardBody} scrollEventThrottle={16}>
+                {/* Company row */}
+                <View style={styles.companyRow}>
+                  <View style={styles.avatar}>
+                    <Text style={styles.avatarText}>{(currentCard.company[0] ?? '?').toUpperCase()}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.companyName}>{currentCard.company}</Text>
+                    <Text style={styles.metroHint}>🚇 {currentCard.metroStation}</Text>
+                  </View>
+                </View>
+
+                {/* Tappable title to open detail */}
+                <TouchableOpacity activeOpacity={0.7} onPress={() => setDetailVacancy(currentCard)}>
+                  <Text style={styles.jobTitle}>{currentCard.title}</Text>
+                  <Text style={styles.detailHint}>Нажми для подробностей →</Text>
+                </TouchableOpacity>
+
+                <Text style={[styles.sectionLabel, { marginTop: 12 }]}>Тип работы</Text>
+                <View style={styles.chipsRow}>
+                  <Chip label="📦 Кладовщик" variant="work" />
+                  <Chip label={`⏰ ${currentCard.timeStart}–${currentCard.timeEnd}`} variant="time" />
+                  <Chip label={`📅 ${formatDate(currentCard.date)}`} variant="date" />
+                  {currentCard.isUrgent ? <Chip label="🔥 Срочно" variant="urgent" /> : null}
+                </View>
+
+                <Text style={[styles.sectionLabel, { marginTop: 12 }]}>Опыт</Text>
+                <View style={styles.chipsRow}>
+                  <Chip label={currentCard.noExperienceNeeded ? '🎓 Не требуется' : '🎓 Желателен'} variant={currentCard.noExperienceNeeded ? 'exp' : 'work'} />
+                </View>
+
+                <Text style={[styles.sectionLabel, { marginTop: 12 }]}>Оплата за смену</Text>
+                <View style={styles.chipsRow}>
+                  <Chip label={`💰 ${currentCard.salary.toLocaleString('ru')} ₽`} variant="salary" />
+                </View>
+
+                {currentCard.normsAndPay ? (
+                  <>
+                    <Text style={[styles.sectionLabel, { marginTop: 12 }]}>Нормативы и оплата</Text>
+                    <Text style={styles.conditions} numberOfLines={2}>{currentCard.normsAndPay}</Text>
+                  </>
+                ) : null}
+
+                {currentCard.conditions ? (
+                  <>
+                    <Text style={[styles.sectionLabel, { marginTop: 12 }]}>Описание</Text>
+                    <Text style={styles.conditions} numberOfLines={expandedConditions ? undefined : 3}>{currentCard.conditions}</Text>
+                    {currentCard.conditions.split('\n').length > 3 ? (
+                      <TouchableOpacity onPress={() => setExpandedConditions(v => !v)}>
+                        <Text style={styles.readMore}>{expandedConditions ? 'Свернуть' : 'Читать далее'}</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </>
+                ) : null}
+
+                <View style={{ marginTop: 16 }}>
+                  <View style={styles.progressTrack}>
+                    <View style={[styles.progressFill, { width: `${Math.min(100, (currentCard.workersFound / currentCard.workersNeeded) * 100)}%` }]} />
+                  </View>
+                  <Text style={styles.progressLabel}>Набрано {currentCard.workersFound} из {currentCard.workersNeeded} · ⚡ Осталось {Math.max(0, currentCard.workersNeeded - currentCard.workersFound)} мест</Text>
+                </View>
+              </ScrollView>
+
+              {/* Actions */}
+              <View style={styles.actions}>
+                <TouchableOpacity style={[styles.actionCircle, styles.actionSm, !history.length && { opacity: 0.3 }]} onPress={doUndo} disabled={!history.length || swiping} activeOpacity={0.7}>
+                  <Text style={{ fontSize: 18, color: Colors.textMuted }}>↩</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.actionCircle, styles.actionLg]} onPress={() => doSkip(0.5)} disabled={swiping} activeOpacity={0.7}>
+                  <Text style={{ fontSize: 22, color: Colors.red }}>✕</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.actionCircle, styles.actionSm]} onPress={() => setDetailVacancy(currentCard)} activeOpacity={0.7}>
+                  <Text style={{ fontSize: 18, color: Colors.primary }}>📄</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.actionCircle, styles.actionLg]} onPress={() => doWant(0.5)} disabled={swiping} activeOpacity={0.7}>
+                  <Text style={{ fontSize: 22, color: Colors.green }}>♥</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.actionCircle, styles.actionSm]} onPress={doSave} activeOpacity={0.7}>
+                  <Text style={{ fontSize: 18, color: localSaved.includes(currentCard.id) ? Colors.primary : Colors.textMuted }}>🔖</Text>
+                </TouchableOpacity>
+              </View>
+            </Animated.View>
+          </>
+        )}
+      </View>
+
+      {/* Detail modal */}
+      <VacancyDetailModal
+        vacancy={detailVacancy}
+        visible={!!detailVacancy}
+        onClose={() => setDetailVacancy(null)}
+        actions={
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <TouchableOpacity
+              style={styles.detailSkipBtn}
+              onPress={() => { setDetailVacancy(null); doSkip(0.5); }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.detailSkipTxt}>✕ Не подходит</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.detailWantBtn}
+              onPress={() => { setDetailVacancy(null); doWant(0.5); }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.detailWantTxt}>♥ Хочу!</Text>
+            </TouchableOpacity>
+          </View>
+        }
+      />
+    </SafeAreaView>
+  );
+}
+
+// ─────────────────────────────────────────────────
+// Employer home
+// ─────────────────────────────────────────────────
+function EmployerHome() {
+  const router = useRouter();
+  const { currentUser, vacancies, likes, refreshVacancies, showToast } = useApp();
+  const [tab, setTab] = useState<'active' | 'closed'>('active');
+  const [confirmClose, setConfirmClose] = useState<string | null>(null);
+
+  const myVacancies = vacancies.filter(v => v.employerId === currentUser?.id);
+  const shown = myVacancies.filter(v => v.status === (tab === 'active' ? 'open' : 'closed'));
+
+  const applicantCount = (vacId: string) => likes.filter(l => l.vacancyId === vacId && l.workerLiked && !l.employerLiked).length;
+  const matchCount = (vacId: string) => likes.filter(l => l.vacancyId === vacId && l.isMatch).length;
+
+  const closeVacancy = async (id: string) => {
+    const { dbUpdateVacancy } = await import('@/services/db');
+    await dbUpdateVacancy(id, { status: 'closed' });
+    await refreshVacancies();
+    showToast('Вакансия закрыта', 'success');
+    setConfirmClose(null);
+  };
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <View style={styles.header}>
+        <Text style={styles.logo}>
+          <Text style={styles.logoB}>Job</Text>
+          <Text style={styles.logoO}>Ty</Text>
+        </Text>
+        <TouchableOpacity style={styles.addBtn} onPress={() => router.push('/create-vacancy')} activeOpacity={0.8}>
+          <Text style={styles.addBtnText}>＋ Вакансия</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.tabs}>
+        {(['active', 'closed'] as const).map(t => (
+          <TouchableOpacity key={t} style={styles.tabItem2} onPress={() => setTab(t)} activeOpacity={0.8}>
+            <Text style={[styles.tabLabel2, tab === t && styles.tabLabelActive]}>{t === 'active' ? 'Активные' : 'Закрытые'}</Text>
+            {tab === t ? <View style={styles.tabUnderline} /> : null}
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
+        {shown.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={{ fontSize: 52 }}>📋</Text>
+            <Text style={styles.emptyTitle}>Нет активных вакансий</Text>
+            <Text style={styles.emptySubtitle}>Создайте первую вакансию</Text>
+            <TouchableOpacity style={styles.createBtn} onPress={() => router.push('/create-vacancy')}>
+              <Text style={styles.createBtnText}>+ Создать вакансию</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          shown.map(v => (
+            <View key={v.id} style={styles.vacCard}>
+              <View style={styles.vacTop}>
+                <Text style={styles.vacTitle} numberOfLines={1}>{v.title}</Text>
+                <View style={styles.vacTopRight}>
+                  {v.isUrgent ? <View style={styles.urgentBadge}><Text style={styles.urgentText}>🔥</Text></View> : null}
+                  <TouchableOpacity
+                    style={styles.editBtn}
+                    onPress={() => router.push({ pathname: '/create-vacancy', params: { editId: v.id } })}
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={styles.editBtnText}>✏️</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              <Text style={styles.vacMeta}>🚇 {v.metroStation} · 📅 {formatDate(v.date)} · ⏰ {v.timeStart}–{v.timeEnd} · 💰 {v.salary.toLocaleString('ru')} ₽</Text>
+              <View style={styles.statsRow}>
+                {[
+                  { num: applicantCount(v.id), label: 'Откликов', color: Colors.blue },
+                  { num: matchCount(v.id), label: 'Мэтчей', color: Colors.primary },
+                  { num: `${v.workersFound}/${v.workersNeeded}`, label: 'Набрано', color: Colors.green },
+                ].map((s, i) => (
+                  <View key={i} style={styles.statBox}>
+                    <Text style={[styles.statNum, { color: s.color }]}>{s.num}</Text>
+                    <Text style={styles.statLabel}>{s.label}</Text>
+                  </View>
+                ))}
+              </View>
+              <View style={styles.vacProgress}>
+                <View style={[styles.progressFill, { width: `${Math.min(100, (v.workersFound / v.workersNeeded) * 100)}%` }]} />
+              </View>
+              {tab === 'active' ? (
+                <View style={styles.vacActions}>
+                  <TouchableOpacity style={styles.candBtn} onPress={() => router.push({ pathname: '/candidates', params: { vacancyId: v.id } })}>
+                    <Text style={styles.candBtnText}>👥 Кандидаты {applicantCount(v.id)}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.deleteBtn} onPress={() => setConfirmClose(v.id)}>
+                    <Text style={styles.deleteBtnText}>🗑</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+            </View>
+          ))
+        )}
+      </ScrollView>
+
+      {confirmClose ? (
+        <View style={styles.confirmOverlay}>
+          <View style={styles.confirmCard}>
+            <Text style={styles.confirmTitle}>Закрыть вакансию?</Text>
+            <Text style={styles.confirmBody}>Вакансия будет перемещена в архив</Text>
+            <View style={styles.confirmBtns}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setConfirmClose(null)}><Text style={styles.cancelBtnText}>Отмена</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.confirmBtn} onPress={() => closeVacancy(confirmClose)}><Text style={styles.confirmBtnText}>Закрыть</Text></TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      ) : null}
+    </SafeAreaView>
+  );
+}
+
+export default function HomeScreen() {
+  const { currentUser } = useApp();
+  if (!currentUser) return null;
+  return currentUser.role === 'worker' ? <WorkerFeed /> : <EmployerHome />;
+}
+
+const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: Colors.bg },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.divider },
+  logo: { fontSize: 20 },
+  logoB: { fontWeight: '800', color: Colors.textPrimary },
+  logoO: { fontWeight: '800', color: Colors.primary },
+  addBtn: { backgroundColor: Colors.primary, borderRadius: 100, paddingHorizontal: 16, paddingVertical: 8 },
+  addBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  dateStrip: { borderBottomWidth: 1, borderBottomColor: Colors.divider, backgroundColor: Colors.bg },
+  dateRow: { paddingHorizontal: 12, paddingVertical: 12, gap: 8, flexDirection: 'row' },
+  dateChip: { minWidth: 52, height: 64, borderRadius: 14, backgroundColor: Colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
+  dateChipActive: { backgroundColor: Colors.primary },
+  dcDay: { fontSize: 10, fontWeight: '600', textTransform: 'uppercase', color: Colors.textMuted },
+  dcDayActive: { color: '#fff' },
+  dcNum: { fontSize: 20, fontWeight: '800', color: Colors.textPrimary },
+  dcNumActive: { color: '#fff' },
+  dcCnt: { fontSize: 10, fontWeight: '700', color: Colors.primary },
+  dcCntActive: { color: 'rgba(255,255,255,0.8)' },
+  cardArea: { flex: 1, position: 'relative', padding: 12 },
+  ghost1: { position: 'absolute', left: 12, right: 12, top: 12, bottom: 80, backgroundColor: Colors.bg, borderRadius: Radius.xl, transform: [{ scale: 0.97 }, { translateY: 6 }], opacity: 0.5, ...Shadow.card },
+  ghost2: { position: 'absolute', left: 12, right: 12, top: 12, bottom: 80, backgroundColor: Colors.bg, borderRadius: Radius.xl, transform: [{ scale: 0.94 }, { translateY: 12 }], opacity: 0.3, ...Shadow.card },
+  card: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 72, backgroundColor: Colors.bg, borderRadius: Radius.xl, ...Shadow.strong, overflow: 'hidden' },
+  wantOverlay: { position: 'absolute', top: 20, left: 20, zIndex: 10, backgroundColor: Colors.green, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, transform: [{ rotate: '-10deg' }] },
+  wantText: { color: '#fff', fontSize: 18, fontWeight: '800' },
+  skipOverlay: { position: 'absolute', top: 20, right: 20, zIndex: 10, backgroundColor: Colors.red, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6, transform: [{ rotate: '10deg' }] },
+  skipText: { color: '#fff', fontSize: 18, fontWeight: '800' },
+  cardBody: { padding: 20, paddingBottom: 8 },
+  companyRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
+  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.primaryLight, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontSize: 15, fontWeight: '700', color: Colors.primary },
+  companyName: { fontSize: 14, fontWeight: '700', color: Colors.textPrimary },
+  metroHint: { fontSize: 12, color: Colors.textMuted, marginTop: 2 },
+  jobTitle: { fontSize: 22, fontWeight: '800', color: Colors.textPrimary, lineHeight: 28 },
+  detailHint: { fontSize: 12, color: Colors.primary, marginTop: 4, marginBottom: 4, fontWeight: '500' },
+  sectionLabel: { fontSize: 13, color: Colors.textMuted, fontWeight: '500', marginBottom: 8 },
+  chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  conditions: { fontSize: 14, color: '#374151', lineHeight: 22 },
+  readMore: { color: Colors.primary, fontSize: 13, fontWeight: '600', marginTop: 4 },
+  progressTrack: { height: 4, backgroundColor: Colors.divider, borderRadius: 2, overflow: 'hidden' },
+  progressFill: { height: '100%', backgroundColor: Colors.primary, borderRadius: 2 },
+  progressLabel: { fontSize: 12, color: Colors.textMuted, marginTop: 6 },
+  actions: { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20, paddingVertical: 14, gap: 16, backgroundColor: Colors.bg, borderTopWidth: 1, borderTopColor: Colors.divider },
+  actionCircle: { borderRadius: 100, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.bg, ...Shadow.card },
+  actionSm: { width: 44, height: 44, borderWidth: 1, borderColor: Colors.inputBorder },
+  actionLg: { width: 56, height: 56 },
+  detailSkipBtn: { flex: 1, borderWidth: 1.5, borderColor: Colors.red, borderRadius: 100, paddingVertical: 13, alignItems: 'center' },
+  detailSkipTxt: { color: Colors.red, fontSize: 14, fontWeight: '600' },
+  detailWantBtn: { flex: 1, backgroundColor: Colors.primary, borderRadius: 100, paddingVertical: 13, alignItems: 'center' },
+  detailWantTxt: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, paddingTop: 60 },
+  emptyTitle: { fontSize: 18, fontWeight: '700', color: Colors.textPrimary, marginTop: 12, textAlign: 'center' },
+  emptySubtitle: { fontSize: 14, color: Colors.textMuted, marginTop: 6, textAlign: 'center' },
+  emptyHint: { fontSize: 12, color: Colors.textMuted, marginTop: 12, fontStyle: 'italic', textAlign: 'center' },
+  createBtn: { marginTop: 20, borderWidth: 1.5, borderColor: Colors.primary, borderRadius: 100, paddingHorizontal: 24, paddingVertical: 10 },
+  createBtnText: { color: Colors.primary, fontWeight: '600', fontSize: 15 },
+  tabs: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: Colors.divider },
+  tabItem2: { flex: 1, alignItems: 'center', paddingVertical: 12 },
+  tabLabel2: { fontSize: 15, fontWeight: '500', color: Colors.textMuted },
+  tabLabelActive: { fontWeight: '700', color: Colors.textPrimary },
+  tabUnderline: { position: 'absolute', bottom: 0, left: '20%', right: '20%', height: 2, backgroundColor: Colors.primary, borderRadius: 1 },
+  vacCard: { backgroundColor: Colors.bg, borderRadius: Radius.lg, padding: 16, ...Shadow.card },
+  vacTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+  vacTopRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  vacTitle: { fontSize: 15, fontWeight: '700', color: Colors.textPrimary, flex: 1 },
+  urgentBadge: { backgroundColor: Colors.redLight, borderRadius: 100, paddingHorizontal: 8, paddingVertical: 3 },
+  urgentText: { fontSize: 12 },
+  editBtn: { width: 32, height: 32, borderRadius: 8, backgroundColor: Colors.surface, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: Colors.inputBorder },
+  editBtnText: { fontSize: 14 },
+  vacMeta: { fontSize: 12, color: Colors.textMuted, marginTop: 4 },
+  statsRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  statBox: { flex: 1, backgroundColor: Colors.surface, borderRadius: 10, padding: 8, alignItems: 'center' },
+  statNum: { fontSize: 18, fontWeight: '800' },
+  statLabel: { fontSize: 10, color: Colors.textMuted, textTransform: 'uppercase', marginTop: 2 },
+  vacProgress: { height: 3, backgroundColor: Colors.divider, borderRadius: 2, marginTop: 10, overflow: 'hidden' },
+  vacActions: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  candBtn: { flex: 1, borderWidth: 1.5, borderColor: Colors.blue, borderRadius: 100, paddingVertical: 8, alignItems: 'center' },
+  candBtnText: { color: Colors.blue, fontSize: 13, fontWeight: '600' },
+  deleteBtn: { width: 44, height: 36, borderWidth: 1.5, borderColor: Colors.red, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  deleteBtnText: { fontSize: 16 },
+  confirmOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  confirmCard: { backgroundColor: Colors.bg, borderRadius: Radius.xl, padding: 28, width: '100%', gap: 12 },
+  confirmTitle: { fontSize: 18, fontWeight: '700', textAlign: 'center', color: Colors.textPrimary },
+  confirmBody: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center' },
+  confirmBtns: { flexDirection: 'row', gap: 12, marginTop: 8 },
+  cancelBtn: { flex: 1, borderWidth: 1.5, borderColor: Colors.inputBorder, borderRadius: 100, paddingVertical: 14, alignItems: 'center' },
+  cancelBtnText: { fontSize: 15, fontWeight: '600', color: Colors.textSecondary },
+  confirmBtn: { flex: 1, backgroundColor: Colors.red, borderRadius: 100, paddingVertical: 14, alignItems: 'center' },
+  confirmBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+});
