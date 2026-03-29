@@ -110,7 +110,10 @@ export default function Login() {
         {step === 'phone' ? (
           <>
             <Text style={styles.title}>Войти</Text>
-            <Text style={styles.subtitle}>Введи номер, указанный при регистрации</Text>
+            <Text style={styles.subtitle}>Введите номер телефона — вам придёт код</Text>
+        <View style={styles.demoBanner}>
+          <Text style={styles.demoBannerText}>⚠️ Демо-режим: SMS и Telegram не подключены. Код отображается на экране.</Text>
+        </View>
             <PhoneInput value={phone} onChange={v => { setPhone(v); setError(''); }} error={error} />
             <View style={{ marginTop: 20 }}>
               {loading ? (
@@ -126,11 +129,12 @@ export default function Login() {
         ) : (
           <>
             <Text style={styles.title}>Введите код</Text>
-            <Text style={styles.subtitle}>
-              {isAdmin
-                ? 'Код для администратора отправлен (демо-режим: смотрите уведомление)'
-                : 'Код подтверждения отправлен (демо-режим: смотрите уведомление)'}
-            </Text>
+            <Text style={styles.subtitle}>Код отправлен (демо-режим)</Text>
+            {/* Demo OTP display — remove when real SMS/Telegram connected */}
+            <View style={styles.otpDemoBox}>
+              <Text style={styles.otpDemoLabel}>Ваш код (демо):</Text>
+              <Text style={styles.otpDemoCode}>{generatedOTP}</Text>
+            </View>
 
             <View style={styles.otpRow}>
               {[0, 1, 2, 3].map(i => (
@@ -201,4 +205,15 @@ const styles = StyleSheet.create({
     position: 'absolute', opacity: 0, width: 1, height: 1,
   },
   errText: { fontSize: 13, color: Colors.red, textAlign: 'center' },
+  demoBanner: {
+    backgroundColor: '#FFF3CD', borderRadius: 10, padding: 12,
+    borderWidth: 1, borderColor: '#F59E0B',
+  },
+  demoBannerText: { fontSize: 12, color: '#92400E', lineHeight: 17 },
+  otpDemoBox: {
+    backgroundColor: Colors.primaryLight, borderRadius: 12, padding: 16,
+    alignItems: 'center', borderWidth: 1.5, borderColor: Colors.primary,
+  },
+  otpDemoLabel: { fontSize: 12, color: Colors.primary, fontWeight: '600', marginBottom: 4 },
+  otpDemoCode: { fontSize: 36, fontWeight: '900', color: Colors.primary, letterSpacing: 8 },
 });

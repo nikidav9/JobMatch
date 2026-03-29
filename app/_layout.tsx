@@ -11,7 +11,7 @@ function AuthGuard() {
   const router = useRouter();
   const pathname = usePathname();
   const ctx = React.useContext(AppContext);
-  const navigatingRef = useRef(false);
+  const prevUserRef = useRef<string | null | undefined>(undefined);
 
   useEffect(() => {
     if (!ctx || ctx.loading) return;
@@ -24,15 +24,15 @@ function AuthGuard() {
       pathname === '/match' ||
       pathname === '/rate';
 
-    if (!ctx.currentUser && isProtected && !navigatingRef.current) {
-      navigatingRef.current = true;
-      // Use requestAnimationFrame to ensure navigation happens after render
-      requestAnimationFrame(() => {
-        router.replace('/');
-        setTimeout(() => { navigatingRef.current = false; }, 1000);
-      });
+    // Only redirect if user just became null (was logged in before)
+    const justLoggedOut = prevUserRef.current !== undefined && prevUserRef.current !== null && ctx.currentUser === null;
+    prevUserRef.current = ctx.currentUser?.id ?? null;
+
+    if (!ctx.currentUser && isProtected && !justLoggedOut) {
+      // Safety fallback for unauthed access to protected routes
+      router.replace('/');
     }
-  }, [ctx?.currentUser, ctx?.loading, pathname]);
+  }, [ctx?.currentUser?.id, ctx?.loading, pathname]);
 
   return null;
 }

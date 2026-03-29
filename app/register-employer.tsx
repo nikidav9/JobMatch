@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  SafeAreaView, KeyboardAvoidingView, Platform, ActivityIndicator,
+  SafeAreaView, KeyboardAvoidingView, Platform, ActivityIndicator, TextInput,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Colors, Radius } from '@/constants/theme';
@@ -12,7 +12,11 @@ import { useApp } from '@/hooks/useApp';
 import { uid, nowISO, isPhoneComplete, extractPhoneDigits } from '@/services/storage';
 import { dbUpsertUser, dbGetUsers } from '@/services/db';
 
-const TOTAL = 4;
+const TOTAL = 5;
+
+function generateOTP(): string {
+  return String(Math.floor(1000 + Math.random() * 9000));
+}
 
 export default function RegisterEmployer() {
   const router = useRouter();
@@ -22,14 +26,15 @@ export default function RegisterEmployer() {
   const [phone, setPhone] = useState('+7 ');
   const [lastName, setLastName] = useState('');
   const [firstName, setFirstName] = useState('');
-  const [age, setAge] = useState('');
   const [agreed, setAgreed] = useState(false);
   const [company, setCompany] = useState('');
   const [checking, setChecking] = useState(false);
   const [phoneError, setPhoneError] = useState('');
 
-  const ageNum = parseInt(age, 10);
-  const ageValid = !isNaN(ageNum) && ageNum >= 18 && ageNum <= 65;
+  // OTP state
+  const [generatedOTP, setGeneratedOTP] = useState('');
+  const [otpInput, setOtpInput] = useState('');
+  const [otpError, setOtpError] = useState('');
 
   const back = () => { if (step === 1) router.back(); else setStep(s => s - 1); };
 
@@ -44,7 +49,21 @@ export default function RegisterEmployer() {
       setPhoneError('Аккаунт с этим номером уже существует. Войдите в систему.');
       return;
     }
+    // Generate OTP and move to OTP step
+    const code = generateOTP();
+    setGeneratedOTP(code);
+    setOtpInput('');
+    setOtpError('');
     setStep(2);
+  };
+
+  const confirmOTP = () => {
+    if (otpInput !== generatedOTP) {
+      setOtpError('Неверный код. Проверьте и попробуйте снова.');
+      return;
+    }
+    setOtpError('');
+    setStep(3);
   };
 
   const next = () => setStep(s => s + 1);
@@ -56,7 +75,6 @@ export default function RegisterEmployer() {
       phone: extractPhoneDigits(phone),
       lastName,
       firstName,
-      age: ageNum,
       company,
       createdAt: nowISO(),
     };
@@ -84,17 +102,21 @@ export default function RegisterEmployer() {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
 
+          {/* Step 1: Phone */}
           {step === 1 && (
             <View style={styles.stepContent}>
               <Text style={styles.title}>Введи номер телефона</Text>
               <Text style={styles.subtitle}>Работник увидит его только после мэтча</Text>
+              <View style={styles.demoBanner}>
+                <Text style={styles.demoBannerText}>⚠️ Демо-режим: SMS и Telegram не подключены. Код подтверждения будет показан на следующем экране.</Text>
+              </View>
               <PhoneInput value={phone} onChange={v => { setPhone(v); setPhoneError(''); }} />
               {phoneError ? <Text style={styles.fieldError}>{phoneError}</Text> : null}
               <View style={{ marginTop: 28 }}>
                 {checking ? (
                   <ActivityIndicator size="small" color={Colors.primary} />
                 ) : (
-                  <PrimaryButton label="Продолжить →" onPress={continueFromPhone} disabled={!isPhoneComplete(phone)} />
+                  <PrimaryButton label="Получить код →" onPress={continueFromPhone} disabled={!isPhoneComplete(phone)} />
                 )}
               </View>
               <TouchableOpacity style={styles.loginHint} onPress={() => router.push('/login')}>
@@ -103,7 +125,48 @@ export default function RegisterEmployer() {
             </View>
           )}
 
+          {/* Step 2: OTP */}
           {step === 2 && (
+            <View style={styles.stepContent}>
+              <Text style={styles.title}>Подтверждение</Text>
+              <Text style={styles.subtitle}>Введите код подтверждения</Text>
+
+              {/* Demo OTP display */}
+              <View style={styles.otpDemoBox}>
+                <Text style={styles.otpDemoLabel}>Ваш код (демо):</Text>
+                <Text style={styles.otpDemoCode}>{generatedOTP}</Text>
+                <Text style={styles.otpDemoNote}>В боевой версии код придёт по SMS или в Telegram</Text>
+              </View>
+
+              <View style={styles.otpRow}>
+                {[0, 1, 2, 3].map(i => (
+                  <View key={i} style={[styles.otpBox, otpInput.length > i && styles.otpBoxFilled]}>
+                    <Text style={styles.otpDigit}>{otpInput[i] ?? ''}</Text>
+                  </View>
+                ))}
+              </View>
+
+              <TextInput
+                style={styles.hiddenInput}
+                value={otpInput}
+                onChangeText={v => { setOtpInput(v.replace(/\D/g, '').slice(0, 4)); setOtpError(''); }}
+                keyboardType="number-pad"
+                maxLength={4}
+                autoFocus
+              />
+
+              {otpError ? <Text style={styles.fieldError}>{otpError}</Text> : null}
+
+              <PrimaryButton label="Подтвердить →" onPress={confirmOTP} disabled={otpInput.length < 4} />
+
+              <TouchableOpacity style={styles.loginHint} onPress={() => setStep(1)}>
+                <Text style={styles.loginHintTxt}>← Изменить номер</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Step 3: Name */}
+          {step === 3 && (
             <View style={styles.stepContent}>
               <Text style={styles.title}>Как тебя зовут?</Text>
               <AppInput value={lastName} onChangeText={setLastName} placeholder="Иванов" label="Фамилия" autoFocus />
@@ -114,7 +177,8 @@ export default function RegisterEmployer() {
             </View>
           )}
 
-          {step === 3 && (
+          {/* Step 4: Legal consent */}
+          {step === 4 && (
             <View style={styles.stepContent}>
               <Text style={styles.title}>Согласие</Text>
               <Text style={styles.subtitle}>Для завершения регистрации</Text>
@@ -148,7 +212,8 @@ export default function RegisterEmployer() {
             </View>
           )}
 
-          {step === 4 && (
+          {/* Step 5: Company */}
+          {step === 5 && (
             <View style={styles.stepContent}>
               <Text style={styles.title}>Название компании</Text>
               <Text style={styles.subtitle}>Будет отображаться в вакансиях</Text>
@@ -180,6 +245,28 @@ const styles = StyleSheet.create({
   fieldError: { fontSize: 13, color: Colors.red, lineHeight: 18 },
   loginHint: { marginTop: 16, alignItems: 'center' },
   loginHintTxt: { fontSize: 14, color: Colors.textMuted },
+  demoBanner: {
+    backgroundColor: '#FFF3CD', borderRadius: 10, padding: 12,
+    borderWidth: 1, borderColor: '#F59E0B',
+  },
+  demoBannerText: { fontSize: 12, color: '#92400E', lineHeight: 17 },
+  otpDemoBox: {
+    backgroundColor: Colors.primaryLight, borderRadius: 14, padding: 18,
+    alignItems: 'center', borderWidth: 1.5, borderColor: Colors.primary,
+  },
+  otpDemoLabel: { fontSize: 12, color: Colors.primary, fontWeight: '600', marginBottom: 4 },
+  otpDemoCode: { fontSize: 42, fontWeight: '900', color: Colors.primary, letterSpacing: 10, marginVertical: 4 },
+  otpDemoNote: { fontSize: 11, color: Colors.primary, opacity: 0.7, textAlign: 'center', marginTop: 4 },
+  otpRow: { flexDirection: 'row', gap: 12, justifyContent: 'center', marginTop: 8 },
+  otpBox: {
+    width: 56, height: 64, borderRadius: Radius.md,
+    borderWidth: 2, borderColor: Colors.inputBorder,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: Colors.surface,
+  },
+  otpBoxFilled: { borderColor: Colors.primary, backgroundColor: Colors.primaryLight },
+  otpDigit: { fontSize: 28, fontWeight: '800', color: Colors.textPrimary },
+  hiddenInput: { position: 'absolute', opacity: 0, width: 1, height: 1 },
   checkRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 14, paddingVertical: 8 },
   checkbox: { width: 24, height: 24, borderRadius: 6, borderWidth: 1.5, borderColor: Colors.inputBorder, backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center', marginTop: 2, flexShrink: 0 },
   checkboxActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
