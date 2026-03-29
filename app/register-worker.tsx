@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  SafeAreaView, KeyboardAvoidingView, Platform, ActivityIndicator, TextInput,
+  SafeAreaView, KeyboardAvoidingView, Platform, ActivityIndicator, Linking,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Colors, Radius } from '@/constants/theme';
@@ -16,11 +16,9 @@ import { dbUpsertUser, dbGetUsers } from '@/services/db';
 import { WorkType } from '@/constants/types';
 import { METRO_LINES } from '@/constants/metro';
 
+// Steps: 1-Phone, 2-Password, 3-Name, 4-Legal, 5-Metro, 6-WorkType
 const TOTAL = 6;
-
-function generateOTP(): string {
-  return String(Math.floor(1000 + Math.random() * 9000));
-}
+const SUPPORT_EMAIL = 'zpouches@yandex.ru';
 
 export default function RegisterWorker() {
   const router = useRouter();
@@ -28,6 +26,8 @@ export default function RegisterWorker() {
 
   const [step, setStep] = useState(1);
   const [phone, setPhone] = useState('+7 ');
+  const [password, setPassword] = useState('');
+  const [passwordConfirm, setPasswordConfirm] = useState('');
   const [lastName, setLastName] = useState('');
   const [firstName, setFirstName] = useState('');
   const [metroLineId, setMetroLineId] = useState('');
@@ -37,19 +37,17 @@ export default function RegisterWorker() {
   const [metroPicker, setMetroPicker] = useState(false);
   const [checking, setChecking] = useState(false);
   const [phoneError, setPhoneError] = useState('');
+  const [passError, setPassError] = useState('');
   const [agreed, setAgreed] = useState(false);
-
-  // OTP state
-  const [generatedOTP, setGeneratedOTP] = useState('');
-  const [otpInput, setOtpInput] = useState('');
-  const [otpError, setOtpError] = useState('');
 
   const toggleWork = (t: WorkType) => {
     setWorkTypes(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
   };
 
   const back = () => { if (step === 1) router.back(); else setStep(s => s - 1); };
+  const next = () => setStep(s => s + 1);
 
+  // Step 1 → 2: check phone uniqueness
   const continueFromPhone = async () => {
     setPhoneError('');
     setChecking(true);
@@ -61,30 +59,29 @@ export default function RegisterWorker() {
       setPhoneError('Аккаунт с этим номером уже существует. Войдите в систему.');
       return;
     }
-    // Generate OTP and move to OTP step
-    const code = generateOTP();
-    setGeneratedOTP(code);
-    setOtpInput('');
-    setOtpError('');
     setStep(2);
   };
 
-  const confirmOTP = () => {
-    if (otpInput !== generatedOTP) {
-      setOtpError('Неверный код. Проверьте и попробуйте снова.');
+  // Step 2 → 3: validate password
+  const continueFromPassword = () => {
+    setPassError('');
+    if (password.length < 6) {
+      setPassError('Пароль должен быть не менее 6 символов');
       return;
     }
-    setOtpError('');
+    if (password !== passwordConfirm) {
+      setPassError('Пароли не совпадают');
+      return;
+    }
     setStep(3);
   };
-
-  const next = () => setStep(s => s + 1);
 
   const finish = async () => {
     const user = {
       id: uid(),
       role: 'worker' as const,
       phone: extractPhoneDigits(phone),
+      password,
       lastName,
       firstName,
       metroLineId,
@@ -123,61 +120,64 @@ export default function RegisterWorker() {
             <View style={styles.stepContent}>
               <Text style={styles.title}>Введи номер телефона</Text>
               <Text style={styles.subtitle}>Работодатель увидит его только после мэтча</Text>
-              <View style={styles.demoBanner}>
-                <Text style={styles.demoBannerText}>⚠️ Демо-режим: SMS и Telegram не подключены. Код подтверждения будет показан на следующем экране.</Text>
-              </View>
               <PhoneInput value={phone} onChange={v => { setPhone(v); setPhoneError(''); }} />
               {phoneError ? <Text style={styles.fieldError}>{phoneError}</Text> : null}
-              <View style={{ marginTop: 28 }}>
+              <View style={{ marginTop: 8 }}>
                 {checking ? (
                   <ActivityIndicator size="small" color={Colors.primary} />
                 ) : (
-                  <PrimaryButton label="Получить код →" onPress={continueFromPhone} disabled={!isPhoneComplete(phone)} />
+                  <PrimaryButton label="Продолжить →" onPress={continueFromPhone} disabled={!isPhoneComplete(phone)} />
                 )}
               </View>
               <TouchableOpacity style={styles.loginHint} onPress={() => router.push('/login')}>
-                <Text style={styles.loginHintTxt}>Уже есть аккаунт? <Text style={{ color: Colors.primary, fontWeight: '700' }}>Войти →</Text></Text>
+                <Text style={styles.loginHintTxt}>
+                  Уже есть аккаунт?{' '}
+                  <Text style={{ color: Colors.primary, fontWeight: '700' }}>Войти →</Text>
+                </Text>
               </TouchableOpacity>
             </View>
           )}
 
-          {/* Step 2: OTP */}
+          {/* Step 2: Password */}
           {step === 2 && (
             <View style={styles.stepContent}>
-              <Text style={styles.title}>Подтверждение</Text>
-              <Text style={styles.subtitle}>Введите код подтверждения</Text>
-
-              {/* Demo OTP display */}
-              <View style={styles.otpDemoBox}>
-                <Text style={styles.otpDemoLabel}>Ваш код (демо):</Text>
-                <Text style={styles.otpDemoCode}>{generatedOTP}</Text>
-                <Text style={styles.otpDemoNote}>В боевой версии код придёт по SMS или в Telegram</Text>
-              </View>
-
-              <View style={styles.otpRow}>
-                {[0, 1, 2, 3].map(i => (
-                  <View key={i} style={[styles.otpBox, otpInput.length > i && styles.otpBoxFilled]}>
-                    <Text style={styles.otpDigit}>{otpInput[i] ?? ''}</Text>
-                  </View>
-                ))}
-              </View>
-
-              <TextInput
-                style={styles.hiddenInput}
-                value={otpInput}
-                onChangeText={v => { setOtpInput(v.replace(/\D/g, '').slice(0, 4)); setOtpError(''); }}
-                keyboardType="number-pad"
-                maxLength={4}
+              <Text style={styles.title}>Создай пароль</Text>
+              <Text style={styles.subtitle}>Минимум 6 символов. Запомни его — восстановления нет.</Text>
+              <AppInput
+                label="Пароль"
+                value={password}
+                onChangeText={v => { setPassword(v); setPassError(''); }}
+                secureTextEntry
+                placeholder="Минимум 6 символов"
                 autoFocus
               />
+              <AppInput
+                label="Повторите пароль"
+                value={passwordConfirm}
+                onChangeText={v => { setPasswordConfirm(v); setPassError(''); }}
+                secureTextEntry
+                placeholder="Повторите пароль"
+              />
+              {passError ? <Text style={styles.fieldError}>{passError}</Text> : null}
 
-              {otpError ? <Text style={styles.fieldError}>{otpError}</Text> : null}
-
-              <PrimaryButton label="Подтвердить →" onPress={confirmOTP} disabled={otpInput.length < 4} />
-
-              <TouchableOpacity style={styles.loginHint} onPress={() => setStep(1)}>
-                <Text style={styles.loginHintTxt}>← Изменить номер</Text>
+              {/* Forgot password hint */}
+              <TouchableOpacity
+                onPress={() => Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=Восстановление пароля JobToo`)}
+                activeOpacity={0.8}
+              >
+                <View style={styles.forgotBanner}>
+                  <Text style={styles.forgotText}>
+                    Забыли пароль? Обращайтесь на{' '}
+                    <Text style={styles.forgotLink}>{SUPPORT_EMAIL}</Text>
+                  </Text>
+                </View>
               </TouchableOpacity>
+
+              <PrimaryButton
+                label="Продолжить →"
+                onPress={continueFromPassword}
+                disabled={!password.trim() || !passwordConfirm.trim()}
+              />
             </View>
           )}
 
@@ -274,6 +274,7 @@ export default function RegisterWorker() {
               </View>
             </View>
           )}
+
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -293,30 +294,14 @@ const styles = StyleSheet.create({
   title: { fontSize: 24, fontWeight: '700', color: Colors.textPrimary },
   subtitle: { fontSize: 14, color: Colors.textMuted, marginTop: -8, lineHeight: 20 },
   fieldError: { fontSize: 13, color: Colors.red, lineHeight: 18 },
-  loginHint: { marginTop: 16, alignItems: 'center' },
+  loginHint: { marginTop: 8, alignItems: 'center' },
   loginHintTxt: { fontSize: 14, color: Colors.textMuted },
-  demoBanner: {
-    backgroundColor: '#FFF3CD', borderRadius: 10, padding: 12,
-    borderWidth: 1, borderColor: '#F59E0B',
+  forgotBanner: {
+    backgroundColor: '#F0F4FF', borderRadius: 10, padding: 12,
+    borderWidth: 1, borderColor: '#BFCBF5',
   },
-  demoBannerText: { fontSize: 12, color: '#92400E', lineHeight: 17 },
-  otpDemoBox: {
-    backgroundColor: Colors.primaryLight, borderRadius: 14, padding: 18,
-    alignItems: 'center', borderWidth: 1.5, borderColor: Colors.primary,
-  },
-  otpDemoLabel: { fontSize: 12, color: Colors.primary, fontWeight: '600', marginBottom: 4 },
-  otpDemoCode: { fontSize: 42, fontWeight: '900', color: Colors.primary, letterSpacing: 10, marginVertical: 4 },
-  otpDemoNote: { fontSize: 11, color: Colors.primary, opacity: 0.7, textAlign: 'center', marginTop: 4 },
-  otpRow: { flexDirection: 'row', gap: 12, justifyContent: 'center', marginTop: 8 },
-  otpBox: {
-    width: 56, height: 64, borderRadius: Radius.md,
-    borderWidth: 2, borderColor: Colors.inputBorder,
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: Colors.surface,
-  },
-  otpBoxFilled: { borderColor: Colors.primary, backgroundColor: Colors.primaryLight },
-  otpDigit: { fontSize: 28, fontWeight: '800', color: Colors.textPrimary },
-  hiddenInput: { position: 'absolute', opacity: 0, width: 1, height: 1 },
+  forgotText: { fontSize: 12, color: Colors.textSecondary, lineHeight: 17 },
+  forgotLink: { color: Colors.primary, fontWeight: '600' },
   checkRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 14, paddingVertical: 8 },
   checkbox: { width: 24, height: 24, borderRadius: 6, borderWidth: 1.5, borderColor: Colors.inputBorder, backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center', marginTop: 2, flexShrink: 0 },
   checkboxActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },

@@ -12,6 +12,7 @@ export interface User {
   workTypes?: WorkType[];
   company?: string;
   createdAt: string;
+  password?: string;
   isBlocked?: boolean;
   avatarUrl?: string;
   avgRating?: number;
