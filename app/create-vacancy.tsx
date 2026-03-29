@@ -45,7 +45,7 @@ const DEFAULT_NORMS: Norms = { sborka: '', razmTovara: '', razmMaketa: '', razmM
 
 function buildNormsText(address: string, norms: Norms): string {
   const lines = NORM_FIELDS.map(f => `— ${f.label}: ${norms[f.key] || '0'} ₽`).join('\n');
-  return `📍 Адрес: ${address}\n💰 Нормативы:\n${lines}`;
+  return `📍 Адрес: ${address}\nНормативы:\n${lines}`;
 }
 
 type PickerMode = 'date' | 'timeStart' | 'timeEnd' | null;

@@ -61,7 +61,7 @@ export default function CandidatesScreen() {
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <Text style={styles.headerTitle} numberOfLines={1}>{vacancy.title}</Text>
-          <Text style={styles.headerSub}>🚇 {vacancy.metroStation} · 💰 {vacancy.salary.toLocaleString('ru')} ₽</Text>
+          <Text style={styles.headerSub}>🚇 {vacancy.metroStation}</Text>
         </View>
       </View>
 

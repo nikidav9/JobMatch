@@ -67,12 +67,6 @@ export function VacancyDetailModal({ vacancy, visible, onClose, actions }: Props
               <Chip label={vacancy.noExperienceNeeded ? '🎓 Не требуется' : '🎓 Желателен'} variant={vacancy.noExperienceNeeded ? 'exp' : 'work'} />
             </View>
 
-            {/* Salary */}
-            <Text style={styles.secLabel}>Оплата за смену</Text>
-            <View style={styles.row}>
-              <Chip label={`💰 ${vacancy.salary.toLocaleString('ru')} ₽`} variant="salary" />
-            </View>
-
             {/* Norms */}
             {vacancy.normsAndPay ? (
               <>

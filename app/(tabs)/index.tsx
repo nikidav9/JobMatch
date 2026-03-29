@@ -308,7 +308,7 @@ function WorkerFeed() {
 
                   {currentCard.normsAndPay ? (
                     <View style={styles.normsBox}>
-                      <Text style={styles.normsTitle}>💰 Нормативы</Text>
+                      <Text style={styles.normsTitle}>Нормативы</Text>
                       <Text style={styles.normsText} numberOfLines={8}>{currentCard.normsAndPay}</Text>
                     </View>
                   ) : null}
