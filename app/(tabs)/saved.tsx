@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, SafeAreaView, FlatList, TouchableOpacity,
+  View, Text, StyleSheet, SafeAreaView, FlatList, TouchableOpacity, RefreshControl,
 } from 'react-native';
 import { Colors, Radius, Shadow } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
@@ -11,7 +11,14 @@ import { VacancyDetailModal } from '@/components/feature/VacancyDetailModal';
 import { Vacancy } from '@/constants/types';
 
 export default function SavedScreen() {
-  const { currentUser, vacancies, savedIds, refreshSaved, showToast } = useApp();
+  const { currentUser, vacancies, savedIds, refreshSaved, refreshVacancies, showToast } = useApp();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([refreshVacancies(), refreshSaved()]);
+    setRefreshing(false);
+  };
   const [detailVacancy, setDetailVacancy] = useState<Vacancy | null>(null);
 
   if (!currentUser) return null;
@@ -53,6 +60,14 @@ export default function SavedScreen() {
         keyExtractor={v => v.id}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={Colors.primary}
+            colors={[Colors.primary]}
+          />
+        }
         renderItem={({ item: v }) => (
           <TouchableOpacity
             style={styles.card}

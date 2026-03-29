@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, FlatList,
-  TouchableOpacity, ActivityIndicator,
+  TouchableOpacity, ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Colors, Radius, Shadow } from '@/constants/theme';
@@ -33,6 +33,13 @@ function WorkerMatches() {
   const { currentUser, likes, vacancies, users, refreshAll, showToast } = useApp();
   const [loading, setLoading] = useState<string | null>(null);
   const [detailVacancy, setDetailVacancy] = useState<Vacancy | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await refreshAll();
+    setRefreshing(false);
+  };
 
   if (!currentUser) return null;
 
@@ -167,7 +174,7 @@ function WorkerMatches() {
         <Text style={styles.title}>Мэтчи</Text>
         {pending.length > 0 ? <View style={styles.badge}><Text style={styles.badgeText}>{pending.length}</Text></View> : null}
       </View>
-      <FlatList data={allItems} keyExtractor={l => l.id} contentContainerStyle={styles.list} showsVerticalScrollIndicator={false} renderItem={renderLike} />
+      <FlatList data={allItems} keyExtractor={l => l.id} contentContainerStyle={styles.list} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} colors={[Colors.primary]} />} renderItem={renderLike} />
       <VacancyDetailModal vacancy={detailVacancy} visible={!!detailVacancy} onClose={() => setDetailVacancy(null)} />
     </SafeAreaView>
   );
@@ -180,6 +187,13 @@ function EmployerMatches() {
   const { currentUser, likes, vacancies, users, refreshAll, showToast } = useApp();
   const [loading, setLoading] = useState<string | null>(null);
   const [tab, setTab] = useState<'pending' | 'matched'>('pending');
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await refreshAll();
+    setRefreshing(false);
+  };
 
   if (!currentUser) return null;
 
@@ -346,7 +360,7 @@ function EmployerMatches() {
           <Text style={styles.emptySub}>{tab === 'pending' ? 'Когда работники откликнутся — они появятся здесь' : 'Мэтчи появятся после взаимного подтверждения'}</Text>
         </View>
       ) : (
-        <FlatList data={shown} keyExtractor={l => l.id} contentContainerStyle={styles.list} showsVerticalScrollIndicator={false} renderItem={renderLike} />
+        <FlatList data={shown} keyExtractor={l => l.id} contentContainerStyle={styles.list} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} colors={[Colors.primary]} />} renderItem={renderLike} />
       )}
     </SafeAreaView>
   );

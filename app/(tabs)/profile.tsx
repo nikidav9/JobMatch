@@ -155,9 +155,10 @@ export default function ProfileScreen() {
 
   const logout = () => {
     setShowConfirmLogout(false);
-    // Navigate immediately, then clear state in background
-    router.replace('/');
+    // Clear state first — AuthGuard will redirect when currentUser becomes null
     setCurrentUser(null);
+    // Also navigate directly after clearing to avoid any timing issues
+    setTimeout(() => router.replace('/'), 50);
   };
 
   return (

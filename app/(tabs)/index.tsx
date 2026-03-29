@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView,
-  Animated, PanResponder, Dimensions,
+  Animated, PanResponder, Dimensions, RefreshControl,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Colors, Radius, Shadow } from '@/constants/theme';
@@ -31,6 +31,14 @@ function WorkerFeed() {
     refreshAll, refreshLikes, refreshSaved,
     showToast,
   } = useApp();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    await refreshAll();
+    setRefreshing(false);
+  };
 
   const [dates] = useState(getTodayDates(7));
   const [selectedDate, setSelectedDate] = useState(getTodayDates(7)[0]);
@@ -235,7 +243,19 @@ function WorkerFeed() {
 
       {/* Date strip */}
       <View style={styles.dateStrip}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.dateRow}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={Colors.primary}
+              colors={[Colors.primary]}
+            />
+          }
+        >
           {dates.map(d => {
             const active = d === selectedDate;
             const cnt = getDateCount(d);
@@ -443,9 +463,17 @@ function WorkerFeed() {
 // ─────────────────────────────────────────────────
 function EmployerHome() {
   const router = useRouter();
-  const { currentUser, vacancies, likes, refreshVacancies, showToast } = useApp();
+  const { currentUser, vacancies, likes, refreshVacancies, refreshAll, showToast } = useApp();
   const [tab, setTab] = useState<'active' | 'closed'>('active');
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    await refreshAll();
+    setRefreshing(false);
+  };
 
   const myVacancies = vacancies.filter(v => v.employerId === currentUser?.id);
   const shown = myVacancies.filter(v => v.status === (tab === 'active' ? 'open' : 'closed'));
@@ -482,7 +510,18 @@ function EmployerHome() {
         ))}
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 100 }}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={Colors.primary}
+            colors={[Colors.primary]}
+          />
+        }
+      >
         {shown.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={{ fontSize: 52 }}>📋</Text>

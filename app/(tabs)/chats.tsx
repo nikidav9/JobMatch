@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, FlatList, TouchableOpacity,
-  TextInput, Animated, PanResponder, Dimensions, Alert,
+  TextInput, Animated, PanResponder, Dimensions, Alert, RefreshControl,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
@@ -131,8 +131,15 @@ function ChatRow({ item, currentUser, users, onPress, onDelete }: {
 
 export default function ChatsScreen() {
   const router = useRouter();
-  const { currentUser, chats, users, refreshChats, showToast } = useApp();
+  const { currentUser, chats, users, refreshChats, refreshAll, showToast } = useApp();
   const [search, setSearch] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await refreshAll();
+    setRefreshing(false);
+  };
 
   if (!currentUser) return null;
 
@@ -178,6 +185,14 @@ export default function ChatsScreen() {
           data={filtered}
           keyExtractor={c => c.id}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={Colors.primary}
+              colors={[Colors.primary]}
+            />
+          }
           renderItem={({ item }) => (
             <ChatRow
               item={item}
