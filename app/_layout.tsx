@@ -24,7 +24,7 @@ function AuthGuard() {
       pathname === '/rate';
 
     if (!ctx.currentUser && isProtected) {
-      requestAnimationFrame(() => router.replace('/'));
+      router.replace('/');
     }
   }, [ctx?.currentUser?.id, ctx?.loading, pathname]);
 

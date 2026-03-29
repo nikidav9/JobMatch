@@ -84,9 +84,7 @@ export default function SavedScreen() {
               {v.isUrgent ? <Chip label="🔥 Срочно" variant="urgent" /> : null}
             </View>
 
-            <View style={[styles.chipsRow, { marginTop: 4 }]}>
-              <Chip label={`💰 ${v.salary.toLocaleString('ru')} ₽`} variant="salary" />
-            </View>
+
 
             <View style={styles.footer}>
               <View style={[styles.statusBadge, { backgroundColor: v.status === 'open' ? Colors.greenLight : Colors.surface }]}>

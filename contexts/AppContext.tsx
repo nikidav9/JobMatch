@@ -20,14 +20,16 @@ interface AppContextType {
   setVacancies: (arr: Vacancy[]) => void;
   refreshVacancies: () => Promise<void>;
   likes: Like[];
+  setLikes: (arr: Like[]) => void;
   refreshLikes: () => Promise<void>;
   chats: Chat[];
-  refreshChats: () => Promise<void>;
+  refreshChats: (user?: User | null) => Promise<void>;
   savedIds: string[];
-  refreshSaved: () => Promise<void>;
+  setSavedIds: (ids: string[]) => void;
+  refreshSaved: (user?: User | null) => Promise<void>;
   toast: ToastData | null;
   showToast: (message: string, type?: 'success' | 'error' | 'match') => void;
-  refreshAll: () => Promise<void>;
+  refreshAll: (user?: User | null) => Promise<void>;
   unreadCount: number;
   loading: boolean;
 }
@@ -134,6 +136,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       refreshVacancies();
       refreshLikes();
       refreshChats(currentUser);
+      refreshSaved(currentUser);
     }, 15_000);
     return () => clearInterval(interval);
   }, [currentUser?.id]);
@@ -172,10 +175,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setVacancies,
         refreshVacancies,
         likes,
+        setLikes,
         refreshLikes,
         chats,
         refreshChats,
         savedIds,
+        setSavedIds,
         refreshSaved,
         toast,
         showToast,

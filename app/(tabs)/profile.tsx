@@ -155,6 +155,8 @@ export default function ProfileScreen() {
 
   const logout = async () => {
     setShowConfirmLogout(false);
+    // Navigate first, then clear — prevents white screen
+    router.replace('/');
     await setCurrentUser(null);
   };
 

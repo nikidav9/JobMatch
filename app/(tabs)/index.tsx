@@ -25,7 +25,7 @@ const VELOCITY_THRESHOLD = 0.3;
 // ─────────────────────────────────────────────────
 function WorkerFeed() {
   const router = useRouter();
-  const { currentUser, users, vacancies, likes, savedIds, refreshAll, refreshLikes, showToast } = useApp();
+  const { currentUser, users, vacancies, likes, savedIds, refreshAll, refreshLikes, refreshSaved, showToast } = useApp();
   const [dates] = useState(getTodayDates(7));
   const [selectedDate, setSelectedDate] = useState(getTodayDates(7)[0]);
   const [cards, setCards] = useState<Vacancy[]>([]);
@@ -146,10 +146,13 @@ function WorkerFeed() {
       showToast('Уже в избранном', 'success');
       return;
     }
-    await dbAddSaved(currentUser.id, currentCard.id);
+    // Optimistic update
     setLocalSaved(prev => [...prev, currentCard.id]);
+    await dbAddSaved(currentUser.id, currentCard.id);
+    // Sync global saved state so Saved tab updates immediately
+    await refreshSaved();
     showToast('Сохранено в избранное ❤️', 'success');
-  }, [currentCard, currentUser, localSaved, showToast]);
+  }, [currentCard, currentUser, localSaved, showToast, refreshSaved]);
 
   const swipeCbRef = useRef<((dir: 'want' | 'skip', vx: number) => void) | null>(null);
   const snapBackRef = useRef<(() => void) | null>(null);
