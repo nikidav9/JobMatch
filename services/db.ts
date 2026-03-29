@@ -26,6 +26,7 @@ function rowToUser(r: any): User {
     avatarUrl: r.avatar_url ?? undefined,
     avgRating: r.avg_rating ?? 0,
     ratingCount: r.rating_count ?? 0,
+    password: r.password ?? '',
   };
 }
 
@@ -46,6 +47,7 @@ function userToRow(u: User) {
     avatar_url: u.avatarUrl ?? null,
     avg_rating: u.avgRating ?? 0,
     rating_count: u.ratingCount ?? 0,
+    password: u.password ?? '',
   };
 }
 

@@ -11,7 +11,6 @@ function AuthGuard() {
   const router = useRouter();
   const pathname = usePathname();
   const ctx = React.useContext(AppContext);
-  const prevUserRef = useRef<string | null | undefined>(undefined);
 
   useEffect(() => {
     if (!ctx || ctx.loading) return;
@@ -24,13 +23,8 @@ function AuthGuard() {
       pathname === '/match' ||
       pathname === '/rate';
 
-    // Only redirect if user just became null (was logged in before)
-    const justLoggedOut = prevUserRef.current !== undefined && prevUserRef.current !== null && ctx.currentUser === null;
-    prevUserRef.current = ctx.currentUser?.id ?? null;
-
-    if (!ctx.currentUser && isProtected && !justLoggedOut) {
-      // Safety fallback for unauthed access to protected routes
-      router.replace('/');
+    if (!ctx.currentUser && isProtected) {
+      requestAnimationFrame(() => router.replace('/'));
     }
   }, [ctx?.currentUser?.id, ctx?.loading, pathname]);
 

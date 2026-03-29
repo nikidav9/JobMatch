@@ -81,14 +81,6 @@ export function VacancyDetailModal({ vacancy, visible, onClose, actions }: Props
               </>
             ) : null}
 
-            {/* Conditions */}
-            {vacancy.conditions ? (
-              <>
-                <Text style={styles.secLabel}>Условия работы</Text>
-                <Text style={styles.condText}>{vacancy.conditions}</Text>
-              </>
-            ) : null}
-
             {/* Workers */}
             <View style={styles.progressWrap}>
               <View style={styles.progressTrack}>

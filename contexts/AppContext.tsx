@@ -51,8 +51,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     _setCurrentUser(u);
     if (u) {
       await saveSessionUser(u);
+      // Immediately load fresh data for this user
+      await Promise.all([
+        refreshUsers(),
+        refreshVacancies(),
+        refreshLikes(),
+        refreshChats(u),
+        refreshSaved(u),
+      ]);
     } else {
       await clearSessionUser();
+      // Clear user-specific state immediately
+      setChats([]);
+      setSavedIds([]);
+      setLikes([]);
     }
   };
 

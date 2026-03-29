@@ -155,10 +155,7 @@ export default function ProfileScreen() {
 
   const logout = async () => {
     setShowConfirmLogout(false);
-    router.replace('/');
-    setTimeout(async () => {
-      await setCurrentUser(null);
-    }, 100);
+    await setCurrentUser(null);
   };
 
   return (
