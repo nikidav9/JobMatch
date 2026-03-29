@@ -155,8 +155,7 @@ export default function ProfileScreen() {
 
   const logout = async () => {
     setShowConfirmLogout(false);
-    // Navigate first, then clear — prevents white screen
-    router.replace('/');
+    // Clear state first — AuthGuard in _layout.tsx will detect null user and redirect to '/'
     await setCurrentUser(null);
   };
 

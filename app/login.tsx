@@ -18,7 +18,7 @@ const SUPPORT_EMAIL = 'zpouches@yandex.ru';
 
 export default function Login() {
   const router = useRouter();
-  const { users, setCurrentUser, refreshChats, refreshSaved, showToast } = useApp();
+  const { users, setCurrentUser, showToast } = useApp();
 
   const [phone, setPhone] = useState('+7 ');
   const [password, setPassword] = useState('');
@@ -70,7 +70,6 @@ export default function Login() {
     }
 
     await setCurrentUser(user);
-    await Promise.all([refreshChats(user), refreshSaved(user)]);
     showToast('Добро пожаловать! 👋', 'success');
     router.replace('/(tabs)');
     setLoading(false);

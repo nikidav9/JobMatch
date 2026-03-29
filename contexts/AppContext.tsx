@@ -27,6 +27,8 @@ interface AppContextType {
   savedIds: string[];
   setSavedIds: (ids: string[]) => void;
   refreshSaved: (user?: User | null) => Promise<void>;
+  optimisticAddSaved: (vacancyId: string) => void;
+  optimisticRemoveSaved: (vacancyId: string) => void;
   toast: ToastData | null;
   showToast: (message: string, type?: 'success' | 'error' | 'match') => void;
   refreshAll: (user?: User | null) => Promise<void>;
@@ -50,10 +52,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // ── Session ──────────────────────────────────────────────────────────────
 
   const setCurrentUser = async (u: User | null) => {
-    _setCurrentUser(u);
     if (u) {
+      _setCurrentUser(u);
       await saveSessionUser(u);
-      // Immediately load fresh data for this user
+      // Refresh all data for the newly logged-in user
       await Promise.all([
         refreshUsers(),
         refreshVacancies(),
@@ -62,11 +64,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         refreshSaved(u),
       ]);
     } else {
-      await clearSessionUser();
-      // Clear user-specific state immediately
+      // Clear state first so AuthGuard sees null and redirects
+      _setCurrentUser(null);
       setChats([]);
       setSavedIds([]);
       setLikes([]);
+      await clearSessionUser();
     }
   };
 
@@ -109,6 +112,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       refreshLikes(),
       ...(u ? [refreshChats(u), refreshSaved(u)] : []),
     ]);
+  };
+
+  // Optimistic helpers — update local state immediately without server round-trip
+  const optimisticAddSaved = (vacancyId: string) => {
+    setSavedIds(prev => prev.includes(vacancyId) ? prev : [...prev, vacancyId]);
+  };
+  const optimisticRemoveSaved = (vacancyId: string) => {
+    setSavedIds(prev => prev.filter(id => id !== vacancyId));
   };
 
   // ── Boot ──────────────────────────────────────────────────────────────────
@@ -182,6 +193,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         savedIds,
         setSavedIds,
         refreshSaved,
+        optimisticAddSaved,
+        optimisticRemoveSaved,
         toast,
         showToast,
         refreshAll,

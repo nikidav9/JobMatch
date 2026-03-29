@@ -16,7 +16,7 @@ import { notifyMatch, notifyNewApplicant } from '@/services/notifications';
 import { Chip } from '@/components/ui/Chip';
 import { VacancyDetailModal } from '@/components/feature/VacancyDetailModal';
 
-const { width: SW, height: SH } = Dimensions.get('window');
+const { width: SW } = Dimensions.get('window');
 const SWIPE_THRESHOLD = 80;
 const VELOCITY_THRESHOLD = 0.3;
 
@@ -25,20 +25,23 @@ const VELOCITY_THRESHOLD = 0.3;
 // ─────────────────────────────────────────────────
 function WorkerFeed() {
   const router = useRouter();
-  const { currentUser, users, vacancies, likes, savedIds, refreshAll, refreshLikes, refreshSaved, showToast } = useApp();
+  const {
+    currentUser, users, vacancies, likes,
+    savedIds, optimisticAddSaved,
+    refreshAll, refreshLikes, refreshSaved,
+    showToast,
+  } = useApp();
+
   const [dates] = useState(getTodayDates(7));
   const [selectedDate, setSelectedDate] = useState(getTodayDates(7)[0]);
   const [cards, setCards] = useState<Vacancy[]>([]);
   const [history, setHistory] = useState<Vacancy[]>([]);
   const [swiping, setSwiping] = useState(false);
-  const [localSaved, setLocalSaved] = useState<string[]>(savedIds);
   const [detailVacancy, setDetailVacancy] = useState<Vacancy | null>(null);
   const [filterLineId, setFilterLineId] = useState<string | null>(null);
   const [filterPicker, setFilterPicker] = useState(false);
 
   const pan = useRef(new Animated.ValueXY()).current;
-
-  useEffect(() => { setLocalSaved(savedIds); }, [savedIds]);
 
   const wantOpacity = pan.x.interpolate({ inputRange: [0, SWIPE_THRESHOLD], outputRange: [0, 1], extrapolate: 'clamp' });
   const skipOpacity = pan.x.interpolate({ inputRange: [-SWIPE_THRESHOLD, 0], outputRange: [1, 0], extrapolate: 'clamp' });
@@ -142,17 +145,18 @@ function WorkerFeed() {
 
   const doSave = useCallback(async () => {
     if (!currentCard || !currentUser) return;
-    if (localSaved.includes(currentCard.id)) {
+    if (savedIds.includes(currentCard.id)) {
       showToast('Уже в избранном', 'success');
       return;
     }
-    // Optimistic update
-    setLocalSaved(prev => [...prev, currentCard.id]);
-    await dbAddSaved(currentUser.id, currentCard.id);
-    // Sync global saved state so Saved tab updates immediately
-    await refreshSaved();
+    // Optimistic update — instantly updates context.savedIds → all screens re-render
+    optimisticAddSaved(currentCard.id);
+    // Persist to DB in background (don't await, don't block UI)
+    dbAddSaved(currentUser.id, currentCard.id).then(() => {
+      refreshSaved().catch(() => {});
+    });
     showToast('Сохранено в избранное ❤️', 'success');
-  }, [currentCard, currentUser, localSaved, showToast, refreshSaved]);
+  }, [currentCard, currentUser, savedIds, showToast, optimisticAddSaved, refreshSaved]);
 
   const swipeCbRef = useRef<((dir: 'want' | 'skip', vx: number) => void) | null>(null);
   const snapBackRef = useRef<(() => void) | null>(null);
@@ -327,7 +331,7 @@ function WorkerFeed() {
                 </ScrollView>
               </TouchableOpacity>
 
-              {/* Action buttons — larger */}
+              {/* Action buttons */}
               <View style={styles.actions}>
                 <TouchableOpacity
                   style={[styles.actionBtn, styles.actionUndo, !history.length && { opacity: 0.3 }]}
@@ -353,8 +357,9 @@ function WorkerFeed() {
                   onPress={doSave}
                   activeOpacity={0.7}
                 >
+                  {/* savedIds comes directly from context — no local state duplication */}
                   <Text style={styles.actionSaveIcon}>
-                    {localSaved.includes(currentCard.id) ? '❤️' : '🤍'}
+                    {savedIds.includes(currentCard.id) ? '❤️' : '🤍'}
                   </Text>
                 </TouchableOpacity>
 
@@ -578,7 +583,6 @@ const styles = StyleSheet.create({
   dcCnt: { fontSize: 10, fontWeight: '700', color: Colors.primary },
   dcCntActive: { color: 'rgba(255,255,255,0.8)' },
 
-  // Card area — fills remaining space
   cardArea: { flex: 1, position: 'relative', paddingHorizontal: 10, paddingTop: 10, paddingBottom: 0 },
   ghost1: { position: 'absolute', left: 10, right: 10, top: 10, bottom: 0, backgroundColor: Colors.bg, borderRadius: Radius.xl, transform: [{ scale: 0.97 }, { translateY: 6 }], opacity: 0.5, ...Shadow.card },
   ghost2: { position: 'absolute', left: 10, right: 10, top: 10, bottom: 0, backgroundColor: Colors.bg, borderRadius: Radius.xl, transform: [{ scale: 0.94 }, { translateY: 12 }], opacity: 0.3, ...Shadow.card },
@@ -616,7 +620,6 @@ const styles = StyleSheet.create({
   progressFill: { height: '100%', backgroundColor: Colors.primary, borderRadius: 2 },
   progressLabel: { fontSize: 12, color: Colors.textMuted, marginTop: 6 },
 
-  // Action buttons — larger, clearer
   actions: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around',
     paddingHorizontal: 20, paddingVertical: 16,
