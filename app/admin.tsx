@@ -137,6 +137,13 @@ export default function AdminScreen() {
     </View>
   );
 
+  const formatDateTime = (iso: string) => {
+    const d = new Date(iso);
+    const date = d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    return `${date} в ${time}`;
+  };
+
   const renderVacancy = ({ item }: { item: AdminVacancy }) => (
     <View style={styles.card}>
       <View style={styles.cardRow}>
@@ -152,6 +159,10 @@ export default function AdminScreen() {
         <Text style={[styles.cardVal, { color: item.status === 'open' ? Colors.green : Colors.textMuted }]}>
           {item.status === 'open' ? '● Открыта' : '○ Закрыта'}
         </Text>
+      </View>
+      <View style={styles.cardRow}>
+        <Text style={styles.cardLabel}>Опубл.:</Text>
+        <Text style={[styles.cardVal, { color: Colors.textMuted, fontSize: 12 }]}>{formatDateTime(item.created_at)}</Text>
       </View>
       {item.status === 'open' ? (
         <TouchableOpacity style={[styles.actionBtn, styles.blockBtn]} onPress={() => deleteVacancy(item.id)}>
