@@ -16,7 +16,7 @@ import { dbUpsertUser, dbGetUsers } from '@/services/db';
 import { WorkType } from '@/constants/types';
 import { METRO_LINES } from '@/constants/metro';
 
-const TOTAL = 6;
+const TOTAL = 5;
 
 export default function RegisterWorker() {
   const router = useRouter();
@@ -26,9 +26,6 @@ export default function RegisterWorker() {
   const [phone, setPhone] = useState('+7 ');
   const [lastName, setLastName] = useState('');
   const [firstName, setFirstName] = useState('');
-  const [age, setAge] = useState('');
-  const [age16, setAge16] = useState(false);
-  const [agreed, setAgreed] = useState(false);
   const [metroLineId, setMetroLineId] = useState('');
   const [metroLineName, setMetroLineName] = useState('');
   const [metroStation, setMetroStation] = useState('');
@@ -36,9 +33,7 @@ export default function RegisterWorker() {
   const [metroPicker, setMetroPicker] = useState(false);
   const [checking, setChecking] = useState(false);
   const [phoneError, setPhoneError] = useState('');
-
-  const ageNum = parseInt(age, 10);
-  const ageValid = !isNaN(ageNum) && ageNum >= 16 && ageNum <= 65;
+  const [agreed, setAgreed] = useState(false);
 
   const toggleWork = (t: WorkType) => {
     setWorkTypes(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
@@ -46,7 +41,6 @@ export default function RegisterWorker() {
 
   const back = () => { if (step === 1) router.back(); else setStep(s => s - 1); };
 
-  /** Step 1 → check phone uniqueness before advancing */
   const continueFromPhone = async () => {
     setPhoneError('');
     setChecking(true);
@@ -70,7 +64,6 @@ export default function RegisterWorker() {
       phone: extractPhoneDigits(phone),
       lastName,
       firstName,
-      age: ageNum,
       metroLineId,
       metroStation,
       workTypes,
@@ -123,62 +116,50 @@ export default function RegisterWorker() {
 
           {step === 2 && (
             <View style={styles.stepContent}>
-              <Text style={styles.title}>Как твоя фамилия?</Text>
-              <AppInput value={lastName} onChangeText={setLastName} placeholder="Романов" autoFocus />
-              <View style={{ marginTop: 28 }}>
-                <PrimaryButton label="Продолжить →" onPress={next} disabled={!lastName.trim()} />
+              <Text style={styles.title}>Как тебя зовут?</Text>
+              <AppInput value={lastName} onChangeText={setLastName} placeholder="Романов" label="Фамилия" autoFocus />
+              <AppInput value={firstName} onChangeText={setFirstName} placeholder="Алексей" label="Имя" />
+              <View style={{ marginTop: 12 }}>
+                <PrimaryButton label="Продолжить →" onPress={next} disabled={!lastName.trim() || !firstName.trim()} />
               </View>
             </View>
           )}
 
           {step === 3 && (
             <View style={styles.stepContent}>
-              <Text style={styles.title}>Как тебя зовут?</Text>
-              <AppInput value={firstName} onChangeText={setFirstName} placeholder="Алексей" autoFocus />
-              <View style={{ marginTop: 28 }}>
-                <PrimaryButton label="Продолжить →" onPress={next} disabled={!firstName.trim()} />
+              <Text style={styles.title}>Согласие</Text>
+              <Text style={styles.subtitle}>Для использования сервиса</Text>
+
+              <TouchableOpacity style={styles.checkRow} onPress={() => setAgreed(v => !v)} activeOpacity={0.8}>
+                <View style={[styles.checkbox, agreed && styles.checkboxActive]}>
+                  {agreed ? <Text style={styles.checkmark}>✓</Text> : null}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.checkLabel}>
+                    Ставя галочку, я подтверждаю, что ознакомлен(а) и согласен(на) с{' '}
+                    <Text style={styles.link} onPress={() => router.push({ pathname: '/legal', params: { doc: 'terms' } })}>
+                      Пользовательским соглашением
+                    </Text>
+                    {', '}
+                    <Text style={styles.link} onPress={() => router.push({ pathname: '/legal', params: { doc: 'privacy' } })}>
+                      Политикой конфиденциальности
+                    </Text>
+                    {' и '}
+                    <Text style={styles.link} onPress={() => router.push({ pathname: '/legal', params: { doc: 'consent' } })}>
+                      Согласием на обработку персональных данных
+                    </Text>
+                    .
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              <View style={{ marginTop: 16 }}>
+                <PrimaryButton label="Продолжить →" onPress={next} disabled={!agreed} />
               </View>
             </View>
           )}
 
           {step === 4 && (
-            <View style={styles.stepContent}>
-              <Text style={styles.title}>Подтверждение</Text>
-              <Text style={styles.subtitle}>Для использования сервиса</Text>
-
-              <View style={styles.ageSection}>
-                <Text style={styles.ageLabel}>Возраст</Text>
-                <AppInput
-                  value={age}
-                  onChangeText={v => setAge(v.replace(/\D/g, '').slice(0, 2))}
-                  placeholder="25"
-                  keyboardType="numeric"
-                  autoFocus
-                />
-                {age.length > 0 && !ageValid ? (
-                  <Text style={styles.ageError}>Возраст должен быть от 16 до 65 лет</Text>
-                ) : null}
-              </View>
-
-              <TouchableOpacity style={styles.checkRow} onPress={() => setAge16(v => !v)} activeOpacity={0.8}>
-                <View style={[styles.checkbox, age16 && styles.checkboxActive]}>
-                  {age16 ? <Text style={styles.checkmark}>✓</Text> : null}
-                </View>
-                <Text style={styles.checkLabel}>Мне исполнилось 16 лет</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.checkRow} onPress={() => setAgreed(v => !v)} activeOpacity={0.8}>
-                <View style={[styles.checkbox, agreed && styles.checkboxActive]}>
-                  {agreed ? <Text style={styles.checkmark}>✓</Text> : null}
-                </View>
-                <Text style={styles.checkLabel}>Согласен с условиями использования</Text>
-              </TouchableOpacity>
-              <View style={{ marginTop: 28 }}>
-                <PrimaryButton label="Продолжить →" onPress={next} disabled={!age16 || !agreed || !ageValid} />
-              </View>
-            </View>
-          )}
-
-          {step === 5 && (
             <View style={styles.stepContent}>
               <Text style={styles.title}>📍 Ближайшее метро</Text>
               <Text style={styles.subtitle}>Покажем смены рядом с тобой</Text>
@@ -212,7 +193,7 @@ export default function RegisterWorker() {
             </View>
           )}
 
-          {step === 6 && (
+          {step === 5 && (
             <View style={styles.stepContent}>
               <Text style={styles.title}>Какую работу рассматриваешь?</Text>
               <Text style={styles.subtitle}>Выбери специализацию</Text>
@@ -243,14 +224,12 @@ const styles = StyleSheet.create({
   fieldError: { fontSize: 13, color: Colors.red, lineHeight: 18 },
   loginHint: { marginTop: 16, alignItems: 'center' },
   loginHintTxt: { fontSize: 14, color: Colors.textMuted },
-  ageSection: { gap: 6 },
-  ageLabel: { fontSize: 13, color: Colors.textMuted, fontWeight: '500' },
-  ageError: { fontSize: 12, color: Colors.red, marginTop: 2 },
-  checkRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 8 },
-  checkbox: { width: 24, height: 24, borderRadius: 6, borderWidth: 1.5, borderColor: Colors.inputBorder, backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center' },
+  checkRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 14, paddingVertical: 8 },
+  checkbox: { width: 24, height: 24, borderRadius: 6, borderWidth: 1.5, borderColor: Colors.inputBorder, backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center', marginTop: 2, flexShrink: 0 },
   checkboxActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
   checkmark: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  checkLabel: { fontSize: 15, color: Colors.textPrimary, flex: 1 },
+  checkLabel: { fontSize: 14, color: Colors.textPrimary, lineHeight: 22, flex: 1 },
+  link: { color: Colors.primary, fontWeight: '600', textDecorationLine: 'underline' },
   metroField: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1.5, borderColor: Colors.inputBorder, borderRadius: Radius.md, padding: 16 },
   metroFieldText: { fontSize: 15, color: Colors.textPrimary },
   arrow: { fontSize: 20, color: Colors.textMuted },

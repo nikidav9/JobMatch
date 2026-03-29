@@ -8,10 +8,23 @@ import { Colors, Radius, Shadow } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
 import { Like, Vacancy } from '@/constants/types';
 import { formatDate, getInitials, nameColorFromString } from '@/services/storage';
-import { dbUpsertLike, dbCheckAndCreateMatch } from '@/services/db';
+import { dbUpsertLike, dbCheckAndCreateMatch, dbConfirmShift } from '@/services/db';
 import { notifyMatch } from '@/services/notifications';
 import { Chip } from '@/components/ui/Chip';
 import { VacancyDetailModal } from '@/components/feature/VacancyDetailModal';
+
+function MatchStatus({ like }: { like: Like }) {
+  if (like.shiftCompleted) {
+    return <View style={[styles.statusBadge, { backgroundColor: '#D1FAE5' }]}><Text style={[styles.statusTxt, { color: Colors.green }]}>✅ Смена подтверждена</Text></View>;
+  }
+  if (like.isMatch) {
+    if (like.workerConfirmed && !like.employerConfirmed) return <View style={[styles.statusBadge, { backgroundColor: '#FFF7ED' }]}><Text style={[styles.statusTxt, { color: '#92400E' }]}>⏳ Ожидает работодателя</Text></View>;
+    if (like.employerConfirmed && !like.workerConfirmed) return <View style={[styles.statusBadge, { backgroundColor: '#FFF7ED' }]}><Text style={[styles.statusTxt, { color: '#92400E' }]}>⏳ Ожидает подтверждения</Text></View>;
+    return <View style={[styles.statusBadge, { backgroundColor: Colors.primaryLight }]}><Text style={[styles.statusTxt, { color: Colors.primary }]}>🎉 Мэтч!</Text></View>;
+  }
+  if (like.employerLiked && !like.isMatch) return <View style={[styles.statusBadge, { backgroundColor: '#D1FAE5' }]}><Text style={[styles.statusTxt, { color: Colors.green }]}>✅ Работодатель хочет взять вас!</Text></View>;
+  return <View style={[styles.statusBadge, { backgroundColor: Colors.surface }]}><Text style={[styles.statusTxt, { color: Colors.textMuted }]}>⏳ Ожидает ответа</Text></View>;
+}
 
 // ─── Worker view ─────────────────────────────────────────────────────────────
 
@@ -29,7 +42,8 @@ function WorkerMatches() {
 
   const getVacancy = (id: string) => vacancies.find(v => v.id === id);
 
-  const confirmed = relevant.filter(l => l.isMatch);
+  const confirmed = relevant.filter(l => l.shiftCompleted);
+  const matched = relevant.filter(l => l.isMatch && !l.shiftCompleted);
   const pending = relevant.filter(l => !l.isMatch);
 
   const confirmMatch = async (like: Like) => {
@@ -37,17 +51,34 @@ function WorkerMatches() {
     const result = await dbCheckAndCreateMatch(like.vacancyId, currentUser.id);
     if (result.matched) {
       const vac = getVacancy(like.vacancyId);
-      await notifyMatch({
-        companyName: vac?.company ?? '',
-        vacancyTitle: vac?.title ?? '',
-        otherName: vac?.company ?? '',
-        role: 'worker',
-      });
+      await notifyMatch({ companyName: vac?.company ?? '', vacancyTitle: vac?.title ?? '', otherName: vac?.company ?? '', role: 'worker' });
       await refreshAll();
       showToast('🎉 Мэтч! Чат открыт', 'match');
-      if (result.chatId) {
-        router.push({ pathname: '/chat-room', params: { chatId: result.chatId } });
+      if (result.chatId) router.push({ pathname: '/chat-room', params: { chatId: result.chatId } });
+    }
+    setLoading(null);
+  };
+
+  const confirmShift = async (like: Like) => {
+    setLoading(like.id + '_shift');
+    const { bothConfirmed } = await dbConfirmShift(like.id, 'worker');
+    await refreshAll();
+    if (bothConfirmed) {
+      showToast('Смена подтверждена! Оцените работодателя 🌟', 'success');
+      const vac = getVacancy(like.vacancyId);
+      const employer = users.find(u => u.id === like.employerId);
+      if (employer && vac) {
+        router.push({
+          pathname: '/rate',
+          params: {
+            likeId: like.id, toUserId: employer.id,
+            toName: employer.company ?? `${employer.firstName} ${employer.lastName}`,
+            vacancyId: vac.id, role: 'worker',
+          },
+        });
       }
+    } else {
+      showToast('Выход подтверждён! Ждём работодателя', 'success');
     }
     setLoading(null);
   };
@@ -60,18 +91,16 @@ function WorkerMatches() {
     showToast('Отклонено', 'success');
   };
 
-  if (relevant.length === 0) {
+  const allItems = [...pending, ...matched, ...confirmed];
+
+  if (allItems.length === 0) {
     return (
       <SafeAreaView style={styles.safe}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Мэтчи</Text>
-        </View>
+        <View style={styles.header}><Text style={styles.title}>Мэтчи</Text></View>
         <View style={styles.empty}>
           <Text style={{ fontSize: 48 }}>🤝</Text>
           <Text style={styles.emptyTitle}>Пока нет предложений</Text>
-          <Text style={styles.emptySub}>
-            Когда работодатель захочет взять вас на смену — предложение появится здесь
-          </Text>
+          <Text style={styles.emptySub}>Когда работодатель захочет взять вас на смену — появится здесь</Text>
         </View>
       </SafeAreaView>
     );
@@ -82,64 +111,61 @@ function WorkerMatches() {
     if (!vac) return null;
     const isLoadingConfirm = loading === like.vacancyId;
     const isLoadingDecline = loading === like.vacancyId + '_d';
-
-    if (like.isMatch) {
-      return (
-        <View style={[styles.card, styles.matchedCard]}>
-          <View style={styles.matchBadge}><Text style={styles.matchBadgeText}>🎉 Мэтч!</Text></View>
-          <TouchableOpacity activeOpacity={0.8} onPress={() => setDetailVacancy(vac)}>
-            <Text style={styles.jobTitle}>{vac.title}</Text>
-            <Text style={styles.companyName}>{vac.company}</Text>
-          </TouchableOpacity>
-          <View style={styles.chipsRow}>
-            <Chip label={`📅 ${formatDate(vac.date)}`} variant="date" />
-            <Chip label={`⏰ ${vac.timeStart}–${vac.timeEnd}`} variant="time" />
-            <Chip label={`💰 ${vac.salary.toLocaleString('ru')} ₽`} variant="salary" />
-          </View>
-          <TouchableOpacity
-            style={styles.chatBtn}
-            onPress={() => router.push({ pathname: '/(tabs)/chats' })}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.chatBtnText}>💬 Открыть чат</Text>
-          </TouchableOpacity>
-        </View>
-      );
-    }
+    const isLoadingShift = loading === like.id + '_shift';
+    const isMatched = like.isMatch;
+    const isCompleted = like.shiftCompleted;
+    const workerAlreadyConfirmed = like.workerConfirmed;
 
     return (
-      <View style={styles.card}>
-        <View style={styles.offerBadge}><Text style={styles.offerBadgeText}>✅ Работодатель хочет взять вас!</Text></View>
+      <View style={[styles.card, isMatched && !isCompleted && styles.matchedCard, isCompleted && styles.completedCard]}>
+        <MatchStatus like={like} />
+
         <TouchableOpacity activeOpacity={0.8} onPress={() => setDetailVacancy(vac)}>
           <Text style={styles.jobTitle}>{vac.title}</Text>
           <Text style={styles.companyName}>{vac.company} · 🚇 {vac.metroStation}</Text>
         </TouchableOpacity>
+
         <View style={styles.chipsRow}>
           <Chip label={`📅 ${formatDate(vac.date)}`} variant="date" />
           <Chip label={`⏰ ${vac.timeStart}–${vac.timeEnd}`} variant="time" />
           <Chip label={`💰 ${vac.salary.toLocaleString('ru')} ₽`} variant="salary" />
         </View>
-        <TouchableOpacity style={styles.detailLink} onPress={() => setDetailVacancy(vac)}>
-          <Text style={styles.detailLinkTxt}>Подробнее о вакансии →</Text>
-        </TouchableOpacity>
-        <View style={styles.actionRow}>
-          <TouchableOpacity
-            style={[styles.declineBtn, isLoadingDecline && { opacity: 0.5 }]}
-            onPress={() => decline(like)}
-            disabled={!!loading}
-            activeOpacity={0.8}
-          >
-            {isLoadingDecline ? <ActivityIndicator size="small" color={Colors.red} /> : <Text style={styles.declineBtnText}>✕ Не подходит</Text>}
+
+        {/* Pending offer — not yet a match */}
+        {!isMatched ? (
+          <>
+            <TouchableOpacity style={styles.detailLink} onPress={() => setDetailVacancy(vac)}>
+              <Text style={styles.detailLinkTxt}>Подробнее о вакансии →</Text>
+            </TouchableOpacity>
+            <View style={styles.actionRow}>
+              <TouchableOpacity style={[styles.declineBtn, isLoadingDecline && { opacity: 0.5 }]} onPress={() => decline(like)} disabled={!!loading} activeOpacity={0.8}>
+                {isLoadingDecline ? <ActivityIndicator size="small" color={Colors.red} /> : <Text style={styles.declineBtnText}>✕ Не подходит</Text>}
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.acceptBtn, isLoadingConfirm && { opacity: 0.5 }]} onPress={() => confirmMatch(like)} disabled={!!loading} activeOpacity={0.8}>
+                {isLoadingConfirm ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.acceptBtnText}>✅ Всё подходит!</Text>}
+              </TouchableOpacity>
+            </View>
+          </>
+        ) : !isCompleted ? (
+          /* Matched — confirm shift */
+          <View style={styles.actionRow}>
+            <TouchableOpacity style={styles.chatBtn} onPress={() => router.push({ pathname: '/(tabs)/chats' })} activeOpacity={0.8}>
+              <Text style={styles.chatBtnText}>💬 Чат</Text>
+            </TouchableOpacity>
+            {!workerAlreadyConfirmed ? (
+              <TouchableOpacity style={[styles.confirmShiftBtn, isLoadingShift && { opacity: 0.5 }]} onPress={() => confirmShift(like)} disabled={!!loading} activeOpacity={0.8}>
+                {isLoadingShift ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.confirmShiftBtnTxt}>✔ Подтверждаю выход</Text>}
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.waitingShiftBtn}><Text style={styles.waitingShiftTxt}>⏳ Ждём работодателя</Text></View>
+            )}
+          </View>
+        ) : (
+          /* Completed */
+          <TouchableOpacity style={styles.chatBtn} onPress={() => router.push({ pathname: '/(tabs)/chats' })} activeOpacity={0.8}>
+            <Text style={styles.chatBtnText}>💬 Открыть чат</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.acceptBtn, isLoadingConfirm && { opacity: 0.5 }]}
-            onPress={() => confirmMatch(like)}
-            disabled={!!loading}
-            activeOpacity={0.8}
-          >
-            {isLoadingConfirm ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.acceptBtnText}>✅ Всё подходит!</Text>}
-          </TouchableOpacity>
-        </View>
+        )}
       </View>
     );
   };
@@ -148,22 +174,10 @@ function WorkerMatches() {
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
         <Text style={styles.title}>Мэтчи</Text>
-        {pending.length > 0 ? (
-          <View style={styles.badge}><Text style={styles.badgeText}>{pending.length}</Text></View>
-        ) : null}
+        {pending.length > 0 ? <View style={styles.badge}><Text style={styles.badgeText}>{pending.length}</Text></View> : null}
       </View>
-      <FlatList
-        data={[...pending, ...confirmed]}
-        keyExtractor={l => l.id}
-        contentContainerStyle={styles.list}
-        showsVerticalScrollIndicator={false}
-        renderItem={renderLike}
-      />
-      <VacancyDetailModal
-        vacancy={detailVacancy}
-        visible={!!detailVacancy}
-        onClose={() => setDetailVacancy(null)}
-      />
+      <FlatList data={allItems} keyExtractor={l => l.id} contentContainerStyle={styles.list} showsVerticalScrollIndicator={false} renderItem={renderLike} />
+      <VacancyDetailModal vacancy={detailVacancy} visible={!!detailVacancy} onClose={() => setDetailVacancy(null)} />
     </SafeAreaView>
   );
 }
@@ -197,16 +211,9 @@ function EmployerMatches() {
       const vac = getVacancy(like.vacancyId);
       const worker = getWorker(like.workerId);
       const workerName = worker ? `${worker.firstName} ${worker.lastName}` : 'Работник';
-      await notifyMatch({
-        companyName: vac?.company ?? '',
-        vacancyTitle: vac?.title ?? '',
-        otherName: workerName,
-        role: 'employer',
-      });
+      await notifyMatch({ companyName: vac?.company ?? '', vacancyTitle: vac?.title ?? '', otherName: workerName, role: 'employer' });
       showToast(`🎉 Мэтч с ${workerName}! Чат открыт`, 'match');
-      if (result.chatId) {
-        router.push({ pathname: '/chat-room', params: { chatId: result.chatId } });
-      }
+      if (result.chatId) router.push({ pathname: '/chat-room', params: { chatId: result.chatId } });
     } else {
       showToast('Предложение отправлено работнику', 'success');
     }
@@ -221,6 +228,30 @@ function EmployerMatches() {
     showToast('Отклонено', 'success');
   };
 
+  const confirmShift = async (like: Like) => {
+    setLoading(like.id + '_shift');
+    const { bothConfirmed } = await dbConfirmShift(like.id, 'employer');
+    await refreshAll();
+    if (bothConfirmed) {
+      showToast('Смена подтверждена! Оцените работника 🌟', 'success');
+      const worker = getWorker(like.workerId);
+      const vac = getVacancy(like.vacancyId);
+      if (worker && vac) {
+        router.push({
+          pathname: '/rate',
+          params: {
+            likeId: like.id, toUserId: worker.id,
+            toName: `${worker.firstName} ${worker.lastName}`,
+            vacancyId: vac.id, role: 'employer',
+          },
+        });
+      }
+    } else {
+      showToast('Подтверждено! Ждём работника', 'success');
+    }
+    setLoading(null);
+  };
+
   const pendingAll = [...pending, ...approved];
   const shown = tab === 'pending' ? pendingAll : matched;
 
@@ -233,40 +264,47 @@ function EmployerMatches() {
     const isApproved = like.employerLiked;
     const isLoading = loading === like.id;
     const isDLoading = loading === like.id + '_d';
+    const isShiftLoading = loading === like.id + '_shift';
+    const employerAlreadyConfirmed = like.employerConfirmed;
 
     if (like.isMatch) {
       return (
-        <View style={[styles.card, styles.matchedCard]}>
-          <View style={styles.matchBadge}><Text style={styles.matchBadgeText}>🎉 Мэтч!</Text></View>
+        <View style={[styles.card, like.shiftCompleted ? styles.completedCard : styles.matchedCard]}>
+          <MatchStatus like={like} />
           <View style={styles.workerRow}>
             <View style={[styles.avatar, { backgroundColor: workerColor }]}>
               <Text style={styles.avatarText}>{getInitials(workerName)}</Text>
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.workerName}>{workerName}</Text>
+              {worker.age ? <Text style={styles.metroHint}>{worker.age} лет</Text> : null}
               {worker.metroStation ? <Text style={styles.metroHint}>🚇 {worker.metroStation}</Text> : null}
+              {(worker.avgRating ?? 0) > 0 ? <Text style={styles.metroHint}>⭐ {(worker.avgRating ?? 0).toFixed(1)} ({worker.ratingCount} отз.)</Text> : null}
             </View>
             <View style={styles.phoneReveal}>
               <Text style={styles.phoneRevealText}>{worker.phone}</Text>
             </View>
           </View>
           <Text style={styles.vacLabel}>{vac.title} · {formatDate(vac.date)}</Text>
-          <TouchableOpacity
-            style={styles.chatBtn}
-            onPress={() => router.push({ pathname: '/(tabs)/chats' })}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.chatBtnText}>💬 Открыть чат</Text>
-          </TouchableOpacity>
+          <View style={styles.actionRow}>
+            <TouchableOpacity style={styles.chatBtn} onPress={() => router.push({ pathname: '/(tabs)/chats' })} activeOpacity={0.8}>
+              <Text style={styles.chatBtnText}>💬 Чат</Text>
+            </TouchableOpacity>
+            {!like.shiftCompleted && !employerAlreadyConfirmed ? (
+              <TouchableOpacity style={[styles.confirmShiftBtn, isShiftLoading && { opacity: 0.5 }]} onPress={() => confirmShift(like)} disabled={!!loading} activeOpacity={0.8}>
+                {isShiftLoading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.confirmShiftBtnTxt}>✔ Подтверждаю</Text>}
+              </TouchableOpacity>
+            ) : !like.shiftCompleted ? (
+              <View style={styles.waitingShiftBtn}><Text style={styles.waitingShiftTxt}>⏳ Ждём работника</Text></View>
+            ) : null}
+          </View>
         </View>
       );
     }
 
     return (
       <View style={styles.card}>
-        {isApproved ? (
-          <View style={styles.waitingBadge}><Text style={styles.waitingBadgeText}>⏳ Ждём подтверждения работника</Text></View>
-        ) : null}
+        {isApproved ? <View style={[styles.statusBadge, { backgroundColor: '#FFF7ED' }]}><Text style={[styles.statusTxt, { color: '#92400E' }]}>⏳ Ждём подтверждения работника</Text></View> : null}
         <View style={styles.workerRow}>
           <View style={[styles.avatar, { backgroundColor: workerColor }]}>
             <Text style={styles.avatarText}>{getInitials(workerName)}</Text>
@@ -276,28 +314,16 @@ function EmployerMatches() {
             {worker.age ? <Text style={styles.metroHint}>{worker.age} лет</Text> : null}
             {worker.metroStation ? <Text style={styles.metroHint}>🚇 {worker.metroStation}</Text> : null}
           </View>
-          <View style={styles.hiddenPhone}>
-            <Text style={styles.hiddenPhoneText}>●●●●●●</Text>
-          </View>
+          <View style={styles.hiddenPhone}><Text style={styles.hiddenPhoneText}>●●●●●●</Text></View>
         </View>
         <Text style={styles.vacLabel}>{vac.title} · {formatDate(vac.date)} · {vac.salary.toLocaleString('ru')} ₽</Text>
 
         {!isApproved ? (
           <View style={styles.actionRow}>
-            <TouchableOpacity
-              style={[styles.declineBtn, isDLoading && { opacity: 0.5 }]}
-              onPress={() => dismiss(like)}
-              disabled={!!loading}
-              activeOpacity={0.8}
-            >
+            <TouchableOpacity style={[styles.declineBtn, isDLoading && { opacity: 0.5 }]} onPress={() => dismiss(like)} disabled={!!loading} activeOpacity={0.8}>
               {isDLoading ? <ActivityIndicator size="small" color={Colors.red} /> : <Text style={styles.declineBtnText}>✕ Пропустить</Text>}
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.acceptBtn, isLoading && { opacity: 0.5 }]}
-              onPress={() => approve(like)}
-              disabled={!!loading}
-              activeOpacity={0.8}
-            >
+            <TouchableOpacity style={[styles.acceptBtn, isLoading && { opacity: 0.5 }]} onPress={() => approve(like)} disabled={!!loading} activeOpacity={0.8}>
               {isLoading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.acceptBtnText}>✅ Взять!</Text>}
             </TouchableOpacity>
           </View>
@@ -308,43 +334,27 @@ function EmployerMatches() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Мэтчи</Text>
-      </View>
-
+      <View style={styles.header}><Text style={styles.title}>Мэтчи</Text></View>
       <View style={styles.tabs}>
-        <TouchableOpacity style={styles.tabItem} onPress={() => setTab('pending')} activeOpacity={0.8}>
-          <Text style={[styles.tabLabel, tab === 'pending' && styles.tabLabelActive]}>
-            Отклики {pendingAll.length > 0 ? `(${pendingAll.length})` : ''}
-          </Text>
-          {tab === 'pending' ? <View style={styles.tabUnderline} /> : null}
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.tabItem} onPress={() => setTab('matched')} activeOpacity={0.8}>
-          <Text style={[styles.tabLabel, tab === 'matched' && styles.tabLabelActive]}>
-            Мэтчи {matched.length > 0 ? `(${matched.length})` : ''}
-          </Text>
-          {tab === 'matched' ? <View style={styles.tabUnderline} /> : null}
-        </TouchableOpacity>
+        {([
+          { key: 'pending', label: `Отклики${pendingAll.length > 0 ? ` (${pendingAll.length})` : ''}` },
+          { key: 'matched', label: `Мэтчи${matched.length > 0 ? ` (${matched.length})` : ''}` },
+        ] as { key: 'pending' | 'matched'; label: string }[]).map(t => (
+          <TouchableOpacity key={t.key} style={styles.tabItem} onPress={() => setTab(t.key)} activeOpacity={0.8}>
+            <Text style={[styles.tabLabel, tab === t.key && styles.tabLabelActive]}>{t.label}</Text>
+            {tab === t.key ? <View style={styles.tabUnderline} /> : null}
+          </TouchableOpacity>
+        ))}
       </View>
 
       {shown.length === 0 ? (
         <View style={styles.empty}>
           <Text style={{ fontSize: 48 }}>{tab === 'pending' ? '📥' : '🤝'}</Text>
           <Text style={styles.emptyTitle}>{tab === 'pending' ? 'Нет откликов' : 'Нет мэтчей'}</Text>
-          <Text style={styles.emptySub}>
-            {tab === 'pending'
-              ? 'Когда работники откликнутся на ваши вакансии — они появятся здесь'
-              : 'Мэтчи появляются когда обе стороны подтвердили сотрудничество'}
-          </Text>
+          <Text style={styles.emptySub}>{tab === 'pending' ? 'Когда работники откликнутся — они появятся здесь' : 'Мэтчи появятся после взаимного подтверждения'}</Text>
         </View>
       ) : (
-        <FlatList
-          data={shown}
-          keyExtractor={l => l.id}
-          contentContainerStyle={styles.list}
-          showsVerticalScrollIndicator={false}
-          renderItem={renderLike}
-        />
+        <FlatList data={shown} keyExtractor={l => l.id} contentContainerStyle={styles.list} showsVerticalScrollIndicator={false} renderItem={renderLike} />
       )}
     </SafeAreaView>
   );
@@ -358,11 +368,7 @@ export default function MatchesScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.bg },
-  header: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12,
-    borderBottomWidth: 1, borderBottomColor: Colors.divider,
-  },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: Colors.divider },
   title: { fontSize: 22, fontWeight: '800', color: Colors.textPrimary, flex: 1 },
   badge: { backgroundColor: Colors.primary, borderRadius: 100, paddingHorizontal: 10, paddingVertical: 3 },
   badgeText: { color: '#fff', fontSize: 13, fontWeight: '700' },
@@ -374,12 +380,9 @@ const styles = StyleSheet.create({
   list: { padding: 16, gap: 12, paddingBottom: 100 },
   card: { backgroundColor: Colors.bg, borderRadius: Radius.lg, padding: 16, ...Shadow.card, gap: 10 },
   matchedCard: { borderWidth: 1.5, borderColor: Colors.green },
-  offerBadge: { backgroundColor: Colors.greenLight, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, alignSelf: 'flex-start' },
-  offerBadgeText: { color: Colors.green, fontSize: 13, fontWeight: '700' },
-  matchBadge: { backgroundColor: Colors.primaryLight, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, alignSelf: 'flex-start' },
-  matchBadgeText: { color: Colors.primary, fontSize: 13, fontWeight: '700' },
-  waitingBadge: { backgroundColor: '#FFF7ED', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, alignSelf: 'flex-start' },
-  waitingBadgeText: { color: '#92400E', fontSize: 12, fontWeight: '600' },
+  completedCard: { borderWidth: 1.5, borderColor: Colors.blue, opacity: 0.8 },
+  statusBadge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, alignSelf: 'flex-start' },
+  statusTxt: { fontSize: 13, fontWeight: '700' },
   jobTitle: { fontSize: 17, fontWeight: '800', color: Colors.textPrimary, lineHeight: 22 },
   companyName: { fontSize: 13, color: Colors.textMuted, marginTop: 2 },
   workerRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
@@ -400,8 +403,12 @@ const styles = StyleSheet.create({
   declineBtnText: { color: Colors.red, fontSize: 14, fontWeight: '600' },
   acceptBtn: { flex: 1, backgroundColor: Colors.primary, borderRadius: 100, paddingVertical: 11, alignItems: 'center' },
   acceptBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
-  chatBtn: { backgroundColor: Colors.blue, borderRadius: 100, paddingVertical: 11, alignItems: 'center' },
+  chatBtn: { flex: 1, backgroundColor: Colors.blue, borderRadius: 100, paddingVertical: 11, alignItems: 'center' },
   chatBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  confirmShiftBtn: { flex: 2, backgroundColor: Colors.green, borderRadius: 100, paddingVertical: 11, alignItems: 'center' },
+  confirmShiftBtnTxt: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  waitingShiftBtn: { flex: 2, backgroundColor: Colors.surface, borderRadius: 100, paddingVertical: 11, alignItems: 'center', borderWidth: 1, borderColor: Colors.inputBorder },
+  waitingShiftTxt: { color: Colors.textMuted, fontSize: 13, fontWeight: '500' },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, paddingBottom: 80 },
   emptyTitle: { fontSize: 18, fontWeight: '700', color: Colors.textPrimary, marginTop: 12 },
   emptySub: { fontSize: 14, color: Colors.textMuted, textAlign: 'center', marginTop: 6, lineHeight: 20 },

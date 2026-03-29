@@ -7,10 +7,6 @@ import { AppProvider, AppContext } from '@/contexts/AppContext';
 import { ToastLayer } from '@/components/ui/ToastLayer';
 import { requestNotificationPermissions } from '@/services/notifications';
 
-/**
- * AuthGuard — lives inside AppProvider so it can read context.
- * Uses usePathname (more reliable than segments) to detect tab screens.
- */
 function AuthGuard() {
   const router = useRouter();
   const pathname = usePathname();
@@ -24,10 +20,11 @@ function AuthGuard() {
       pathname === '/create-vacancy' ||
       pathname === '/candidates' ||
       pathname === '/chat-room' ||
-      pathname === '/match';
+      pathname === '/match' ||
+      pathname === '/rate' ||
+      pathname === '/admin';
 
     if (!ctx.currentUser && inProtected) {
-      // Small timeout ensures navigation stack is settled
       const t = setTimeout(() => router.replace('/'), 50);
       return () => clearTimeout(t);
     }
@@ -53,10 +50,13 @@ export default function RootLayout() {
             <Stack.Screen name="register-worker" />
             <Stack.Screen name="register-employer" />
             <Stack.Screen name="login" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="legal" />
             <Stack.Screen name="create-vacancy" />
             <Stack.Screen name="candidates" />
             <Stack.Screen name="chat-room" />
             <Stack.Screen name="match" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="rate" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="admin" />
           </Stack>
           <ToastLayer />
         </AppProvider>

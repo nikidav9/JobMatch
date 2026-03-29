@@ -8,6 +8,7 @@ import { Colors, Radius, Shadow } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
 import { Vacancy } from '@/constants/types';
 import { getTodayDates, formatDate, scoreVacancy } from '@/services/storage';
+import { METRO_LINES } from '@/constants/metro';
 import {
   dbUpsertLike, dbCheckAndCreateMatch, dbRemoveLike, dbAddSaved,
 } from '@/services/db';
@@ -33,6 +34,8 @@ function WorkerFeed() {
   const [swiping, setSwiping] = useState(false);
   const [localSaved, setLocalSaved] = useState<string[]>(savedIds);
   const [detailVacancy, setDetailVacancy] = useState<Vacancy | null>(null);
+  const [filterLineId, setFilterLineId] = useState<string | null>(null);
+  const [filterPicker, setFilterPicker] = useState(false);
 
   const pan = useRef(new Animated.ValueXY()).current;
 
@@ -51,6 +54,7 @@ function WorkerFeed() {
         if (!currentUser.workTypes?.includes(v.workType)) return false;
         const liked = likes.find(l => l.vacancyId === v.id && l.workerId === currentUser.id);
         if (liked) return false;
+        if (filterLineId && v.metroLineId !== filterLineId) return false;
         return true;
       })
       .sort((a, b) => scoreVacancy(b, currentUser) - scoreVacancy(a, currentUser));
@@ -191,9 +195,12 @@ function WorkerFeed() {
       if (!currentUser.workTypes?.includes(v.workType)) return false;
       const alreadySwiped = likes.find(l => l.vacancyId === v.id && l.workerId === currentUser.id);
       if (alreadySwiped) return false;
+      if (filterLineId && v.metroLineId !== filterLineId) return false;
       return true;
     }).length;
   };
+
+  const activeFilterLine = METRO_LINES.find(l => l.id === filterLineId);
 
   const getRuDay = (iso: string) => {
     const d = new Date(iso + 'T00:00:00');
@@ -208,6 +215,20 @@ function WorkerFeed() {
           <Text style={styles.logoB}>Job</Text>
           <Text style={styles.logoO}>Ty</Text>
         </Text>
+        <TouchableOpacity
+          style={[styles.filterBtn, filterLineId ? styles.filterBtnActive : null]}
+          onPress={() => setFilterPicker(true)}
+          activeOpacity={0.8}
+        >
+          {filterLineId && activeFilterLine ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <View style={[styles.filterLineDot, { backgroundColor: activeFilterLine.color }]} />
+              <Text style={styles.filterBtnActiveTxt} numberOfLines={1}>{activeFilterLine.name}</Text>
+            </View>
+          ) : (
+            <Text style={styles.filterBtnTxt}>{'🚇'} {'Фильтр'}</Text>
+          )}
+        </TouchableOpacity>
       </View>
 
       {/* Date strip */}
@@ -338,6 +359,32 @@ function WorkerFeed() {
           </>
         )}
       </View>
+
+      {/* Metro filter picker */}
+      {filterPicker ? (
+        <View style={styles.filterOverlay}>
+          <View style={styles.filterSheet}>
+            <View style={styles.filterSheetHeader}>
+              <Text style={styles.filterSheetTitle}>{'Фильтр по линии метро'}</Text>
+              <TouchableOpacity onPress={() => setFilterPicker(false)}>
+                <Text style={styles.filterClose}>{'✕'}</Text>
+              </TouchableOpacity>
+            </View>
+            {filterLineId ? (
+              <TouchableOpacity style={styles.clearFilterRow} onPress={() => { setFilterLineId(null); setFilterPicker(false); }}>
+                <Text style={styles.clearFilterTxt}>{'✕ Сбросить фильтр'}</Text>
+              </TouchableOpacity>
+            ) : null}
+            {METRO_LINES.map((l: any) => (
+              <TouchableOpacity key={l.id} style={[styles.lineRow, filterLineId === l.id ? styles.lineRowActive : null]} onPress={() => { setFilterLineId(l.id); setFilterPicker(false); }} activeOpacity={0.8}>
+                <View style={[styles.lineDot, { backgroundColor: l.color }]} />
+                <Text style={[styles.lineName, filterLineId === l.id ? { color: Colors.primary, fontWeight: '700' } : null]}>{l.name}</Text>
+                {filterLineId === l.id ? <Text style={{ color: Colors.primary }}>{'\u2713'}</Text> : null}
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      ) : null}
 
       {/* Detail modal */}
       <VacancyDetailModal
@@ -544,6 +591,22 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 18, fontWeight: '700', color: Colors.textPrimary, marginTop: 12, textAlign: 'center' },
   emptySubtitle: { fontSize: 14, color: Colors.textMuted, marginTop: 6, textAlign: 'center' },
   emptyHint: { fontSize: 12, color: Colors.textMuted, marginTop: 12, fontStyle: 'italic', textAlign: 'center' },
+  filterBtn: { borderWidth: 1.5, borderColor: Colors.inputBorder, borderRadius: 100, paddingHorizontal: 12, paddingVertical: 7, maxWidth: 160 },
+  filterBtnActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryLight },
+  filterBtnTxt: { fontSize: 13, color: Colors.textMuted, fontWeight: '500' },
+  filterBtnActiveTxt: { fontSize: 12, color: Colors.primary, fontWeight: '700', maxWidth: 110 },
+  filterLineDot: { width: 8, height: 8, borderRadius: 4 },
+  filterOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 100, justifyContent: 'flex-end' },
+  filterSheet: { backgroundColor: Colors.bg, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 40, maxHeight: '70%' },
+  filterSheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.divider },
+  filterSheetTitle: { fontSize: 16, fontWeight: '700', color: Colors.textPrimary },
+  filterClose: { fontSize: 18, color: Colors.textMuted, padding: 4 },
+  clearFilterRow: { marginHorizontal: 16, marginTop: 12, borderWidth: 1.5, borderColor: Colors.red, borderRadius: 100, paddingVertical: 10, alignItems: 'center' },
+  clearFilterTxt: { color: Colors.red, fontSize: 14, fontWeight: '600' },
+  lineRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.divider },
+  lineRowActive: { backgroundColor: Colors.primaryLight },
+  lineDot: { width: 12, height: 12, borderRadius: 6 },
+  lineName: { flex: 1, fontSize: 15, color: Colors.textPrimary },
   createBtn: { marginTop: 20, borderWidth: 1.5, borderColor: Colors.primary, borderRadius: 100, paddingHorizontal: 24, paddingVertical: 10 },
   createBtnText: { color: Colors.primary, fontWeight: '600', fontSize: 15 },
   tabs: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: Colors.divider },

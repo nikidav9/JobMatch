@@ -12,6 +12,10 @@ export interface User {
   workTypes?: WorkType[];
   company?: string;
   createdAt: string;
+  isBlocked?: boolean;
+  avatarUrl?: string;
+  avgRating?: number;
+  ratingCount?: number;
 }
 
 export interface Vacancy {
@@ -28,6 +32,7 @@ export interface Vacancy {
   timeEnd: string;
   salary: number;
   normsAndPay: string;
+  address?: string;
   workersNeeded: number;
   workersFound: number;
   isUrgent: boolean;
@@ -47,9 +52,13 @@ export interface Like {
   workerSkipped: boolean;
   isMatch: boolean;
   matchedAt?: string;
+  workerConfirmed?: boolean;
+  employerConfirmed?: boolean;
+  workerRated?: boolean;
+  employerRated?: boolean;
+  shiftCompleted?: boolean;
 }
 
-// Message is an alias used in db.ts and chat-room.tsx
 export interface Message {
   id: string;
   senderId: string;
@@ -74,5 +83,29 @@ export interface Chat {
   messages: Message[];
   unreadWorker: number;
   unreadEmployer: number;
+  createdAt: string;
+}
+
+export interface Complaint {
+  id: string;
+  reporterId: string;
+  reporterPhone: string;
+  reporterCompany?: string;
+  targetId: string;
+  targetPhone: string;
+  targetCompany?: string;
+  complaintType: 'worker' | 'employer';
+  description?: string;
+  createdAt: string;
+}
+
+export interface Rating {
+  id: string;
+  fromUserId: string;
+  toUserId: string;
+  vacancyId: string;
+  likeId: string;
+  rating: number;
+  role: 'worker' | 'employer';
   createdAt: string;
 }

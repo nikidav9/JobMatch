@@ -17,6 +17,27 @@ import { METRO_LINES } from '@/constants/metro';
 
 type EditSection = 'personal' | 'metro' | 'worktypes' | 'company' | null;
 
+function StarRating({ rating, count }: { rating: number; count: number }) {
+  return (
+    <View style={rS.row}>
+      {[1, 2, 3, 4, 5].map(s => (
+        <Text key={s} style={[rS.star, rating >= s - 0.5 ? rS.starFilled : rS.starEmpty]}>★</Text>
+      ))}
+      <Text style={rS.count}>
+        {count > 0 ? `${rating.toFixed(1)} (${count} отз.)` : 'Нет оценок'}
+      </Text>
+    </View>
+  );
+}
+
+const rS = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 6 },
+  star: { fontSize: 18 },
+  starFilled: { color: '#FBBF24' },
+  starEmpty: { color: '#E5E7EB' },
+  count: { fontSize: 13, color: Colors.textMuted, marginLeft: 4 },
+});
+
 export default function ProfileScreen() {
   const router = useRouter();
   const { currentUser, setCurrentUser, users, refreshUsers, showToast } = useApp();
@@ -66,7 +87,6 @@ export default function ProfileScreen() {
 
   const logout = async () => {
     setShowConfirmLogout(false);
-    // AuthGuard in _layout.tsx handles navigation once currentUser becomes null
     await setCurrentUser(null);
   };
 
@@ -84,6 +104,7 @@ export default function ProfileScreen() {
             <Text style={styles.roleText}>{currentUser.role === 'worker' ? 'Работник' : 'Работодатель'}</Text>
           </View>
           <Text style={styles.phone}>{currentUser.phone}</Text>
+          <StarRating rating={currentUser.avgRating ?? 0} count={currentUser.ratingCount ?? 0} />
         </View>
 
         {currentUser.role === 'worker' ? (
@@ -93,7 +114,6 @@ export default function ProfileScreen() {
                 { label: 'Телефон', value: currentUser.phone },
                 { label: 'Фамилия', value: currentUser.lastName },
                 { label: 'Имя', value: currentUser.firstName },
-                ...(currentUser.age ? [{ label: 'Возраст', value: `${currentUser.age} лет` }] : []),
               ]}
             />
             <SectionCard icon="🚇" title="Метро" onEdit={() => openEdit('metro')}
@@ -120,6 +140,8 @@ export default function ProfileScreen() {
         <TouchableOpacity style={styles.logoutBtn} onPress={() => setShowConfirmLogout(true)}>
           <Text style={styles.logoutText}>Выйти из аккаунта</Text>
         </TouchableOpacity>
+
+        <View style={{ height: 20 }} />
       </ScrollView>
 
       {/* Edit modal */}
@@ -245,8 +267,8 @@ const styles = StyleSheet.create({
   scroll: { padding: 16, paddingBottom: 100, gap: 12 },
   pageTitle: { fontSize: 22, fontWeight: '800', color: Colors.textPrimary, marginBottom: 4 },
   topCard: { backgroundColor: Colors.bg, borderRadius: Radius.xl, padding: 24, alignItems: 'center', ...Shadow.card },
-  bigAvatar: { width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center' },
-  bigAvatarText: { color: '#fff', fontSize: 26, fontWeight: '800' },
+  bigAvatar: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center' },
+  bigAvatarText: { color: '#fff', fontSize: 28, fontWeight: '800' },
   fullName: { fontSize: 20, fontWeight: '800', color: Colors.textPrimary, marginTop: 12 },
   roleBadge: { backgroundColor: Colors.primary, borderRadius: 100, paddingHorizontal: 14, paddingVertical: 4, marginTop: 8 },
   roleText: { color: '#fff', fontSize: 13, fontWeight: '600' },

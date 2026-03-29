@@ -17,29 +17,33 @@ import { Vacancy } from '@/constants/types';
 import { METRO_LINES } from '@/constants/metro';
 
 function pad2(n: number) { return n.toString().padStart(2, '0'); }
-
-function formatDisplayDate(d: Date) {
-  return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.${d.getFullYear()}`;
-}
-function formatISODate(d: Date) {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-}
-function formatTime(d: Date) {
-  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-}
+function formatDisplayDate(d: Date) { return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.${d.getFullYear()}`; }
+function formatISODate(d: Date) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
+function formatTime(d: Date) { return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
 function parseISOToDate(iso: string): Date {
-  // iso = "YYYY-MM-DD"
   const [y, m, d] = iso.split('-').map(Number);
-  const dt = new Date();
-  dt.setFullYear(y, m - 1, d);
-  dt.setHours(0, 0, 0, 0);
-  return dt;
+  const dt = new Date(); dt.setFullYear(y, m - 1, d); dt.setHours(0, 0, 0, 0); return dt;
 }
 function parseTimeToDate(time: string): Date {
   const [h, min] = time.split(':').map(Number);
-  const d = new Date();
-  d.setHours(h, min, 0, 0);
-  return d;
+  const d = new Date(); d.setHours(h, min, 0, 0); return d;
+}
+
+const NORM_FIELDS = [
+  { key: 'sborka', label: 'Сборка товара' },
+  { key: 'razmTovara', label: 'Размещение товара' },
+  { key: 'razmMaketa', label: 'Размещение макета' },
+  { key: 'razmMoroza', label: 'Размещение мороза' },
+  { key: 'razmMulti', label: 'Размещение многоштучки' },
+  { key: 'npo', label: 'НПО' },
+] as const;
+
+type NormKey = typeof NORM_FIELDS[number]['key'];
+type Norms = Record<NormKey, string>;
+
+function buildNormsText(address: string, norms: Norms): string {
+  const lines = NORM_FIELDS.map(f => `— ${f.label}: ${norms[f.key] || '0'} ₽`).join('\n');
+  return `📍 Адрес: ${address}\n💰 Нормативы:\n${lines}`;
 }
 
 type PickerMode = 'date' | 'timeStart' | 'timeEnd' | null;
@@ -49,70 +53,54 @@ export default function CreateVacancy() {
   const { editId } = useLocalSearchParams<{ editId?: string }>();
   const { currentUser, vacancies, refreshVacancies, showToast } = useApp();
 
-  // If editId provided, find existing vacancy to prefill
   const existing = editId ? vacancies.find(v => v.id === editId) : undefined;
   const isEdit = !!existing;
 
   const [loadingInit, setLoadingInit] = useState(isEdit);
-
   const [title, setTitle] = useState('');
+  const [address, setAddress] = useState('');
   const [metroLineId, setMetroLineId] = useState('');
   const [metroLineName, setMetroLineName] = useState('');
   const [metroStation, setMetroStation] = useState('');
-
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedTimeStart, setSelectedTimeStart] = useState<Date>(() => { const d = new Date(); d.setHours(8, 0, 0, 0); return d; });
   const [selectedTimeEnd, setSelectedTimeEnd] = useState<Date>(() => { const d = new Date(); d.setHours(17, 0, 0, 0); return d; });
-
   const [pickerMode, setPickerMode] = useState<PickerMode>(null);
   const [iosPickerVisible, setIosPickerVisible] = useState(false);
   const [tempDate, setTempDate] = useState<Date>(new Date());
-
   const [salary, setSalary] = useState('');
-  const [normsAndPay, setNormsAndPay] = useState('');
+  const [norms, setNorms] = useState<Norms>({ sborka: '', razmTovara: '', razmMaketa: '', razmMoroza: '', razmMulti: '', npo: '' });
   const [workersNeeded, setWorkersNeeded] = useState(1);
   const [isUrgent, setIsUrgent] = useState(false);
   const [noExp, setNoExp] = useState(true);
-  const [conditions, setConditions] = useState('');
   const [metroPicker, setMetroPicker] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Prefill from existing vacancy
   useEffect(() => {
     if (!existing) { setLoadingInit(false); return; }
     setTitle(existing.title);
+    setAddress(existing.address ?? '');
     setMetroLineId(existing.metroLineId ?? '');
     setMetroStation(existing.metroStation ?? '');
-    const line = METRO_LINES.find(l => l.id === existing.metroLineId);
-    setMetroLineName(line?.name ?? '');
+    const ln = METRO_LINES.find(l => l.id === existing.metroLineId);
+    setMetroLineName(ln?.name ?? '');
     if (existing.date) setSelectedDate(parseISOToDate(existing.date));
     if (existing.timeStart) setSelectedTimeStart(parseTimeToDate(existing.timeStart));
     if (existing.timeEnd) setSelectedTimeEnd(parseTimeToDate(existing.timeEnd));
     setSalary(existing.salary > 0 ? existing.salary.toString() : '');
-    setNormsAndPay(existing.normsAndPay ?? '');
     setWorkersNeeded(existing.workersNeeded);
     setIsUrgent(existing.isUrgent);
     setNoExp(existing.noExperienceNeeded);
-    setConditions(existing.conditions ?? '');
     setLoadingInit(false);
   }, [existing?.id]);
 
   const line = METRO_LINES.find(l => l.id === metroLineId);
 
-  // ── Picker helpers ─────────────────────────────────────────────────────────
-
   const openPicker = (mode: PickerMode) => {
     if (!mode) return;
-    if (mode === 'date') setTempDate(selectedDate);
-    else if (mode === 'timeStart') setTempDate(selectedTimeStart);
-    else setTempDate(selectedTimeEnd);
-
-    if (Platform.OS === 'ios') {
-      setPickerMode(mode);
-      setIosPickerVisible(true);
-    } else {
-      setPickerMode(mode);
-    }
+    setTempDate(mode === 'date' ? selectedDate : mode === 'timeStart' ? selectedTimeStart : selectedTimeEnd);
+    if (Platform.OS === 'ios') { setPickerMode(mode); setIosPickerVisible(true); }
+    else setPickerMode(mode);
   };
 
   const onAndroidChange = (event: DateTimePickerEvent, date?: Date) => {
@@ -121,15 +109,8 @@ export default function CreateVacancy() {
     applyDate(pickerMode, date);
   };
 
-  const onIOSChange = (_: DateTimePickerEvent, date?: Date) => {
-    if (date) setTempDate(date);
-  };
-
-  const confirmIOS = () => {
-    applyDate(pickerMode, tempDate);
-    setIosPickerVisible(false);
-    setPickerMode(null);
-  };
+  const onIOSChange = (_: DateTimePickerEvent, date?: Date) => { if (date) setTempDate(date); };
+  const confirmIOS = () => { applyDate(pickerMode, tempDate); setIosPickerVisible(false); setPickerMode(null); };
 
   const applyDate = (mode: PickerMode, date: Date) => {
     if (mode === 'date') setSelectedDate(date);
@@ -141,19 +122,30 @@ export default function CreateVacancy() {
     : pickerMode === 'timeStart' ? (Platform.OS === 'ios' ? tempDate : selectedTimeStart)
     : (Platform.OS === 'ios' ? tempDate : selectedTimeEnd);
 
-  // ── Validation ─────────────────────────────────────────────────────────────
+  const setNormVal = (key: NormKey, val: string) => {
+    const cleaned = val.replace(/[^0-9.]/g, '').slice(0, 5);
+    setNorms(prev => ({ ...prev, [key]: cleaned }));
+  };
+
+  const normsValid = NORM_FIELDS.every(f => {
+    const v = parseFloat(norms[f.key]);
+    return !isNaN(v) && v >= 0 && v <= 20;
+  });
 
   const validate = () => {
     const e: Record<string, string> = {};
     if (!title.trim()) e.title = 'Введите название';
+    if (!address.trim()) e.address = 'Введите адрес склада';
     if (!metroStation) e.metro = 'Выберите станцию метро';
     if (!salary || isNaN(Number(salary)) || Number(salary) <= 0) e.salary = 'Укажите корректную оплату';
+    if (!normsValid) e.norms = 'Проверьте нормативы (0–20 ₽)';
     setErrors(e);
     return Object.keys(e).length === 0;
   };
 
   const submit = async () => {
     if (!validate() || !currentUser) return;
+    const normsText = buildNormsText(address, norms);
     const vac: Vacancy = {
       id: existing?.id ?? uid(),
       employerId: existing?.employerId ?? currentUser.id,
@@ -163,16 +155,17 @@ export default function CreateVacancy() {
       workTypeLabel: 'Кладовщик',
       metroLineId,
       metroStation,
+      address,
       date: formatISODate(selectedDate),
       timeStart: formatTime(selectedTimeStart),
       timeEnd: formatTime(selectedTimeEnd),
       salary: Number(salary),
-      normsAndPay,
+      normsAndPay: normsText,
       workersNeeded,
       workersFound: existing?.workersFound ?? 0,
       isUrgent,
       noExperienceNeeded: noExp,
-      conditions,
+      conditions: normsText,
       status: existing?.status ?? 'open',
       createdAt: existing?.createdAt ?? nowISO(),
     };
@@ -183,13 +176,7 @@ export default function CreateVacancy() {
   };
 
   if (loadingInit) {
-    return (
-      <SafeAreaView style={styles.safe}>
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <ActivityIndicator size="large" color={Colors.primary} />
-        </View>
-      </SafeAreaView>
-    );
+    return <SafeAreaView style={styles.safe}><View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator size="large" color={Colors.primary} /></View></SafeAreaView>;
   }
 
   return (
@@ -208,16 +195,27 @@ export default function CreateVacancy() {
           {/* Work type badge */}
           <View style={styles.typeRow}>
             <Text style={styles.typeLabel}>Тип вакансии</Text>
-            <View style={styles.typeBadge}>
-              <Text style={styles.typeBadgeText}>📦 Кладовщик</Text>
-            </View>
+            <View style={styles.typeBadge}><Text style={styles.typeBadgeText}>📦 Кладовщик</Text></View>
           </View>
 
           <AppInput label="Название вакансии" value={title} onChangeText={setTitle} placeholder="Кладовщик на склад WB" error={errors.title} />
 
+          {/* Address */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.sectionLabel}>Адрес склада *</Text>
+            <TextInput
+              style={[styles.input, errors.address ? styles.inputError : null]}
+              value={address}
+              onChangeText={setAddress}
+              placeholder="ул. Складская, д. 5"
+              placeholderTextColor={Colors.textMuted}
+            />
+            {errors.address ? <Text style={styles.errMsg}>{errors.address}</Text> : null}
+          </View>
+
           {/* Metro */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.sectionLabel}>Метро</Text>
+            <Text style={styles.sectionLabel}>Метро *</Text>
             {metroStation ? (
               <View style={styles.metroSelected}>
                 <View style={[styles.dot, { backgroundColor: line?.color ?? Colors.blue }]} />
@@ -236,16 +234,12 @@ export default function CreateVacancy() {
               </TouchableOpacity>
             )}
             {errors.metro ? <Text style={styles.errMsg}>{errors.metro}</Text> : null}
-            <MetroPicker
-              visible={metroPicker}
-              onClose={() => setMetroPicker(false)}
+            <MetroPicker visible={metroPicker} onClose={() => setMetroPicker(false)}
               onSelect={(lid, lname, st) => { setMetroLineId(lid); setMetroLineName(lname); setMetroStation(st); setMetroPicker(false); }}
-              selectedLineId={metroLineId}
-              selectedStation={metroStation}
-            />
+              selectedLineId={metroLineId} selectedStation={metroStation} />
           </View>
 
-          {/* Date picker */}
+          {/* Date */}
           <View style={styles.fieldGroup}>
             <Text style={styles.sectionLabel}>Дата смены</Text>
             <TouchableOpacity style={styles.pickerField} onPress={() => openPicker('date')} activeOpacity={0.8}>
@@ -254,17 +248,11 @@ export default function CreateVacancy() {
               <Text style={styles.pickerArrow}>›</Text>
             </TouchableOpacity>
             {Platform.OS !== 'ios' && pickerMode === 'date' ? (
-              <DateTimePicker
-                value={selectedDate}
-                mode="date"
-                display="calendar"
-                minimumDate={new Date()}
-                onChange={onAndroidChange}
-              />
+              <DateTimePicker value={selectedDate} mode="date" display="calendar" minimumDate={new Date()} onChange={onAndroidChange} />
             ) : null}
           </View>
 
-          {/* Time pickers */}
+          {/* Time */}
           <View style={styles.fieldGroup}>
             <Text style={styles.sectionLabel}>Время смены</Text>
             <View style={styles.timeRow}>
@@ -288,20 +276,32 @@ export default function CreateVacancy() {
 
           <AppInput label="Оплата за смену ₽" value={salary} onChangeText={setSalary} placeholder="2000" keyboardType="numeric" error={errors.salary} />
 
+          {/* Norms */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.sectionLabel}>Нормативы и оплата</Text>
-            <Text style={styles.hint}>Например: 1200 строк — 2500₽, превышение нормы — 50₽/10 строк</Text>
-            <TextInput
-              style={styles.textarea}
-              multiline
-              numberOfLines={3}
-              value={normsAndPay}
-              onChangeText={setNormsAndPay}
-              placeholder={'1200 строк — 2500₽\n500 паллет — 3000₽'}
-              placeholderTextColor={Colors.textMuted}
-            />
+            <Text style={styles.sectionLabel}>Нормативы (₽ за единицу, 0–20) *</Text>
+            {errors.norms ? <Text style={styles.errMsg}>{errors.norms}</Text> : null}
+            {NORM_FIELDS.map(f => {
+              const v = norms[f.key];
+              const num = parseFloat(v);
+              const invalid = v !== '' && (isNaN(num) || num < 0 || num > 20);
+              return (
+                <View key={f.key} style={styles.normRow}>
+                  <Text style={styles.normLabel}>{f.label}</Text>
+                  <TextInput
+                    style={[styles.normInput, invalid ? styles.inputError : null]}
+                    value={v}
+                    onChangeText={val => setNormVal(f.key, val)}
+                    placeholder="0"
+                    keyboardType="numeric"
+                    placeholderTextColor={Colors.textMuted}
+                  />
+                  <Text style={styles.normUnit}>₽</Text>
+                </View>
+              );
+            })}
           </View>
 
+          {/* Workers needed */}
           <View style={styles.fieldGroup}>
             <Text style={styles.sectionLabel}>Количество мест</Text>
             <View style={styles.stepperRow}>
@@ -325,18 +325,13 @@ export default function CreateVacancy() {
             <Switch value={noExp} onValueChange={setNoExp} trackColor={{ false: Colors.inputBorder, true: Colors.primary }} thumbColor="#fff" />
           </View>
 
-          <View style={styles.fieldGroup}>
-            <Text style={styles.sectionLabel}>Условия работы</Text>
-            <TextInput
-              style={styles.textarea}
-              multiline
-              numberOfLines={4}
-              value={conditions}
-              onChangeText={setConditions}
-              placeholder={'Разгрузка и сортировка товаров\nФорма предоставляется\nОплата в конце смены'}
-              placeholderTextColor={Colors.textMuted}
-            />
-          </View>
+          {/* Preview */}
+          {address.trim() ? (
+            <View style={styles.previewBox}>
+              <Text style={styles.previewTitle}>Предпросмотр описания</Text>
+              <Text style={styles.previewText}>{buildNormsText(address, norms)}</Text>
+            </View>
+          ) : null}
 
           <View style={{ marginBottom: 40 }}>
             <PrimaryButton label={isEdit ? '💾 Сохранить изменения' : '📋 Опубликовать вакансию'} onPress={submit} />
@@ -344,7 +339,6 @@ export default function CreateVacancy() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* iOS Modal picker */}
       {Platform.OS === 'ios' ? (
         <Modal visible={iosPickerVisible} transparent animationType="slide">
           <View style={styles.iosOverlay}>
@@ -384,11 +378,7 @@ export default function CreateVacancy() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.bg },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingVertical: 14,
-    borderBottomWidth: 1, borderBottomColor: Colors.divider,
-  },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: Colors.divider },
   backText: { fontSize: 15, color: Colors.textSecondary, fontWeight: '500' },
   headerTitle: { fontSize: 16, fontWeight: '700', color: Colors.textPrimary },
   body: { padding: 20, gap: 18, paddingBottom: 20 },
@@ -398,58 +388,40 @@ const styles = StyleSheet.create({
   typeBadgeText: { fontSize: 13, fontWeight: '700', color: Colors.primary },
   fieldGroup: { gap: 8 },
   sectionLabel: { fontSize: 13, color: Colors.textMuted, fontWeight: '500' },
-  hint: { fontSize: 12, color: Colors.textMuted, fontStyle: 'italic', lineHeight: 16 },
   errMsg: { color: Colors.red, fontSize: 12 },
-  metroField: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    borderWidth: 1.5, borderColor: Colors.inputBorder, borderRadius: 12, padding: 16,
-  },
+  input: { borderWidth: 1.5, borderColor: Colors.inputBorder, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13, fontSize: 15, color: Colors.textPrimary, backgroundColor: Colors.bg },
+  inputError: { borderColor: Colors.red },
+  metroField: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1.5, borderColor: Colors.inputBorder, borderRadius: 12, padding: 16 },
   metroFieldTxt: { fontSize: 15, color: Colors.textPrimary },
-  metroSelected: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    borderWidth: 1.5, borderColor: Colors.primary, borderRadius: 12, padding: 14,
-    backgroundColor: Colors.primaryLight,
-  },
+  metroSelected: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1.5, borderColor: Colors.primary, borderRadius: 12, padding: 14, backgroundColor: Colors.primaryLight },
   dot: { width: 12, height: 12, borderRadius: 6 },
   metroLineTxt: { fontSize: 11, color: Colors.textMuted },
   metroStTxt: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary, marginTop: 2 },
   changeLink: { color: Colors.primary, fontSize: 13, fontWeight: '600' },
-  pickerField: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    borderWidth: 1.5, borderColor: Colors.inputBorder, borderRadius: 12,
-    paddingHorizontal: 16, paddingVertical: 14, backgroundColor: Colors.bg,
-  },
+  pickerField: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1.5, borderColor: Colors.inputBorder, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, backgroundColor: Colors.bg },
   pickerIcon: { fontSize: 18 },
   pickerValue: { flex: 1, fontSize: 16, fontWeight: '600', color: Colors.textPrimary },
   pickerArrow: { fontSize: 20, color: Colors.textMuted },
   timeRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   timeSep: { fontSize: 20, color: Colors.textMuted, fontWeight: '600', paddingBottom: 4 },
+  normRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: Colors.divider },
+  normLabel: { flex: 1, fontSize: 14, color: Colors.textPrimary },
+  normInput: { width: 64, borderWidth: 1.5, borderColor: Colors.inputBorder, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 15, fontWeight: '600', color: Colors.textPrimary, textAlign: 'center' },
+  normUnit: { fontSize: 14, color: Colors.textMuted, width: 16 },
   stepperRow: { flexDirection: 'row', alignItems: 'center', gap: 20 },
-  stepBtn: {
-    width: 44, height: 44, borderRadius: 100, backgroundColor: Colors.surface,
-    borderWidth: 1.5, borderColor: Colors.inputBorder, alignItems: 'center', justifyContent: 'center',
-  },
+  stepBtn: { width: 44, height: 44, borderRadius: 100, backgroundColor: Colors.surface, borderWidth: 1.5, borderColor: Colors.inputBorder, alignItems: 'center', justifyContent: 'center' },
   stepBtnText: { fontSize: 22, color: Colors.textPrimary, fontWeight: '600' },
   stepNum: { fontSize: 22, fontWeight: '800', color: Colors.textPrimary, minWidth: 32, textAlign: 'center' },
-  toggleRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.divider,
-  },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.divider },
   toggleLabel: { fontSize: 15, fontWeight: '500', color: Colors.textPrimary },
-  textarea: {
-    backgroundColor: Colors.bg, borderWidth: 1.5, borderColor: Colors.inputBorder,
-    borderRadius: 12, padding: 14, fontSize: 15, color: Colors.textPrimary,
-    textAlignVertical: 'top', lineHeight: 22,
-  },
+  previewBox: { backgroundColor: Colors.surface, borderRadius: Radius.md, padding: 14, borderWidth: 1, borderColor: Colors.inputBorder },
+  previewTitle: { fontSize: 12, color: Colors.textMuted, fontWeight: '600', marginBottom: 8 },
+  previewText: { fontSize: 13, color: Colors.textPrimary, lineHeight: 20 },
   iosOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
   iosSheet: { backgroundColor: Colors.bg, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 32 },
   iosPickerWrap: { backgroundColor: '#FFFFFF', width: '100%' },
   iosPicker: { width: '100%', height: 200, backgroundColor: '#FFFFFF' },
-  iosSheetHeader: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingVertical: 16,
-    borderBottomWidth: 1, borderBottomColor: Colors.divider,
-  },
+  iosSheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: Colors.divider },
   iosSheetTitle: { fontSize: 16, fontWeight: '700', color: Colors.textPrimary },
   iosCancelText: { fontSize: 15, color: Colors.textSecondary, fontWeight: '500' },
   iosDoneText: { fontSize: 15, color: Colors.primary, fontWeight: '700' },

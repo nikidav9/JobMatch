@@ -23,6 +23,10 @@ function rowToUser(r: any): User {
     workTypes: r.work_types ?? [],
     company: r.company ?? undefined,
     createdAt: r.created_at,
+    isBlocked: r.is_blocked ?? false,
+    avatarUrl: r.avatar_url ?? undefined,
+    avgRating: r.avg_rating ?? 0,
+    ratingCount: r.rating_count ?? 0,
   };
 }
 
@@ -39,6 +43,10 @@ function userToRow(u: User) {
     work_types: u.workTypes ?? [],
     company: u.company ?? null,
     created_at: u.createdAt,
+    is_blocked: u.isBlocked ?? false,
+    avatar_url: u.avatarUrl ?? null,
+    avg_rating: u.avgRating ?? 0,
+    rating_count: u.ratingCount ?? 0,
   };
 }
 
@@ -70,6 +78,7 @@ function rowToVacancy(r: any): Vacancy {
     timeEnd: r.time_end ?? '',
     salary: r.salary,
     normsAndPay: r.norms_and_pay ?? '',
+    address: r.address ?? '',
     workersNeeded: r.workers_needed,
     workersFound: r.workers_found,
     isUrgent: r.is_urgent,
@@ -95,6 +104,7 @@ function vacancyToRow(v: Vacancy) {
     time_end: v.timeEnd,
     salary: v.salary,
     norms_and_pay: v.normsAndPay || null,
+    address: v.address || null,
     workers_needed: v.workersNeeded,
     workers_found: v.workersFound,
     is_urgent: v.isUrgent,
@@ -134,6 +144,11 @@ function rowToLike(r: any): Like {
     workerSkipped: r.worker_skipped,
     isMatch: r.is_match,
     matchedAt: r.matched_at ?? undefined,
+    workerConfirmed: r.worker_confirmed ?? false,
+    employerConfirmed: r.employer_confirmed ?? false,
+    workerRated: r.worker_rated ?? false,
+    employerRated: r.employer_rated ?? false,
+    shiftCompleted: r.shift_completed ?? false,
   };
 }
 
@@ -149,7 +164,6 @@ export async function dbUpsertLike(
   employerId: string,
   updates: Partial<Like>
 ): Promise<Like> {
-  // Try to find existing
   const { data: existing } = await sb()
     .from('jm_likes')
     .select('*')
@@ -167,6 +181,11 @@ export async function dbUpsertLike(
     worker_skipped: false,
     is_match: false,
     matched_at: null,
+    worker_confirmed: false,
+    employer_confirmed: false,
+    worker_rated: false,
+    employer_rated: false,
+    shift_completed: false,
   };
 
   const row = {
@@ -176,6 +195,11 @@ export async function dbUpsertLike(
     worker_skipped: updates.workerSkipped ?? base.worker_skipped,
     is_match: updates.isMatch ?? base.is_match,
     matched_at: updates.matchedAt ?? base.matched_at,
+    worker_confirmed: updates.workerConfirmed ?? base.worker_confirmed,
+    employer_confirmed: updates.employerConfirmed ?? base.employer_confirmed,
+    worker_rated: updates.workerRated ?? base.worker_rated,
+    employer_rated: updates.employerRated ?? base.employer_rated,
+    shift_completed: updates.shiftCompleted ?? base.shift_completed,
   };
 
   const { error } = await sb().from('jm_likes').upsert(row, { onConflict: 'vacancy_id,worker_id' });
@@ -263,7 +287,6 @@ export async function dbCreateChat(
   vacTitle: string,
   companyName: string
 ): Promise<string> {
-  // Check if already exists
   const { data: existing } = await sb()
     .from('jm_chats')
     .select('id')
@@ -287,7 +310,6 @@ export async function dbCreateChat(
   const { error } = await sb().from('jm_chats').insert(row);
   if (error) console.error('dbCreateChat', error.message);
 
-  // System welcome message
   await dbInsertMessage(chatId, 'system', '🎉 Мэтч! Вы подошли друг другу. Познакомьтесь и обсудите детали!');
   return chatId;
 }
@@ -299,12 +321,16 @@ export async function dbMarkRead(chatId: string, role: 'worker' | 'employer'): P
 }
 
 export async function dbIncrementUnread(chatId: string, forRole: 'worker' | 'employer'): Promise<void> {
-  // Read current, increment
   const { data } = await sb().from('jm_chats').select('unread_worker,unread_employer').eq('id', chatId).maybeSingle();
   if (!data) return;
   const field = forRole === 'worker' ? 'unread_worker' : 'unread_employer';
   const cur = forRole === 'worker' ? data.unread_worker : data.unread_employer;
   await sb().from('jm_chats').update({ [field]: (cur ?? 0) + 1 }).eq('id', chatId);
+}
+
+export async function dbDeleteChat(chatId: string): Promise<void> {
+  await sb().from('jm_messages').delete().eq('chat_id', chatId);
+  await sb().from('jm_chats').delete().eq('id', chatId);
 }
 
 // ─── Saved ────────────────────────────────────────────────────────────────────
@@ -325,6 +351,33 @@ export async function dbRemoveSaved(userId: string, vacancyId: string): Promise<
   if (error) console.error('dbRemoveSaved', error.message);
 }
 
+// ─── Complaints ───────────────────────────────────────────────────────────────
+
+export async function dbFileComplaint(params: {
+  reporterId: string;
+  reporterPhone: string;
+  reporterCompany?: string;
+  targetId: string;
+  targetPhone: string;
+  targetCompany?: string;
+  complaintType: 'worker' | 'employer';
+  description?: string;
+}): Promise<void> {
+  const { error } = await sb().from('jm_complaints').insert({
+    id: uid(),
+    reporter_id: params.reporterId,
+    reporter_phone: params.reporterPhone,
+    reporter_company: params.reporterCompany ?? null,
+    target_id: params.targetId,
+    target_phone: params.targetPhone,
+    target_company: params.targetCompany ?? null,
+    complaint_type: params.complaintType,
+    description: params.description ?? null,
+    created_at: nowISO(),
+  });
+  if (error) console.error('dbFileComplaint', error.message);
+}
+
 // ─── Match logic ──────────────────────────────────────────────────────────────
 
 export async function dbCheckAndCreateMatch(
@@ -341,14 +394,12 @@ export async function dbCheckAndCreateMatch(
   if (!likeRow) return { matched: false };
   if (!likeRow.worker_liked || !likeRow.employer_liked || likeRow.is_match) return { matched: false };
 
-  // Create match
   await sb()
     .from('jm_likes')
     .update({ is_match: true, matched_at: nowISO() })
     .eq('vacancy_id', vacancyId)
     .eq('worker_id', workerId);
 
-  // Get vacancy info
   const { data: vac } = await sb().from('jm_vacancies').select('*').eq('id', vacancyId).maybeSingle();
 
   const chatId = await dbCreateChat(
@@ -360,4 +411,21 @@ export async function dbCheckAndCreateMatch(
   );
 
   return { matched: true, chatId };
+}
+
+// ─── Shift confirmation ───────────────────────────────────────────────────────
+
+export async function dbConfirmShift(
+  likeId: string,
+  role: 'worker' | 'employer'
+): Promise<{ bothConfirmed: boolean }> {
+  const field = role === 'worker' ? 'worker_confirmed' : 'employer_confirmed';
+  await sb().from('jm_likes').update({ [field]: true }).eq('id', likeId);
+
+  const { data } = await sb().from('jm_likes').select('worker_confirmed,employer_confirmed').eq('id', likeId).maybeSingle();
+  if (data?.worker_confirmed && data?.employer_confirmed) {
+    await sb().from('jm_likes').update({ shift_completed: true }).eq('id', likeId);
+    return { bothConfirmed: true };
+  }
+  return { bothConfirmed: false };
 }

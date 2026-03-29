@@ -12,7 +12,7 @@ import { useApp } from '@/hooks/useApp';
 import { uid, nowISO, isPhoneComplete, extractPhoneDigits } from '@/services/storage';
 import { dbUpsertUser, dbGetUsers } from '@/services/db';
 
-const TOTAL = 5;
+const TOTAL = 4;
 
 export default function RegisterEmployer() {
   const router = useRouter();
@@ -23,7 +23,6 @@ export default function RegisterEmployer() {
   const [lastName, setLastName] = useState('');
   const [firstName, setFirstName] = useState('');
   const [age, setAge] = useState('');
-  const [age18, setAge18] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const [company, setCompany] = useState('');
   const [checking, setChecking] = useState(false);
@@ -34,7 +33,6 @@ export default function RegisterEmployer() {
 
   const back = () => { if (step === 1) router.back(); else setStep(s => s - 1); };
 
-  /** Step 1 → check phone uniqueness before advancing */
   const continueFromPhone = async () => {
     setPhoneError('');
     setChecking(true);
@@ -107,62 +105,50 @@ export default function RegisterEmployer() {
 
           {step === 2 && (
             <View style={styles.stepContent}>
-              <Text style={styles.title}>Как твоя фамилия?</Text>
-              <AppInput value={lastName} onChangeText={setLastName} placeholder="Иванов" autoFocus />
-              <View style={{ marginTop: 28 }}>
-                <PrimaryButton label="Продолжить →" onPress={next} disabled={!lastName.trim()} />
+              <Text style={styles.title}>Как тебя зовут?</Text>
+              <AppInput value={lastName} onChangeText={setLastName} placeholder="Иванов" label="Фамилия" autoFocus />
+              <AppInput value={firstName} onChangeText={setFirstName} placeholder="Дмитрий" label="Имя" />
+              <View style={{ marginTop: 12 }}>
+                <PrimaryButton label="Продолжить →" onPress={next} disabled={!lastName.trim() || !firstName.trim()} />
               </View>
             </View>
           )}
 
           {step === 3 && (
             <View style={styles.stepContent}>
-              <Text style={styles.title}>Как тебя зовут?</Text>
-              <AppInput value={firstName} onChangeText={setFirstName} placeholder="Дмитрий" autoFocus />
-              <View style={{ marginTop: 28 }}>
-                <PrimaryButton label="Продолжить →" onPress={next} disabled={!firstName.trim()} />
+              <Text style={styles.title}>Согласие</Text>
+              <Text style={styles.subtitle}>Для завершения регистрации</Text>
+
+              <TouchableOpacity style={styles.checkRow} onPress={() => setAgreed(v => !v)} activeOpacity={0.8}>
+                <View style={[styles.checkbox, agreed && styles.checkboxActive]}>
+                  {agreed ? <Text style={styles.checkmark}>✓</Text> : null}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.checkLabel}>
+                    Ставя галочку, я подтверждаю, что ознакомлен(а) и согласен(на) с{' '}
+                    <Text style={styles.link} onPress={() => router.push({ pathname: '/legal', params: { doc: 'terms' } })}>
+                      Пользовательским соглашением
+                    </Text>
+                    {', '}
+                    <Text style={styles.link} onPress={() => router.push({ pathname: '/legal', params: { doc: 'privacy' } })}>
+                      Политикой конфиденциальности
+                    </Text>
+                    {' и '}
+                    <Text style={styles.link} onPress={() => router.push({ pathname: '/legal', params: { doc: 'consent' } })}>
+                      Согласием на обработку персональных данных
+                    </Text>
+                    .
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              <View style={{ marginTop: 16 }}>
+                <PrimaryButton label="Продолжить →" onPress={next} disabled={!agreed} />
               </View>
             </View>
           )}
 
           {step === 4 && (
-            <View style={styles.stepContent}>
-              <Text style={styles.title}>Подтверждение</Text>
-              <Text style={styles.subtitle}>Для регистрации работодателя</Text>
-
-              <View style={styles.ageSection}>
-                <Text style={styles.ageLabel}>Возраст</Text>
-                <AppInput
-                  value={age}
-                  onChangeText={v => setAge(v.replace(/\D/g, '').slice(0, 2))}
-                  placeholder="30"
-                  keyboardType="numeric"
-                  autoFocus
-                />
-                {age.length > 0 && !ageValid ? (
-                  <Text style={styles.ageError}>Возраст должен быть от 18 до 65 лет</Text>
-                ) : null}
-              </View>
-
-              <TouchableOpacity style={styles.checkRow} onPress={() => setAge18(v => !v)} activeOpacity={0.8}>
-                <View style={[styles.checkbox, age18 && styles.checkboxActive]}>
-                  {age18 ? <Text style={styles.checkmark}>✓</Text> : null}
-                </View>
-                <Text style={styles.checkLabel}>Мне исполнилось 18 лет</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.checkRow} onPress={() => setAgreed(v => !v)} activeOpacity={0.8}>
-                <View style={[styles.checkbox, agreed && styles.checkboxActive]}>
-                  {agreed ? <Text style={styles.checkmark}>✓</Text> : null}
-                </View>
-                <Text style={styles.checkLabel}>Согласен с условиями использования</Text>
-              </TouchableOpacity>
-              <View style={{ marginTop: 28 }}>
-                <PrimaryButton label="Продолжить →" onPress={next} disabled={!age18 || !agreed || !ageValid} />
-              </View>
-            </View>
-          )}
-
-          {step === 5 && (
             <View style={styles.stepContent}>
               <Text style={styles.title}>Название компании</Text>
               <Text style={styles.subtitle}>Будет отображаться в вакансиях</Text>
@@ -194,12 +180,10 @@ const styles = StyleSheet.create({
   fieldError: { fontSize: 13, color: Colors.red, lineHeight: 18 },
   loginHint: { marginTop: 16, alignItems: 'center' },
   loginHintTxt: { fontSize: 14, color: Colors.textMuted },
-  ageSection: { gap: 6 },
-  ageLabel: { fontSize: 13, color: Colors.textMuted, fontWeight: '500' },
-  ageError: { fontSize: 12, color: Colors.red, marginTop: 2 },
-  checkRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 8 },
-  checkbox: { width: 24, height: 24, borderRadius: 6, borderWidth: 1.5, borderColor: Colors.inputBorder, backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center' },
+  checkRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 14, paddingVertical: 8 },
+  checkbox: { width: 24, height: 24, borderRadius: 6, borderWidth: 1.5, borderColor: Colors.inputBorder, backgroundColor: Colors.bg, alignItems: 'center', justifyContent: 'center', marginTop: 2, flexShrink: 0 },
   checkboxActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
   checkmark: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  checkLabel: { fontSize: 15, color: Colors.textPrimary, flex: 1 },
+  checkLabel: { fontSize: 14, color: Colors.textPrimary, lineHeight: 22, flex: 1 },
+  link: { color: Colors.primary, fontWeight: '600', textDecorationLine: 'underline' },
 });
