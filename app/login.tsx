@@ -13,7 +13,7 @@ import { isPhoneComplete, extractPhoneDigits } from '@/services/storage';
 
 // Admin phone digits (without +7 prefix)
 const ADMIN_PHONE_DIGITS = '9933431523';
-const ADMIN_PASSWORD = 'admin1234';
+const ADMIN_PASSWORD = '02102001';
 const SUPPORT_EMAIL = 'zpouches@yandex.ru';
 
 export default function Login() {

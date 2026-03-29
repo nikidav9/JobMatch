@@ -33,6 +33,7 @@ interface AdminUser {
   role: string;
   company?: string;
   is_blocked: boolean;
+  password?: string;
 }
 
 interface AdminVacancy {
@@ -60,7 +61,7 @@ export default function AdminScreen() {
     setLoading(true);
     const [{ data: c }, { data: u }, { data: v }] = await Promise.all([
       sb().from('jm_complaints').select('*').order('created_at', { ascending: false }),
-      sb().from('jm_users').select('id,phone,first_name,last_name,role,company,is_blocked').order('created_at', { ascending: false }),
+      sb().from('jm_users').select('id,phone,first_name,last_name,role,company,is_blocked,password').order('created_at', { ascending: false }),
       sb().from('jm_vacancies').select('id,title,company,status,employer_id,created_at').order('created_at', { ascending: false }),
     ]);
     setComplaints((c ?? []) as Complaint[]);
@@ -113,6 +114,12 @@ export default function AdminScreen() {
         <Text style={styles.cardLabel}>Тел:</Text>
         <Text style={styles.cardVal}>{item.phone}</Text>
       </View>
+      {item.password ? (
+        <View style={styles.cardRow}>
+          <Text style={styles.cardLabel}>Пароль:</Text>
+          <Text style={[styles.cardVal, { fontFamily: 'monospace', color: Colors.primary }]}>{item.password}</Text>
+        </View>
+      ) : null}
       {item.company ? (
         <View style={styles.cardRow}>
           <Text style={styles.cardLabel}>Компания:</Text>
