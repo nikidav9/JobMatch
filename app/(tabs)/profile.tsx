@@ -85,7 +85,7 @@ export default function ProfileScreen() {
     if (editSection === 'company') updated.company = editCompany;
     await dbUpsertUser(updated);
     await refreshUsers();
-    await setCurrentUser(updated);
+    setCurrentUser(updated);
     showToast('Сохранено', 'success');
     setEditSection(null);
   };
@@ -143,7 +143,7 @@ export default function ProfileScreen() {
       const updated = { ...currentUser, avatarUrl };
       await dbUpsertUser(updated);
       await refreshUsers();
-      await setCurrentUser(updated);
+      setCurrentUser(updated);
       showToast('Фото обновлено 📷', 'success');
     } catch (e) {
       console.error('photo upload', e);
@@ -153,10 +153,11 @@ export default function ProfileScreen() {
     }
   };
 
-  const logout = async () => {
+  const logout = () => {
     setShowConfirmLogout(false);
-    // Clear state first — AuthGuard in _layout.tsx will detect null user and redirect to '/'
-    await setCurrentUser(null);
+    // Navigate immediately, then clear state in background
+    router.replace('/');
+    setCurrentUser(null);
   };
 
   return (

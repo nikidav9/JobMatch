@@ -69,7 +69,7 @@ export default function Login() {
       return;
     }
 
-    await setCurrentUser(user);
+    setCurrentUser(user);
     showToast('Добро пожаловать! 👋', 'success');
     router.replace('/(tabs)');
     setLoading(false);

@@ -13,7 +13,7 @@ interface ToastData { message: string; type: 'success' | 'error' | 'match' }
 
 interface AppContextType {
   currentUser: User | null;
-  setCurrentUser: (u: User | null) => Promise<void>;
+  setCurrentUser: (u: User | null) => void;
   users: User[];
   refreshUsers: () => Promise<void>;
   vacancies: Vacancy[];
@@ -29,6 +29,7 @@ interface AppContextType {
   refreshSaved: (user?: User | null) => Promise<void>;
   optimisticAddSaved: (vacancyId: string) => void;
   optimisticRemoveSaved: (vacancyId: string) => void;
+  optimisticUpdateLike: (vacancyId: string, workerId: string, patch: Partial<import('@/constants/types').Like>) => void;
   toast: ToastData | null;
   showToast: (message: string, type?: 'success' | 'error' | 'match') => void;
   refreshAll: (user?: User | null) => Promise<void>;
@@ -51,25 +52,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // ── Session ──────────────────────────────────────────────────────────────
 
-  const setCurrentUser = async (u: User | null) => {
+  const setCurrentUser = (u: User | null) => {
     if (u) {
       _setCurrentUser(u);
-      await saveSessionUser(u);
-      // Refresh all data for the newly logged-in user
-      await Promise.all([
+      // Save session and refresh in background — don't block caller
+      saveSessionUser(u).catch(() => {});
+      Promise.all([
         refreshUsers(),
         refreshVacancies(),
         refreshLikes(),
         refreshChats(u),
         refreshSaved(u),
-      ]);
+      ]).catch(() => {});
     } else {
-      // Clear state first so AuthGuard sees null and redirects
+      // Synchronously clear all state — triggers immediate re-render and navigation
       _setCurrentUser(null);
       setChats([]);
       setSavedIds([]);
       setLikes([]);
-      await clearSessionUser();
+      setVacancies([]);
+      clearSessionUser().catch(() => {});
     }
   };
 
@@ -120,6 +122,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
   const optimisticRemoveSaved = (vacancyId: string) => {
     setSavedIds(prev => prev.filter(id => id !== vacancyId));
+  };
+  const optimisticUpdateLike = (vacancyId: string, workerId: string, patch: Partial<Like>) => {
+    setLikes(prev => {
+      const idx = prev.findIndex(l => l.vacancyId === vacancyId && l.workerId === workerId);
+      if (idx === -1) return prev;
+      const updated = { ...prev[idx], ...patch };
+      return [...prev.slice(0, idx), updated, ...prev.slice(idx + 1)];
+    });
   };
 
   // ── Boot ──────────────────────────────────────────────────────────────────
@@ -195,6 +205,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         refreshSaved,
         optimisticAddSaved,
         optimisticRemoveSaved,
+        optimisticUpdateLike,
         toast,
         showToast,
         refreshAll,

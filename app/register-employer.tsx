@@ -77,7 +77,7 @@ export default function RegisterEmployer() {
     };
     await dbUpsertUser(user);
     await refreshUsers();
-    await setCurrentUser(user);
+    setCurrentUser(user);
     showToast('Добро пожаловать! 👋', 'success');
     router.replace('/(tabs)');
   };
