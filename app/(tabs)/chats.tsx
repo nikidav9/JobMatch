@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, SafeAreaView, FlatList, TouchableOpacity,
   TextInput, Animated, PanResponder, Dimensions, Alert,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Colors, Radius, Shadow } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
@@ -12,6 +13,27 @@ import { dbDeleteChat } from '@/services/db';
 
 const { width: SW } = Dimensions.get('window');
 const DELETE_THRESHOLD = -80;
+
+function UserAvatar({ name, avatarUrl, size = 44 }: { name: string; avatarUrl?: string; size?: number }) {
+  const color = nameColorFromString(name);
+  const initials = getInitials(name);
+  const borderRadius = size / 2;
+  if (avatarUrl) {
+    return (
+      <Image
+        source={{ uri: avatarUrl }}
+        style={{ width: size, height: size, borderRadius }}
+        contentFit="cover"
+        transition={150}
+      />
+    );
+  }
+  return (
+    <View style={[{ width: size, height: size, borderRadius, alignItems: 'center', justifyContent: 'center', backgroundColor: color }]}>
+      <Text style={{ color: '#fff', fontSize: size * 0.36, fontWeight: '700' }}>{initials}</Text>
+    </View>
+  );
+}
 
 function ChatRow({ item, currentUser, users, onPress, onDelete }: {
   item: Chat;
@@ -42,15 +64,13 @@ function ChatRow({ item, currentUser, users, onPress, onDelete }: {
     },
   })).current;
 
-  const name = (() => {
-    const otherId = currentUser.role === 'worker' ? item.employerId : item.workerId;
-    const other = users.find((u: any) => u.id === otherId);
-    return other ? `${other.firstName} ${other.lastName}` : item.companyName;
-  })();
+  const otherId = currentUser.role === 'worker' ? item.employerId : item.workerId;
+  const other = users.find((u: any) => u.id === otherId);
+  const name = other ? `${other.firstName} ${other.lastName}` : item.companyName;
+  const avatarUrl = other?.avatarUrl;
 
   const unread = currentUser.role === 'worker' ? item.unreadWorker : item.unreadEmployer;
   const last = item.messages[item.messages.length - 1];
-  const color = nameColorFromString(name);
 
   const formatTime = (iso: string) => {
     const d = new Date(iso);
@@ -87,9 +107,7 @@ function ChatRow({ item, currentUser, users, onPress, onDelete }: {
 
       <Animated.View style={[styles.chatRowAnimated, { transform: [{ translateX: pan }] }]} {...panResponder.panHandlers}>
         <TouchableOpacity style={styles.chatRow} onPress={onPress} activeOpacity={0.8}>
-          <View style={[styles.avatar, { backgroundColor: color }]}>
-            <Text style={styles.avatarText}>{getInitials(name)}</Text>
-          </View>
+          <UserAvatar name={name} avatarUrl={avatarUrl} size={44} />
           <View style={styles.chatInfo}>
             <View style={styles.chatTop}>
               <Text style={styles.chatName} numberOfLines={1}>{name}</Text>

@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, SafeAreaView, TextInput,
   TouchableOpacity, FlatList, KeyboardAvoidingView, Platform,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Colors, Radius, Shadow } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
@@ -44,6 +45,7 @@ export default function ChatRoom() {
   const other = users.find(u => u.id === otherId);
   const otherName = other ? `${other.firstName} ${other.lastName}` : chat.companyName;
   const otherColor = nameColorFromString(otherName);
+  const otherAvatarUrl = other?.avatarUrl;
 
   // Mark as read on mount
   useEffect(() => {
@@ -113,7 +115,21 @@ export default function ChatRoom() {
     }
     const isMe = item.senderId === currentUser.id;
     return (
-      <View style={[styles.msgRow, isMe && styles.msgRowMe]}>
+      <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowThem]}>
+        {!isMe ? (
+          otherAvatarUrl ? (
+            <Image
+              source={{ uri: otherAvatarUrl }}
+              style={styles.msgAvatar}
+              contentFit="cover"
+              transition={150}
+            />
+          ) : (
+            <View style={[styles.msgAvatar, { backgroundColor: otherColor, alignItems: 'center', justifyContent: 'center' }]}>
+              <Text style={styles.msgAvatarText}>{getInitials(otherName)}</Text>
+            </View>
+          )
+        ) : null}
         <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem]}>
           <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>{item.text}</Text>
           <Text style={[styles.timestamp, isMe && styles.timestampMe]}>{formatTime(item.timestamp)}</Text>
@@ -130,9 +146,18 @@ export default function ChatRoom() {
           <Text style={styles.backText}>← Назад</Text>
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <View style={[styles.headerAvatar, { backgroundColor: otherColor }]}>
-            <Text style={styles.headerAvatarText}>{getInitials(otherName)}</Text>
-          </View>
+          {otherAvatarUrl ? (
+            <Image
+              source={{ uri: otherAvatarUrl }}
+              style={styles.headerAvatar}
+              contentFit="cover"
+              transition={150}
+            />
+          ) : (
+            <View style={[styles.headerAvatar, { backgroundColor: otherColor, alignItems: 'center', justifyContent: 'center' }]}>
+              <Text style={styles.headerAvatarText}>{getInitials(otherName)}</Text>
+            </View>
+          )}
           <View>
             <Text style={styles.headerName}>{otherName}</Text>
             <Text style={styles.headerSub} numberOfLines={1}>{chat.vacTitle}</Text>
@@ -190,7 +215,7 @@ const styles = StyleSheet.create({
   backBtn: {},
   backText: { fontSize: 15, color: Colors.textSecondary, fontWeight: '500' },
   headerCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, justifyContent: 'center' },
-  headerAvatar: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+  headerAvatar: { width: 34, height: 34, borderRadius: 17 },
   headerAvatarText: { color: '#fff', fontSize: 13, fontWeight: '700' },
   headerName: { fontSize: 15, fontWeight: '700', color: Colors.textPrimary },
   headerSub: { fontSize: 11, color: Colors.textMuted, maxWidth: 160 },
@@ -200,9 +225,12 @@ const styles = StyleSheet.create({
     borderRadius: 100, paddingHorizontal: 14, paddingVertical: 6, marginVertical: 8,
   },
   systemText: { fontSize: 13, color: Colors.primary, fontWeight: '600', textAlign: 'center' },
-  msgRow: { flexDirection: 'row', marginVertical: 2 },
+  msgRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginVertical: 2 },
   msgRowMe: { justifyContent: 'flex-end' },
-  bubble: { maxWidth: '75%', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18 },
+  msgRowThem: { justifyContent: 'flex-start' },
+  msgAvatar: { width: 28, height: 28, borderRadius: 14, flexShrink: 0 },
+  msgAvatarText: { color: '#fff', fontSize: 10, fontWeight: '700' },
+  bubble: { maxWidth: '72%', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18 },
   bubbleMe: { backgroundColor: Colors.primary, borderBottomRightRadius: 4 },
   bubbleThem: { backgroundColor: Colors.surface, borderBottomLeftRadius: 4 },
   bubbleText: { fontSize: 14, color: Colors.textPrimary, lineHeight: 20 },
