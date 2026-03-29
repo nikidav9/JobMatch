@@ -208,7 +208,7 @@ function WorkerFeed() {
       <View style={styles.header}>
         <Text style={styles.logo}>
           <Text style={styles.logoB}>Job</Text>
-          <Text style={styles.logoO}>Ty</Text>
+          <Text style={styles.logoO}>Too</Text>
         </Text>
         <TouchableOpacity
           style={[styles.filterBtn, filterLineId ? styles.filterBtnActive : null]}
@@ -458,7 +458,7 @@ function EmployerHome() {
       <View style={styles.header}>
         <Text style={styles.logo}>
           <Text style={styles.logoB}>Job</Text>
-          <Text style={styles.logoO}>Ty</Text>
+          <Text style={styles.logoO}>Too</Text>
         </Text>
         <TouchableOpacity style={styles.addBtn} onPress={() => router.push('/create-vacancy')} activeOpacity={0.8}>
           <Text style={styles.addBtnText}>＋ Вакансия</Text>

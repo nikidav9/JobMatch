@@ -2,12 +2,16 @@ import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
   TouchableOpacity, Modal, KeyboardAvoidingView, Platform,
+  ActivityIndicator,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import { Colors, Radius, Shadow } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
 import { getInitials, nameColorFromString } from '@/services/storage';
 import { dbUpsertUser } from '@/services/db';
+import { getSupabaseClient } from '@/template';
 import { AppInput } from '@/components/ui/AppInput';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { MetroPicker } from '@/components/feature/MetroPicker';
@@ -44,6 +48,7 @@ export default function ProfileScreen() {
   const [editSection, setEditSection] = useState<EditSection>(null);
   const [showConfirmLogout, setShowConfirmLogout] = useState(false);
   const [metroPicker, setMetroPicker] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   const [editPhone, setEditPhone] = useState('');
   const [editLast, setEditLast] = useState('');
@@ -85,11 +90,72 @@ export default function ProfileScreen() {
     setEditSection(null);
   };
 
+  const pickAndUploadPhoto = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      showToast('Нет доступа к галерее', 'error');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+      base64: true,
+    });
+
+    if (result.canceled || !result.assets[0]) return;
+
+    setUploadingPhoto(true);
+    try {
+      const asset = result.assets[0];
+      const base64 = asset.base64!;
+      const extension = asset.uri.split('.').pop()?.toLowerCase() ?? 'jpg';
+      const mimeType = extension === 'png' ? 'image/png' : 'image/jpeg';
+      const fileName = `avatar_${currentUser.id}.${extension}`;
+
+      const sb = getSupabaseClient();
+
+      // Convert base64 to Uint8Array for upload
+      const byteChars = atob(base64);
+      const byteArr = new Uint8Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) {
+        byteArr[i] = byteChars.charCodeAt(i);
+      }
+
+      const { error: uploadError } = await sb.storage
+        .from('avatars')
+        .upload(fileName, byteArr, {
+          contentType: mimeType,
+          upsert: true,
+        });
+
+      if (uploadError) {
+        showToast('Ошибка загрузки фото', 'error');
+        console.error('upload error', uploadError);
+        return;
+      }
+
+      const { data: urlData } = sb.storage.from('avatars').getPublicUrl(fileName);
+      const avatarUrl = urlData.publicUrl;
+
+      const updated = { ...currentUser, avatarUrl };
+      await dbUpsertUser(updated);
+      await refreshUsers();
+      await setCurrentUser(updated);
+      showToast('Фото обновлено 📷', 'success');
+    } catch (e) {
+      console.error('photo upload', e);
+      showToast('Не удалось загрузить фото', 'error');
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
   const logout = async () => {
     setShowConfirmLogout(false);
-    // Navigate FIRST, then clear session — prevents white screen
     router.replace('/');
-    // Small delay to let navigation commit before clearing state
     setTimeout(async () => {
       await setCurrentUser(null);
     }, 100);
@@ -101,9 +167,31 @@ export default function ProfileScreen() {
         <Text style={styles.pageTitle}>Профиль</Text>
 
         <View style={styles.topCard}>
-          <View style={[styles.bigAvatar, { backgroundColor: avatarColor }]}>
-            <Text style={styles.bigAvatarText}>{initials}</Text>
-          </View>
+          {/* Avatar — tappable to change photo */}
+          <TouchableOpacity onPress={pickAndUploadPhoto} activeOpacity={0.8} style={styles.avatarWrapper}>
+            {currentUser.avatarUrl ? (
+              <Image
+                source={{ uri: currentUser.avatarUrl }}
+                style={styles.bigAvatarImg}
+                contentFit="cover"
+                transition={200}
+              />
+            ) : (
+              <View style={[styles.bigAvatar, { backgroundColor: avatarColor }]}>
+                <Text style={styles.bigAvatarText}>{initials}</Text>
+              </View>
+            )}
+            {uploadingPhoto ? (
+              <View style={styles.avatarOverlay}>
+                <ActivityIndicator size="small" color="#fff" />
+              </View>
+            ) : (
+              <View style={styles.avatarCameraBtn}>
+                <Text style={styles.avatarCameraIcon}>📷</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+
           <Text style={styles.fullName}>{currentUser.firstName} {currentUser.lastName}</Text>
           <View style={styles.roleBadge}>
             <Text style={styles.roleText}>{currentUser.role === 'worker' ? 'Работник' : 'Работодатель'}</Text>
@@ -272,8 +360,23 @@ const styles = StyleSheet.create({
   scroll: { padding: 16, paddingBottom: 100, gap: 12 },
   pageTitle: { fontSize: 22, fontWeight: '800', color: Colors.textPrimary, marginBottom: 4 },
   topCard: { backgroundColor: Colors.bg, borderRadius: Radius.xl, padding: 24, alignItems: 'center', ...Shadow.card },
-  bigAvatar: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center' },
-  bigAvatarText: { color: '#fff', fontSize: 28, fontWeight: '800' },
+  avatarWrapper: { position: 'relative', marginBottom: 0 },
+  bigAvatarImg: { width: 88, height: 88, borderRadius: 44 },
+  bigAvatar: { width: 88, height: 88, borderRadius: 44, alignItems: 'center', justifyContent: 'center' },
+  bigAvatarText: { color: '#fff', fontSize: 30, fontWeight: '800' },
+  avatarOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    borderRadius: 44, backgroundColor: 'rgba(0,0,0,0.4)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  avatarCameraBtn: {
+    position: 'absolute', bottom: 0, right: 0,
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: Colors.primary,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: Colors.bg,
+  },
+  avatarCameraIcon: { fontSize: 13 },
   fullName: { fontSize: 20, fontWeight: '800', color: Colors.textPrimary, marginTop: 12 },
   roleBadge: { backgroundColor: Colors.primary, borderRadius: 100, paddingHorizontal: 14, paddingVertical: 4, marginTop: 8 },
   roleText: { color: '#fff', fontSize: 13, fontWeight: '600' },
