@@ -126,8 +126,10 @@ export default function CreateVacancy() {
     : (Platform.OS === 'ios' ? tempDate : selectedTimeEnd);
 
   const setNormVal = (key: NormKey, val: string) => {
-    // Allow digits and one decimal point
-    const cleaned = val.replace(/[^0-9.]/g, '');
+    // Replace comma with dot (iOS decimal-pad uses locale comma)
+    const normalized = val.replace(',', '.');
+    // Allow digits and one decimal point only
+    const cleaned = normalized.replace(/[^0-9.]/g, '');
     // Prevent multiple dots
     const parts = cleaned.split('.');
     const sanitized = parts.length > 2 ? `${parts[0]}.${parts.slice(1).join('')}` : cleaned;
