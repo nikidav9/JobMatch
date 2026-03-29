@@ -8,8 +8,8 @@ import { Colors, Radius, Shadow } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
 import { Like, Vacancy } from '@/constants/types';
 import { formatDate, getInitials, nameColorFromString } from '@/services/storage';
-import { dbUpsertLike, dbCheckAndCreateMatch, dbConfirmShift } from '@/services/db';
-import { notifyMatch } from '@/services/notifications';
+import { dbUpsertLike, dbCheckAndCreateMatch, dbConfirmShift, dbSubmitRatingAndMaybeDelete } from '@/services/db';
+import { notifyMatch, notifyShiftConfirmed } from '@/services/notifications';
 import { Chip } from '@/components/ui/Chip';
 import { VacancyDetailModal } from '@/components/feature/VacancyDetailModal';
 
@@ -37,14 +37,15 @@ function WorkerMatches() {
   if (!currentUser) return null;
 
   const relevant = likes.filter(
-    l => l.workerId === currentUser.id && l.workerLiked && l.employerLiked
+    l => l.workerId === currentUser.id && l.workerLiked && (l.employerLiked || l.isMatch)
   );
 
   const getVacancy = (id: string) => vacancies.find(v => v.id === id);
 
-  const confirmed = relevant.filter(l => l.shiftCompleted);
+  const pending = relevant.filter(l => !l.isMatch && l.employerLiked);
   const matched = relevant.filter(l => l.isMatch && !l.shiftCompleted);
-  const pending = relevant.filter(l => !l.isMatch);
+  const completed = relevant.filter(l => l.shiftCompleted);
+  const allItems = [...pending, ...matched, ...completed];
 
   const confirmMatch = async (like: Like) => {
     setLoading(like.vacancyId);
@@ -64,17 +65,18 @@ function WorkerMatches() {
     const { bothConfirmed } = await dbConfirmShift(like.id, 'worker');
     await refreshAll();
     if (bothConfirmed) {
-      showToast('Смена подтверждена! Оцените работодателя 🌟', 'success');
       const vac = getVacancy(like.vacancyId);
       const employer = users.find(u => u.id === like.employerId);
+      const employerName = employer ? (employer.company ?? `${employer.firstName} ${employer.lastName}`) : 'Работодатель';
+
+      // Notify employer
+      await notifyShiftConfirmed({ role: 'employer', otherName: `${currentUser.firstName} ${currentUser.lastName}`, vacancyTitle: vac?.title ?? '' });
+
+      showToast('Смена подтверждена! Оцените работодателя 🌟', 'success');
       if (employer && vac) {
         router.push({
           pathname: '/rate',
-          params: {
-            likeId: like.id, toUserId: employer.id,
-            toName: employer.company ?? `${employer.firstName} ${employer.lastName}`,
-            vacancyId: vac.id, role: 'worker',
-          },
+          params: { likeId: like.id, toUserId: employer.id, toName: employerName, vacancyId: vac.id, role: 'worker' },
         });
       }
     } else {
@@ -90,8 +92,6 @@ function WorkerMatches() {
     setLoading(null);
     showToast('Отклонено', 'success');
   };
-
-  const allItems = [...pending, ...matched, ...confirmed];
 
   if (allItems.length === 0) {
     return (
@@ -128,26 +128,18 @@ function WorkerMatches() {
         <View style={styles.chipsRow}>
           <Chip label={`📅 ${formatDate(vac.date)}`} variant="date" />
           <Chip label={`⏰ ${vac.timeStart}–${vac.timeEnd}`} variant="time" />
-          <Chip label={`💰 ${vac.salary.toLocaleString('ru')} ₽`} variant="salary" />
         </View>
 
-        {/* Pending offer — not yet a match */}
         {!isMatched ? (
-          <>
-            <TouchableOpacity style={styles.detailLink} onPress={() => setDetailVacancy(vac)}>
-              <Text style={styles.detailLinkTxt}>Подробнее о вакансии →</Text>
+          <View style={styles.actionRow}>
+            <TouchableOpacity style={[styles.declineBtn, isLoadingDecline && { opacity: 0.5 }]} onPress={() => decline(like)} disabled={!!loading} activeOpacity={0.8}>
+              {isLoadingDecline ? <ActivityIndicator size="small" color={Colors.red} /> : <Text style={styles.declineBtnText}>✕ Не подходит</Text>}
             </TouchableOpacity>
-            <View style={styles.actionRow}>
-              <TouchableOpacity style={[styles.declineBtn, isLoadingDecline && { opacity: 0.5 }]} onPress={() => decline(like)} disabled={!!loading} activeOpacity={0.8}>
-                {isLoadingDecline ? <ActivityIndicator size="small" color={Colors.red} /> : <Text style={styles.declineBtnText}>✕ Не подходит</Text>}
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.acceptBtn, isLoadingConfirm && { opacity: 0.5 }]} onPress={() => confirmMatch(like)} disabled={!!loading} activeOpacity={0.8}>
-                {isLoadingConfirm ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.acceptBtnText}>✅ Всё подходит!</Text>}
-              </TouchableOpacity>
-            </View>
-          </>
+            <TouchableOpacity style={[styles.acceptBtn, isLoadingConfirm && { opacity: 0.5 }]} onPress={() => confirmMatch(like)} disabled={!!loading} activeOpacity={0.8}>
+              {isLoadingConfirm ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.acceptBtnText}>✅ Всё подходит!</Text>}
+            </TouchableOpacity>
+          </View>
         ) : !isCompleted ? (
-          /* Matched — confirm shift */
           <View style={styles.actionRow}>
             <TouchableOpacity style={styles.chatBtn} onPress={() => router.push({ pathname: '/(tabs)/chats' })} activeOpacity={0.8}>
               <Text style={styles.chatBtnText}>💬 Чат</Text>
@@ -161,7 +153,6 @@ function WorkerMatches() {
             )}
           </View>
         ) : (
-          /* Completed */
           <TouchableOpacity style={styles.chatBtn} onPress={() => router.push({ pathname: '/(tabs)/chats' })} activeOpacity={0.8}>
             <Text style={styles.chatBtnText}>💬 Открыть чат</Text>
           </TouchableOpacity>
@@ -233,17 +224,18 @@ function EmployerMatches() {
     const { bothConfirmed } = await dbConfirmShift(like.id, 'employer');
     await refreshAll();
     if (bothConfirmed) {
-      showToast('Смена подтверждена! Оцените работника 🌟', 'success');
       const worker = getWorker(like.workerId);
       const vac = getVacancy(like.vacancyId);
+      const workerName = worker ? `${worker.firstName} ${worker.lastName}` : 'Работник';
+
+      // Notify worker
+      await notifyShiftConfirmed({ role: 'worker', otherName: workerName, vacancyTitle: vac?.title ?? '' });
+
+      showToast('Смена подтверждена! Оцените работника 🌟', 'success');
       if (worker && vac) {
         router.push({
           pathname: '/rate',
-          params: {
-            likeId: like.id, toUserId: worker.id,
-            toName: `${worker.firstName} ${worker.lastName}`,
-            vacancyId: vac.id, role: 'employer',
-          },
+          params: { likeId: like.id, toUserId: worker.id, toName: workerName, vacancyId: vac.id, role: 'employer' },
         });
       }
     } else {
@@ -316,7 +308,7 @@ function EmployerMatches() {
           </View>
           <View style={styles.hiddenPhone}><Text style={styles.hiddenPhoneText}>●●●●●●</Text></View>
         </View>
-        <Text style={styles.vacLabel}>{vac.title} · {formatDate(vac.date)} · {vac.salary.toLocaleString('ru')} ₽</Text>
+        <Text style={styles.vacLabel}>{vac.title} · {formatDate(vac.date)}</Text>
 
         {!isApproved ? (
           <View style={styles.actionRow}>
@@ -392,8 +384,6 @@ const styles = StyleSheet.create({
   metroHint: { fontSize: 12, color: Colors.textMuted, marginTop: 2 },
   vacLabel: { fontSize: 13, color: Colors.textMuted },
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  detailLink: { alignSelf: 'flex-start' },
-  detailLinkTxt: { fontSize: 13, color: Colors.primary, fontWeight: '600' },
   phoneReveal: { backgroundColor: Colors.primaryLight, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
   phoneRevealText: { color: Colors.primary, fontSize: 12, fontWeight: '700' },
   hiddenPhone: { backgroundColor: Colors.surface, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },

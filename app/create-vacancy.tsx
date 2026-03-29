@@ -7,7 +7,6 @@ import {
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Colors, Radius } from '@/constants/theme';
-import { AppInput } from '@/components/ui/AppInput';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { MetroPicker } from '@/components/feature/MetroPicker';
 import { useApp } from '@/hooks/useApp';
@@ -29,17 +28,20 @@ function parseTimeToDate(time: string): Date {
   const d = new Date(); d.setHours(h, min, 0, 0); return d;
 }
 
+// Norm fields — НПО allows 1–999, others 0–20 with decimals
 const NORM_FIELDS = [
-  { key: 'sborka', label: 'Сборка товара' },
-  { key: 'razmTovara', label: 'Размещение товара' },
-  { key: 'razmMaketa', label: 'Размещение макета' },
-  { key: 'razmMoroza', label: 'Размещение мороза' },
-  { key: 'razmMulti', label: 'Размещение многоштучки' },
-  { key: 'npo', label: 'НПО' },
+  { key: 'sborka',      label: 'Сборка товара',          max: 20  },
+  { key: 'razmTovara',  label: 'Размещение товара',       max: 20  },
+  { key: 'razmMaketa',  label: 'Размещение макета',       max: 20  },
+  { key: 'razmMoroza',  label: 'Размещение мороза',       max: 20  },
+  { key: 'razmMulti',   label: 'Размещение многоштучки',  max: 20  },
+  { key: 'npo',         label: 'НПО',                    max: 999 },
 ] as const;
 
 type NormKey = typeof NORM_FIELDS[number]['key'];
 type Norms = Record<NormKey, string>;
+
+const DEFAULT_NORMS: Norms = { sborka: '', razmTovara: '', razmMaketa: '', razmMoroza: '', razmMulti: '', npo: '' };
 
 function buildNormsText(address: string, norms: Norms): string {
   const lines = NORM_FIELDS.map(f => `— ${f.label}: ${norms[f.key] || '0'} ₽`).join('\n');
@@ -57,7 +59,7 @@ export default function CreateVacancy() {
   const isEdit = !!existing;
 
   const [loadingInit, setLoadingInit] = useState(isEdit);
-  const [title, setTitle] = useState('');
+  const [title, setTitle] = useState('Кладовщик');
   const [address, setAddress] = useState('');
   const [metroLineId, setMetroLineId] = useState('');
   const [metroLineName, setMetroLineName] = useState('');
@@ -68,13 +70,13 @@ export default function CreateVacancy() {
   const [pickerMode, setPickerMode] = useState<PickerMode>(null);
   const [iosPickerVisible, setIosPickerVisible] = useState(false);
   const [tempDate, setTempDate] = useState<Date>(new Date());
-  const [salary, setSalary] = useState('');
-  const [norms, setNorms] = useState<Norms>({ sborka: '', razmTovara: '', razmMaketa: '', razmMoroza: '', razmMulti: '', npo: '' });
+  const [norms, setNorms] = useState<Norms>(DEFAULT_NORMS);
   const [workersNeeded, setWorkersNeeded] = useState(1);
   const [isUrgent, setIsUrgent] = useState(false);
   const [noExp, setNoExp] = useState(true);
   const [metroPicker, setMetroPicker] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!existing) { setLoadingInit(false); return; }
@@ -87,7 +89,6 @@ export default function CreateVacancy() {
     if (existing.date) setSelectedDate(parseISOToDate(existing.date));
     if (existing.timeStart) setSelectedTimeStart(parseTimeToDate(existing.timeStart));
     if (existing.timeEnd) setSelectedTimeEnd(parseTimeToDate(existing.timeEnd));
-    setSalary(existing.salary > 0 ? existing.salary.toString() : '');
     setWorkersNeeded(existing.workersNeeded);
     setIsUrgent(existing.isUrgent);
     setNoExp(existing.noExperienceNeeded);
@@ -118,33 +119,43 @@ export default function CreateVacancy() {
     else if (mode === 'timeEnd') setSelectedTimeEnd(date);
   };
 
-  const pickerDateValue = pickerMode === 'date' ? (Platform.OS === 'ios' ? tempDate : selectedDate)
-    : pickerMode === 'timeStart' ? (Platform.OS === 'ios' ? tempDate : selectedTimeStart)
+  const pickerDateValue = pickerMode === 'date'
+    ? (Platform.OS === 'ios' ? tempDate : selectedDate)
+    : pickerMode === 'timeStart'
+    ? (Platform.OS === 'ios' ? tempDate : selectedTimeStart)
     : (Platform.OS === 'ios' ? tempDate : selectedTimeEnd);
 
   const setNormVal = (key: NormKey, val: string) => {
-    const cleaned = val.replace(/[^0-9.]/g, '').slice(0, 5);
-    setNorms(prev => ({ ...prev, [key]: cleaned }));
+    // Allow digits and one decimal point
+    const cleaned = val.replace(/[^0-9.]/g, '');
+    // Prevent multiple dots
+    const parts = cleaned.split('.');
+    const sanitized = parts.length > 2 ? `${parts[0]}.${parts.slice(1).join('')}` : cleaned;
+    setNorms(prev => ({ ...prev, [key]: sanitized }));
   };
 
-  const normsValid = NORM_FIELDS.every(f => {
-    const v = parseFloat(norms[f.key]);
-    return !isNaN(v) && v >= 0 && v <= 20;
-  });
+  const normFieldValid = (key: NormKey): boolean => {
+    const field = NORM_FIELDS.find(f => f.key === key)!;
+    const v = norms[key];
+    if (v === '') return false;
+    const num = parseFloat(v);
+    return !isNaN(num) && num >= 0 && num <= field.max;
+  };
+
+  const normsValid = NORM_FIELDS.every(f => normFieldValid(f.key));
 
   const validate = () => {
     const e: Record<string, string> = {};
-    if (!title.trim()) e.title = 'Введите название';
     if (!address.trim()) e.address = 'Введите адрес склада';
     if (!metroStation) e.metro = 'Выберите станцию метро';
-    if (!salary || isNaN(Number(salary)) || Number(salary) <= 0) e.salary = 'Укажите корректную оплату';
-    if (!normsValid) e.norms = 'Проверьте нормативы (0–20 ₽)';
+    if (!normsValid) e.norms = 'Проверьте нормативы (0–20 ₽, НПО: 1–999)';
     setErrors(e);
     return Object.keys(e).length === 0;
   };
 
   const submit = async () => {
-    if (!validate() || !currentUser) return;
+    if (!validate() || !currentUser || saving) return;
+    setSaving(true);
     const normsText = buildNormsText(address, norms);
     const vac: Vacancy = {
       id: existing?.id ?? uid(),
@@ -159,7 +170,7 @@ export default function CreateVacancy() {
       date: formatISODate(selectedDate),
       timeStart: formatTime(selectedTimeStart),
       timeEnd: formatTime(selectedTimeEnd),
-      salary: Number(salary),
+      salary: 0,
       normsAndPay: normsText,
       workersNeeded,
       workersFound: existing?.workersFound ?? 0,
@@ -173,10 +184,17 @@ export default function CreateVacancy() {
     await refreshVacancies();
     showToast(isEdit ? 'Вакансия обновлена ✅' : 'Вакансия опубликована ✅', 'success');
     router.back();
+    setSaving(false);
   };
 
   if (loadingInit) {
-    return <SafeAreaView style={styles.safe}><View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator size="large" color={Colors.primary} /></View></SafeAreaView>;
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+        </View>
+      </SafeAreaView>
+    );
   }
 
   return (
@@ -198,8 +216,6 @@ export default function CreateVacancy() {
             <View style={styles.typeBadge}><Text style={styles.typeBadgeText}>📦 Кладовщик</Text></View>
           </View>
 
-          <AppInput label="Название вакансии" value={title} onChangeText={setTitle} placeholder="Кладовщик на склад WB" error={errors.title} />
-
           {/* Address */}
           <View style={styles.fieldGroup}>
             <Text style={styles.sectionLabel}>Адрес склада *</Text>
@@ -207,7 +223,7 @@ export default function CreateVacancy() {
               style={[styles.input, errors.address ? styles.inputError : null]}
               value={address}
               onChangeText={setAddress}
-              placeholder="ул. Складская, д. 5"
+              placeholder="ул. Складская, д. 5, Москва"
               placeholderTextColor={Colors.textMuted}
             />
             {errors.address ? <Text style={styles.errMsg}>{errors.address}</Text> : null}
@@ -234,9 +250,13 @@ export default function CreateVacancy() {
               </TouchableOpacity>
             )}
             {errors.metro ? <Text style={styles.errMsg}>{errors.metro}</Text> : null}
-            <MetroPicker visible={metroPicker} onClose={() => setMetroPicker(false)}
+            <MetroPicker
+              visible={metroPicker}
+              onClose={() => setMetroPicker(false)}
               onSelect={(lid, lname, st) => { setMetroLineId(lid); setMetroLineName(lname); setMetroStation(st); setMetroPicker(false); }}
-              selectedLineId={metroLineId} selectedStation={metroStation} />
+              selectedLineId={metroLineId}
+              selectedStation={metroStation}
+            />
           </View>
 
           {/* Date */}
@@ -274,16 +294,15 @@ export default function CreateVacancy() {
             ) : null}
           </View>
 
-          <AppInput label="Оплата за смену ₽" value={salary} onChangeText={setSalary} placeholder="2000" keyboardType="numeric" error={errors.salary} />
-
           {/* Norms */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.sectionLabel}>Нормативы (₽ за единицу, 0–20) *</Text>
+            <Text style={styles.sectionLabel}>Нормативы (₽ за единицу) *</Text>
+            <Text style={styles.normHint}>Сборка/размещение: 0–20 ₽ (дробные значения допустимы) · НПО: 1–999</Text>
             {errors.norms ? <Text style={styles.errMsg}>{errors.norms}</Text> : null}
             {NORM_FIELDS.map(f => {
               const v = norms[f.key];
               const num = parseFloat(v);
-              const invalid = v !== '' && (isNaN(num) || num < 0 || num > 20);
+              const invalid = v !== '' && (isNaN(num) || num < 0 || num > f.max);
               return (
                 <View key={f.key} style={styles.normRow}>
                   <Text style={styles.normLabel}>{f.label}</Text>
@@ -291,8 +310,8 @@ export default function CreateVacancy() {
                     style={[styles.normInput, invalid ? styles.inputError : null]}
                     value={v}
                     onChangeText={val => setNormVal(f.key, val)}
-                    placeholder="0"
-                    keyboardType="numeric"
+                    placeholder={f.key === 'npo' ? '1' : '0'}
+                    keyboardType="decimal-pad"
                     placeholderTextColor={Colors.textMuted}
                   />
                   <Text style={styles.normUnit}>₽</Text>
@@ -334,11 +353,25 @@ export default function CreateVacancy() {
           ) : null}
 
           <View style={{ marginBottom: 40 }}>
-            <PrimaryButton label={isEdit ? '💾 Сохранить изменения' : '📋 Опубликовать вакансию'} onPress={submit} />
+            <TouchableOpacity
+              style={[styles.submitBtn, saving && { opacity: 0.6 }]}
+              onPress={submit}
+              disabled={saving}
+              activeOpacity={0.85}
+            >
+              {saving ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.submitBtnTxt}>
+                  {isEdit ? '💾 Сохранить изменения' : '📋 Опубликовать вакансию'}
+                </Text>
+              )}
+            </TouchableOpacity>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
 
+      {/* iOS date/time picker modal */}
       {Platform.OS === 'ios' ? (
         <Modal visible={iosPickerVisible} transparent animationType="slide">
           <View style={styles.iosOverlay}>
@@ -378,7 +411,11 @@ export default function CreateVacancy() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.bg },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: Colors.divider },
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingVertical: 14,
+    borderBottomWidth: 1, borderBottomColor: Colors.divider,
+  },
   backText: { fontSize: 15, color: Colors.textSecondary, fontWeight: '500' },
   headerTitle: { fontSize: 16, fontWeight: '700', color: Colors.textPrimary },
   body: { padding: 20, gap: 18, paddingBottom: 20 },
@@ -387,41 +424,82 @@ const styles = StyleSheet.create({
   typeBadge: { backgroundColor: Colors.primaryLight, borderRadius: 100, paddingHorizontal: 14, paddingVertical: 6 },
   typeBadgeText: { fontSize: 13, fontWeight: '700', color: Colors.primary },
   fieldGroup: { gap: 8 },
-  sectionLabel: { fontSize: 13, color: Colors.textMuted, fontWeight: '500' },
+  sectionLabel: { fontSize: 13, color: Colors.textMuted, fontWeight: '600' },
+  normHint: { fontSize: 11, color: Colors.textMuted, lineHeight: 16 },
   errMsg: { color: Colors.red, fontSize: 12 },
-  input: { borderWidth: 1.5, borderColor: Colors.inputBorder, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13, fontSize: 15, color: Colors.textPrimary, backgroundColor: Colors.bg },
+  input: {
+    borderWidth: 1.5, borderColor: Colors.inputBorder, borderRadius: 12,
+    paddingHorizontal: 14, paddingVertical: 13,
+    fontSize: 15, color: Colors.textPrimary, backgroundColor: Colors.bg,
+  },
   inputError: { borderColor: Colors.red },
-  metroField: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1.5, borderColor: Colors.inputBorder, borderRadius: 12, padding: 16 },
+  metroField: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    borderWidth: 1.5, borderColor: Colors.inputBorder, borderRadius: 12, padding: 16,
+  },
   metroFieldTxt: { fontSize: 15, color: Colors.textPrimary },
-  metroSelected: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1.5, borderColor: Colors.primary, borderRadius: 12, padding: 14, backgroundColor: Colors.primaryLight },
+  metroSelected: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderWidth: 1.5, borderColor: Colors.primary, borderRadius: 12, padding: 14,
+    backgroundColor: Colors.primaryLight,
+  },
   dot: { width: 12, height: 12, borderRadius: 6 },
   metroLineTxt: { fontSize: 11, color: Colors.textMuted },
   metroStTxt: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary, marginTop: 2 },
   changeLink: { color: Colors.primary, fontSize: 13, fontWeight: '600' },
-  pickerField: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1.5, borderColor: Colors.inputBorder, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, backgroundColor: Colors.bg },
+  pickerField: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderWidth: 1.5, borderColor: Colors.inputBorder, borderRadius: 12,
+    paddingHorizontal: 16, paddingVertical: 14, backgroundColor: Colors.bg,
+  },
   pickerIcon: { fontSize: 18 },
   pickerValue: { flex: 1, fontSize: 16, fontWeight: '600', color: Colors.textPrimary },
   pickerArrow: { fontSize: 20, color: Colors.textMuted },
   timeRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   timeSep: { fontSize: 20, color: Colors.textMuted, fontWeight: '600', paddingBottom: 4 },
-  normRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: Colors.divider },
+  normRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.divider,
+  },
   normLabel: { flex: 1, fontSize: 14, color: Colors.textPrimary },
-  normInput: { width: 64, borderWidth: 1.5, borderColor: Colors.inputBorder, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 15, fontWeight: '600', color: Colors.textPrimary, textAlign: 'center' },
+  normInput: {
+    width: 72, borderWidth: 1.5, borderColor: Colors.inputBorder, borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 8,
+    fontSize: 15, fontWeight: '600', color: Colors.textPrimary, textAlign: 'center',
+  },
   normUnit: { fontSize: 14, color: Colors.textMuted, width: 16 },
   stepperRow: { flexDirection: 'row', alignItems: 'center', gap: 20 },
-  stepBtn: { width: 44, height: 44, borderRadius: 100, backgroundColor: Colors.surface, borderWidth: 1.5, borderColor: Colors.inputBorder, alignItems: 'center', justifyContent: 'center' },
+  stepBtn: {
+    width: 44, height: 44, borderRadius: 100, backgroundColor: Colors.surface,
+    borderWidth: 1.5, borderColor: Colors.inputBorder, alignItems: 'center', justifyContent: 'center',
+  },
   stepBtnText: { fontSize: 22, color: Colors.textPrimary, fontWeight: '600' },
   stepNum: { fontSize: 22, fontWeight: '800', color: Colors.textPrimary, minWidth: 32, textAlign: 'center' },
-  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.divider },
+  toggleRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.divider,
+  },
   toggleLabel: { fontSize: 15, fontWeight: '500', color: Colors.textPrimary },
-  previewBox: { backgroundColor: Colors.surface, borderRadius: Radius.md, padding: 14, borderWidth: 1, borderColor: Colors.inputBorder },
+  previewBox: {
+    backgroundColor: Colors.surface, borderRadius: Radius.md,
+    padding: 14, borderWidth: 1, borderColor: Colors.inputBorder,
+  },
   previewTitle: { fontSize: 12, color: Colors.textMuted, fontWeight: '600', marginBottom: 8 },
   previewText: { fontSize: 13, color: Colors.textPrimary, lineHeight: 20 },
+  submitBtn: {
+    backgroundColor: Colors.primary, borderRadius: 100,
+    paddingVertical: 16, alignItems: 'center',
+  },
+  submitBtnTxt: { color: '#fff', fontSize: 16, fontWeight: '700' },
   iosOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
   iosSheet: { backgroundColor: Colors.bg, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 32 },
   iosPickerWrap: { backgroundColor: '#FFFFFF', width: '100%' },
   iosPicker: { width: '100%', height: 200, backgroundColor: '#FFFFFF' },
-  iosSheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: Colors.divider },
+  iosSheetHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 20, paddingVertical: 16,
+    borderBottomWidth: 1, borderBottomColor: Colors.divider,
+  },
   iosSheetTitle: { fontSize: 16, fontWeight: '700', color: Colors.textPrimary },
   iosCancelText: { fontSize: 15, color: Colors.textSecondary, fontWeight: '500' },
   iosDoneText: { fontSize: 15, color: Colors.primary, fontWeight: '700' },

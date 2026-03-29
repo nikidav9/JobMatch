@@ -31,7 +31,6 @@ export async function notifyMatch(options: {
     role === 'worker'
       ? `${companyName} хочет взять вас на смену: ${vacancyTitle}`
       : `${otherName} готов выйти на смену: ${vacancyTitle}`;
-
   await Notifications.scheduleNotificationAsync({
     content: { title, body, sound: true, data: { type: 'match' } },
     trigger: null,
@@ -50,9 +49,6 @@ export async function notifyNewMessage(senderName: string, preview: string): Pro
   });
 }
 
-/**
- * Push notification to employer when a new worker applies (workerLiked=true).
- */
 export async function notifyNewApplicant(options: {
   workerName: string;
   vacancyTitle: string;
@@ -65,6 +61,23 @@ export async function notifyNewApplicant(options: {
       sound: true,
       data: { type: 'applicant' },
     },
+    trigger: null,
+  });
+}
+
+export async function notifyShiftConfirmed(options: {
+  role: 'worker' | 'employer';
+  otherName: string;
+  vacancyTitle: string;
+}): Promise<void> {
+  const { role, otherName, vacancyTitle } = options;
+  const title = '✅ Смена подтверждена';
+  const body =
+    role === 'worker'
+      ? `${otherName} подтвердил(а) смену: ${vacancyTitle}. Оцените работника!`
+      : `${otherName} подтвердил(а) выход на смену: ${vacancyTitle}. Оцените работодателя!`;
+  await Notifications.scheduleNotificationAsync({
+    content: { title, body, sound: true, data: { type: 'shift_confirmed' } },
     trigger: null,
   });
 }

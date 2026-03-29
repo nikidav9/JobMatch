@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Stack, useRouter, usePathname } from 'expo-router';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -11,22 +11,26 @@ function AuthGuard() {
   const router = useRouter();
   const pathname = usePathname();
   const ctx = React.useContext(AppContext);
+  const navigatingRef = useRef(false);
 
   useEffect(() => {
     if (!ctx || ctx.loading) return;
 
-    const inProtected =
+    const isProtected =
       pathname.startsWith('/(tabs)') ||
       pathname === '/create-vacancy' ||
       pathname === '/candidates' ||
       pathname === '/chat-room' ||
       pathname === '/match' ||
-      pathname === '/rate' ||
-      pathname === '/admin';
+      pathname === '/rate';
 
-    if (!ctx.currentUser && inProtected) {
-      const t = setTimeout(() => router.replace('/'), 50);
-      return () => clearTimeout(t);
+    if (!ctx.currentUser && isProtected && !navigatingRef.current) {
+      navigatingRef.current = true;
+      // Use requestAnimationFrame to ensure navigation happens after render
+      requestAnimationFrame(() => {
+        router.replace('/');
+        setTimeout(() => { navigatingRef.current = false; }, 1000);
+      });
     }
   }, [ctx?.currentUser, ctx?.loading, pathname]);
 

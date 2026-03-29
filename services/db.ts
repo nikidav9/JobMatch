@@ -1,6 +1,5 @@
 /**
  * Supabase data layer — replaces AsyncStorage for persistent data.
- * Utility helpers (uid, formatDate, etc.) remain in storage.ts.
  */
 import { getSupabaseClient } from '@/template';
 import { User, Vacancy, Like, Chat, Message } from '@/constants/types';
@@ -8,7 +7,7 @@ import { uid, nowISO } from '@/services/storage';
 
 const sb = () => getSupabaseClient();
 
-// ─── Users ───────────────────────────────────────────────────────────────────
+// ─── Users ────────────────────────────────────────────────────────────────────
 
 function rowToUser(r: any): User {
   return {
@@ -214,6 +213,11 @@ export async function dbRemoveLike(vacancyId: string, workerId: string): Promise
     .eq('vacancy_id', vacancyId)
     .eq('worker_id', workerId);
   if (error) console.error('dbRemoveLike', error.message);
+}
+
+export async function dbDeleteMatch(likeId: string): Promise<void> {
+  const { error } = await sb().from('jm_likes').delete().eq('id', likeId);
+  if (error) console.error('dbDeleteMatch', error.message);
 }
 
 // ─── Messages ─────────────────────────────────────────────────────────────────
@@ -428,4 +432,60 @@ export async function dbConfirmShift(
     return { bothConfirmed: true };
   }
   return { bothConfirmed: false };
+}
+
+// ─── Rating & match deletion ──────────────────────────────────────────────────
+
+export async function dbSubmitRatingAndMaybeDelete(params: {
+  likeId: string;
+  fromUserId: string;
+  toUserId: string;
+  vacancyId: string;
+  rating: number;
+  role: 'worker' | 'employer';
+}): Promise<{ bothRated: boolean }> {
+  const { likeId, fromUserId, toUserId, vacancyId, rating, role } = params;
+
+  // Save rating record
+  await sb().from('jm_ratings').insert({
+    id: uid(),
+    from_user_id: fromUserId,
+    to_user_id: toUserId,
+    vacancy_id: vacancyId,
+    like_id: likeId,
+    rating,
+    role,
+    created_at: nowISO(),
+  });
+
+  // Mark as rated on like row
+  const ratedField = role === 'worker' ? 'worker_rated' : 'employer_rated';
+  await sb().from('jm_likes').update({ [ratedField]: true }).eq('id', likeId);
+
+  // Update target user average rating
+  const { data: allRatings } = await sb()
+    .from('jm_ratings')
+    .select('rating')
+    .eq('to_user_id', toUserId);
+  if (allRatings && allRatings.length > 0) {
+    const avg = allRatings.reduce((s: number, r: any) => s + r.rating, 0) / allRatings.length;
+    await sb().from('jm_users').update({
+      avg_rating: Math.round(avg * 100) / 100,
+      rating_count: allRatings.length,
+    }).eq('id', toUserId);
+  }
+
+  // Check if both sides have now rated
+  const { data: likeRow } = await sb()
+    .from('jm_likes')
+    .select('worker_rated,employer_rated')
+    .eq('id', likeId)
+    .maybeSingle();
+
+  if (likeRow?.worker_rated && likeRow?.employer_rated) {
+    // Both rated — delete the match (like row)
+    await sb().from('jm_likes').delete().eq('id', likeId);
+    return { bothRated: true };
+  }
+  return { bothRated: false };
 }

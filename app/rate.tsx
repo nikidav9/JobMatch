@@ -3,12 +3,10 @@ import {
   View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ActivityIndicator,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { Colors, Radius, Shadow } from '@/constants/theme';
+import { Colors, Radius } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
-import { getSupabaseClient } from '@/template';
-import { uid, nowISO } from '@/services/storage';
-
-const sb = () => getSupabaseClient();
+import { dbSubmitRatingAndMaybeDelete } from '@/services/db';
+import { notifyShiftConfirmed } from '@/services/notifications';
 
 export default function RateScreen() {
   const router = useRouter();
@@ -27,59 +25,55 @@ export default function RateScreen() {
     if (!rating || !currentUser) return;
     setLoading(true);
     try {
-      // Save rating
-      await sb().from('jm_ratings').insert({
-        id: uid(),
-        from_user_id: currentUser.id,
-        to_user_id: toUserId,
-        vacancy_id: vacancyId,
-        like_id: likeId,
+      const { bothRated } = await dbSubmitRatingAndMaybeDelete({
+        likeId,
+        fromUserId: currentUser.id,
+        toUserId,
+        vacancyId,
         rating,
         role,
-        created_at: nowISO(),
       });
 
-      // Mark as rated on the like
-      const ratedField = role === 'worker' ? 'worker_rated' : 'employer_rated';
-      await sb().from('jm_likes').update({ [ratedField]: true }).eq('id', likeId);
-
-      // Update the target user's avg_rating
-      const { data: allRatings } = await sb()
-        .from('jm_ratings')
-        .select('rating')
-        .eq('to_user_id', toUserId);
-      if (allRatings && allRatings.length > 0) {
-        const avg = allRatings.reduce((s: number, r: any) => s + r.rating, 0) / allRatings.length;
-        await sb().from('jm_users').update({
-          avg_rating: Math.round(avg * 100) / 100,
-          rating_count: allRatings.length,
-        }).eq('id', toUserId);
-      }
+      // Notify the other person that shift is confirmed and rating given
+      await notifyShiftConfirmed({
+        role: role === 'worker' ? 'employer' : 'worker',
+        otherName: toName,
+        vacancyTitle: '',
+      });
 
       await refreshAll();
-      showToast('Оценка сохранена! Спасибо 🌟', 'success');
-      router.back();
-    } catch (e) {
+
+      if (bothRated) {
+        showToast('Оценки выставлены. Мэтч завершён! 🏁', 'success');
+      } else {
+        showToast('Оценка сохранена! Спасибо 🌟', 'success');
+      }
+      router.replace('/(tabs)');
+    } catch {
       showToast('Ошибка при сохранении', 'error');
     } finally {
       setLoading(false);
     }
   };
 
+  const skip = () => router.replace('/(tabs)');
+
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Text style={styles.backTxt}>Пропустить</Text>
+        <TouchableOpacity onPress={skip}>
+          <Text style={styles.skipTxt}>Пропустить</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Оценить</Text>
-        <View style={{ width: 70 }} />
+        <View style={{ width: 80 }} />
       </View>
 
       <View style={styles.content}>
         <Text style={styles.emoji}>⭐</Text>
         <Text style={styles.title}>Как прошла смена?</Text>
-        <Text style={styles.sub}>Оцените {role === 'worker' ? 'работника' : 'работодателя'}:</Text>
+        <Text style={styles.sub}>
+          Оцените {role === 'worker' ? 'работника' : 'работодателя'}:
+        </Text>
         <Text style={styles.name}>{toName}</Text>
 
         <View style={styles.stars}>
@@ -96,6 +90,10 @@ export default function RateScreen() {
            rating === 2 ? '😐 Плохо' :
            rating === 3 ? '😊 Нормально' :
            rating === 4 ? '😃 Хорошо' : '🤩 Отлично!'}
+        </Text>
+
+        <Text style={styles.note}>
+          После того как обе стороны выставят оценку, мэтч будет автоматически завершён.
         </Text>
 
         <TouchableOpacity
@@ -122,7 +120,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingVertical: 14,
     borderBottomWidth: 1, borderBottomColor: Colors.divider,
   },
-  backTxt: { fontSize: 14, color: Colors.textMuted, fontWeight: '500' },
+  skipTxt: { fontSize: 14, color: Colors.textMuted, fontWeight: '500', width: 80 },
   headerTitle: { fontSize: 16, fontWeight: '700', color: Colors.textPrimary },
   content: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 12 },
   emoji: { fontSize: 56 },
@@ -133,6 +131,7 @@ const styles = StyleSheet.create({
   star: { fontSize: 44, color: Colors.divider },
   starActive: { color: '#FBBF24' },
   ratingLabel: { fontSize: 16, color: Colors.textSecondary, fontWeight: '500', height: 24 },
+  note: { fontSize: 13, color: Colors.textMuted, textAlign: 'center', lineHeight: 18, marginTop: 8 },
   submitBtn: {
     marginTop: 20, backgroundColor: Colors.primary, borderRadius: 100,
     paddingHorizontal: 40, paddingVertical: 16, width: '100%', alignItems: 'center',
