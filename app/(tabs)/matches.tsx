@@ -59,6 +59,7 @@ function WorkerMatches() {
     const result = await dbCheckAndCreateMatch(like.vacancyId, currentUser.id);
     if (result.matched) {
       const vac = getVacancy(like.vacancyId);
+      // Worker device: notify worker about the match
       await notifyMatch({ companyName: vac?.company ?? '', vacancyTitle: vac?.title ?? '', otherName: vac?.company ?? '', role: 'worker' });
       await refreshAll();
       showToast('🎉 Мэтч! Чат открыт', 'match');
@@ -76,8 +77,8 @@ function WorkerMatches() {
       const employer = users.find(u => u.id === like.employerId);
       const employerName = employer ? (employer.company ?? `${employer.firstName} ${employer.lastName}`) : 'Работодатель';
 
-      // Notify employer
-      await notifyShiftConfirmed({ role: 'employer', otherName: `${currentUser.firstName} ${currentUser.lastName}`, vacancyTitle: vac?.title ?? '' });
+      // Worker device: notify worker that shift is confirmed, prompt to rate employer
+      await notifyShiftConfirmed({ role: 'worker', otherName: employerName, vacancyTitle: vac?.title ?? '' });
 
       showToast('Смена подтверждена! Оцените работодателя 🌟', 'success');
       if (employer && vac) {
@@ -131,6 +132,18 @@ function WorkerMatches() {
           <Text style={styles.jobTitle}>{vac.title}</Text>
           <Text style={styles.companyName}>{vac.company} · 🚇 {vac.metroStation}</Text>
         </TouchableOpacity>
+
+        {/* Show employer rating to worker */}
+        {(() => {
+          const employer = users.find(u => u.id === like.employerId);
+          return employer && (employer.avgRating ?? 0) > 0 ? (
+            <View style={styles.ratingRow}>
+              <Text style={styles.ratingLabel}>Работодатель:</Text>
+              <Text style={styles.ratingStars}>⭐ {(employer.avgRating ?? 0).toFixed(1)}</Text>
+              <Text style={styles.ratingCount}>({employer.ratingCount} отз.)</Text>
+            </View>
+          ) : null;
+        })()}
 
         <View style={styles.chipsRow}>
           <Chip label={`📅 ${formatDate(vac.date)}`} variant="date" />
@@ -216,6 +229,7 @@ function EmployerMatches() {
       const vac = getVacancy(like.vacancyId);
       const worker = getWorker(like.workerId);
       const workerName = worker ? `${worker.firstName} ${worker.lastName}` : 'Работник';
+      // Employer device: notify employer about match
       await notifyMatch({ companyName: vac?.company ?? '', vacancyTitle: vac?.title ?? '', otherName: workerName, role: 'employer' });
       showToast(`🎉 Мэтч с ${workerName}! Чат открыт`, 'match');
       if (result.chatId) router.push({ pathname: '/chat-room', params: { chatId: result.chatId } });
@@ -242,8 +256,8 @@ function EmployerMatches() {
       const vac = getVacancy(like.vacancyId);
       const workerName = worker ? `${worker.firstName} ${worker.lastName}` : 'Работник';
 
-      // Notify worker
-      await notifyShiftConfirmed({ role: 'worker', otherName: workerName, vacancyTitle: vac?.title ?? '' });
+      // Employer device: notify employer that shift is confirmed, prompt to rate worker
+      await notifyShiftConfirmed({ role: 'employer', otherName: workerName, vacancyTitle: vac?.title ?? '' });
 
       showToast('Смена подтверждена! Оцените работника 🌟', 'success');
       if (worker && vac) {
@@ -387,6 +401,10 @@ const styles = StyleSheet.create({
   card: { backgroundColor: Colors.bg, borderRadius: Radius.lg, padding: 16, ...Shadow.card, gap: 10 },
   matchedCard: { borderWidth: 1.5, borderColor: Colors.green },
   completedCard: { borderWidth: 1.5, borderColor: Colors.blue, opacity: 0.8 },
+  ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  ratingLabel: { fontSize: 12, color: Colors.textMuted },
+  ratingStars: { fontSize: 13, fontWeight: '700', color: '#FBBF24' },
+  ratingCount: { fontSize: 11, color: Colors.textMuted },
   statusBadge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, alignSelf: 'flex-start' },
   statusTxt: { fontSize: 13, fontWeight: '700' },
   jobTitle: { fontSize: 17, fontWeight: '800', color: Colors.textPrimary, lineHeight: 22 },

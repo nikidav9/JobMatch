@@ -12,7 +12,7 @@ import { METRO_LINES } from '@/constants/metro';
 import {
   dbUpsertLike, dbCheckAndCreateMatch, dbRemoveLike, dbAddSaved,
 } from '@/services/db';
-import { notifyMatch, notifyNewApplicant } from '@/services/notifications';
+import { notifyMatch } from '@/services/notifications';
 import { Chip } from '@/components/ui/Chip';
 import { VacancyDetailModal } from '@/components/feature/VacancyDetailModal';
 
@@ -118,18 +118,15 @@ function WorkerFeed() {
         workerSkipped: false,
       });
 
-      const workerName = `${currentUser.firstName} ${currentUser.lastName}`;
-      await notifyNewApplicant({ workerName, vacancyTitle: currentCard.title });
-
       const result = await dbCheckAndCreateMatch(currentCard.id, currentUser.id);
       await refreshAll();
 
       if (result.matched) {
-        const employer = users.find(u => u.id === currentCard.employerId);
+        // Worker device: notify worker that there is a match
         await notifyMatch({
           companyName: currentCard.company,
           vacancyTitle: currentCard.title,
-          otherName: employer ? `${employer.firstName} ${employer.lastName}` : currentCard.company,
+          otherName: currentCard.company,
           role: 'worker',
         });
         router.push({ pathname: '/match', params: { vacancyId: currentCard.id, chatId: result.chatId } });

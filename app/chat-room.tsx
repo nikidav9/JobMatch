@@ -8,7 +8,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Colors, Radius, Shadow } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
 import { Message } from '@/constants/types';
-import { nameColorFromString, getInitials, nowISO, uid } from '@/services/storage';
+import { nameColorFromString, getInitials, formatDate } from '@/services/storage';
 import { dbGetMessages, dbInsertMessage, dbMarkRead, dbIncrementUnread } from '@/services/db';
 import { notifyNewMessage } from '@/services/notifications';
 
@@ -17,7 +17,7 @@ const POLL_INTERVAL = 4000;
 export default function ChatRoom() {
   const router = useRouter();
   const { chatId } = useLocalSearchParams<{ chatId: string }>();
-  const { currentUser, users, chats, refreshChats } = useApp();
+  const { currentUser, users, chats, vacancies, refreshChats } = useApp();
 
   const chat = chats.find(c => c.id === chatId);
   const [messages, setMessages] = useState<Message[]>(chat?.messages ?? []);
@@ -43,6 +43,7 @@ export default function ChatRoom() {
 
   const otherId = currentUser.role === 'worker' ? chat.employerId : chat.workerId;
   const other = users.find(u => u.id === otherId);
+  const vacancy = vacancies.find(v => v.id === chat.vacancyId);
   const otherName = other ? `${other.firstName} ${other.lastName}` : chat.companyName;
   const otherColor = nameColorFromString(otherName);
   const otherAvatarUrl = other?.avatarUrl;
@@ -166,8 +167,32 @@ export default function ChatRoom() {
         <View style={{ width: 70 }} />
       </View>
 
+      {/* Vacancy info block */}
+      {vacancy ? (
+        <View style={styles.vacancyBar}>
+          {vacancy.date ? (
+            <View style={styles.vacancyItem}>
+              <Text style={styles.vacancyIcon}>📅</Text>
+              <Text style={styles.vacancyText}>{formatDate(vacancy.date)}</Text>
+            </View>
+          ) : null}
+          {vacancy.timeStart && vacancy.timeEnd ? (
+            <View style={styles.vacancyItem}>
+              <Text style={styles.vacancyIcon}>⏰</Text>
+              <Text style={styles.vacancyText}>{vacancy.timeStart}–{vacancy.timeEnd}</Text>
+            </View>
+          ) : null}
+          {vacancy.address ? (
+            <View style={styles.vacancyItem}>
+              <Text style={styles.vacancyIcon}>📍</Text>
+              <Text style={styles.vacancyText} numberOfLines={1}>{vacancy.address}</Text>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
       {/* Messages */}
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={90}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={0}>
         <FlatList
           ref={listRef}
           data={messages}
@@ -242,6 +267,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 10,
     borderTopWidth: 1, borderTopColor: Colors.divider, backgroundColor: Colors.bg,
   },
+  vacancyBar: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: 6,
+    paddingHorizontal: 14, paddingVertical: 10,
+    backgroundColor: Colors.surface,
+    borderBottomWidth: 1, borderBottomColor: Colors.divider,
+  },
+  vacancyItem: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: Colors.bg, borderRadius: 100, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: Colors.divider },
+  vacancyIcon: { fontSize: 12 },
+  vacancyText: { fontSize: 12, color: Colors.textSecondary, fontWeight: '500', maxWidth: 160 },
   textInput: {
     flex: 1, backgroundColor: Colors.surface, borderRadius: 22,
     paddingHorizontal: 16, paddingVertical: 10,

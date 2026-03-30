@@ -114,6 +114,12 @@ export default function CandidatesScreen() {
                   <Text style={styles.infoLabel}>Специальность</Text>
                   <View style={styles.infoChip}><Text style={styles.infoChipText}>📦 Кладовщик</Text></View>
                 </View>
+                {(worker.avgRating ?? 0) > 0 ? (
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Рейтинг</Text>
+                    <Text style={styles.ratingVal}>⭐ {(worker.avgRating ?? 0).toFixed(1)} <Text style={styles.ratingCount}>({worker.ratingCount} отз.)</Text></Text>
+                  </View>
+                ) : null}
                 <View style={styles.infoRow}>
                   <Text style={styles.infoLabel}>Телефон</Text>
                   <Text style={[styles.infoVal, isMatch && { color: Colors.primary }]}>
@@ -177,6 +183,8 @@ const styles = StyleSheet.create({
   infoChip: { backgroundColor: Colors.primaryLight, borderRadius: 100, paddingHorizontal: 10, paddingVertical: 3 },
   infoChipText: { fontSize: 12, fontWeight: '600', color: Colors.primary },
   infoVal: { fontSize: 14, fontWeight: '600', color: Colors.textPrimary },
+  ratingVal: { fontSize: 13, fontWeight: '700', color: '#FBBF24' },
+  ratingCount: { fontSize: 11, color: Colors.textMuted, fontWeight: '400' },
   actions: { flexDirection: 'row', gap: 10 },
   skipBtn: { flex: 1, borderWidth: 1.5, borderColor: Colors.inputBorder, borderRadius: 100, paddingVertical: 10, alignItems: 'center' },
   skipText: { fontSize: 13, fontWeight: '600', color: Colors.textSecondary },
