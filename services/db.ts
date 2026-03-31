@@ -416,6 +416,16 @@ export async function dbCheckAndCreateMatch(
     vac?.company ?? ''
   );
 
+  // Update vacancy workersFound and status if limit reached
+  if (vac) {
+    const newWorkersFound = (vac.workers_found || 0) + 1;
+    const newStatus = newWorkersFound >= vac.workers_needed ? 'closed' : 'open';
+    await sb()
+      .from('jm_vacancies')
+      .update({ workers_found: newWorkersFound, status: newStatus })
+      .eq('id', vacancyId);
+  }
+
   return { matched: true, chatId };
 }
 
