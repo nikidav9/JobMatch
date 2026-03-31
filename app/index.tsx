@@ -21,7 +21,7 @@ export default function Onboarding() {
       <SafeAreaView style={styles.safe}>
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
           <Text style={styles.logo}>
-            <Text style={styles.logoBlack}>job</Text>
+            <Text style={styles.logoBlack}>Job</Text>
             <Text style={styles.logoOrange}>Ty</Text>
           </Text>
         </View>
@@ -35,7 +35,7 @@ export default function Onboarding() {
       <View style={styles.container}>
         <View style={styles.hero}>
           <Text style={styles.logo}>
-            <Text style={styles.logoBlack}>job</Text>
+            <Text style={styles.logoBlack}>Job</Text>
             <Text style={styles.logoOrange}>Ty</Text>
           </Text>
           <Text style={styles.tagline}>Подработки в Москве · Склад</Text>
