@@ -27,10 +27,8 @@ function AuthGuard() {
   useEffect(() => {
     if (!ctx || ctx.loading) return;
     if (!ctx.currentUser && isProtected) {
+      setShowRefresh(true);
       router.replace('/');
-      // Show refresh button after short delay as fallback
-      const t = setTimeout(() => setShowRefresh(true), 800);
-      return () => clearTimeout(t);
     } else {
       setShowRefresh(false);
     }

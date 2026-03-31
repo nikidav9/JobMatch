@@ -33,6 +33,7 @@ interface AppContextType {
   toast: ToastData | null;
   showToast: (message: string, type?: 'success' | 'error' | 'match') => void;
   refreshAll: (user?: User | null) => Promise<void>;
+  logout: () => Promise<void>;
   unreadCount: number;
   loading: boolean;
 }
@@ -73,6 +74,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setVacancies([]);
       clearSessionUser().catch(() => {});
     }
+  };
+
+  const logout = async () => {
+    _setCurrentUser(null);
+    setChats([]);
+    setSavedIds([]);
+    setLikes([]);
+    setVacancies([]);
+    setLoading(false);
+    await clearSessionUser();
   };
 
   // ── Fetch helpers ─────────────────────────────────────────────────────────
@@ -214,6 +225,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         toast,
         showToast,
         refreshAll,
+        logout,
         unreadCount,
         loading,
       }}

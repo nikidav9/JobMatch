@@ -44,7 +44,7 @@ const rS = StyleSheet.create({
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { currentUser, setCurrentUser, users, refreshUsers, showToast } = useApp();
+  const { currentUser, logout, users, refreshUsers, showToast } = useApp();
   const [editSection, setEditSection] = useState<EditSection>(null);
   const [showConfirmLogout, setShowConfirmLogout] = useState(false);
   const [metroPicker, setMetroPicker] = useState(false);
@@ -153,12 +153,10 @@ export default function ProfileScreen() {
     }
   };
 
-  const logout = () => {
+  const handleLogout = async () => {
     setShowConfirmLogout(false);
-    // Clear state first — AuthGuard will redirect when currentUser becomes null
-    setCurrentUser(null);
-    // Also navigate directly after clearing to avoid any timing issues
-    setTimeout(() => router.replace('/'), 50);
+    await logout();
+    router.replace('/');
   };
 
   return (
@@ -301,7 +299,7 @@ export default function ProfileScreen() {
               <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowConfirmLogout(false)}>
                 <Text style={styles.cancelText}>Отмена</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.logoutConfirmBtn} onPress={logout}>
+              <TouchableOpacity style={styles.logoutConfirmBtn} onPress={handleLogout}>
                 <Text style={styles.logoutConfirmText}>Выйти</Text>
               </TouchableOpacity>
             </View>
