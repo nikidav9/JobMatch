@@ -137,15 +137,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const session = await getSessionUser();
-      if (session) _setCurrentUser(session);
-      await Promise.all([
-        refreshUsers(),
-        refreshVacancies(),
-        refreshLikes(),
-        ...(session ? [refreshChats(session), refreshSaved(session)] : []),
-      ]);
-      setLoading(false);
+      try {
+        const session = await getSessionUser();
+        if (session) _setCurrentUser(session);
+        await Promise.all([
+          refreshUsers(),
+          refreshVacancies(),
+          refreshLikes(),
+          ...(session ? [refreshChats(session), refreshSaved(session)] : []),
+        ]);
+      } catch (e) {
+        console.warn('[AppContext] boot error:', e);
+      } finally {
+        setLoading(false);
+      }
     })();
   }, []);
 
