@@ -22,12 +22,12 @@ name = "Start application"
 author = "agent"
 
 [workflows.workflow.metadata]
-outputType = "console"
+outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "fuser -k 8081/tcp 2>/dev/null; fuser -k 5000/tcp 2>/dev/null; npx expo start --web --port 8081"
-waitForPort = 8081
+args = "fuser -k 5000/tcp 2>/dev/null; sleep 1; npx expo start --web --port 5000"
+waitForPort = 5000
 
 [[ports]]
 localPort = 5000
