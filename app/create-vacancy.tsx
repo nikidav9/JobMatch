@@ -27,20 +27,27 @@ function parseTimeToDate(time: string): Date {
   const [h, min] = time.split(':').map(Number);
   const d = new Date(); d.setHours(h, min, 0, 0); return d;
 }
+// Generate all dates in range [start, end] inclusive
+function getDatesBetween(start: Date, end: Date): Date[] {
+  const dates: Date[] = [];
+  const cur = new Date(start); cur.setHours(0, 0, 0, 0);
+  const endCopy = new Date(end); endCopy.setHours(0, 0, 0, 0);
+  while (cur <= endCopy) { dates.push(new Date(cur)); cur.setDate(cur.getDate() + 1); }
+  return dates;
+}
 
-// Norm fields — НПО allows 1–999, others 0–20 with decimals
+// Norm fields
 const NORM_FIELDS = [
-  { key: 'sborka',      label: 'Сборка товара',          max: 20  },
-  { key: 'razmTovara',  label: 'Размещение товара',       max: 20  },
-  { key: 'razmMaketa',  label: 'Размещение макета',       max: 20  },
-  { key: 'razmMoroza',  label: 'Размещение мороза',       max: 20  },
-  { key: 'razmMulti',   label: 'Размещение многоштучки',  max: 20  },
-  { key: 'npo',         label: 'НПО',                    max: 999 },
+  { key: 'sborka',     label: 'Сборка товара',          max: 20  },
+  { key: 'razmTovara', label: 'Размещение товара',       max: 20  },
+  { key: 'razmMaketa', label: 'Размещение макета',       max: 20  },
+  { key: 'razmMoroza', label: 'Размещение мороза',       max: 20  },
+  { key: 'razmMulti',  label: 'Размещение многоштучки',  max: 20  },
+  { key: 'npo',        label: 'НПО',                    max: 999 },
 ] as const;
 
 type NormKey = typeof NORM_FIELDS[number]['key'];
 type Norms = Record<NormKey, string>;
-
 const DEFAULT_NORMS: Norms = { sborka: '', razmTovara: '', razmMaketa: '', razmMoroza: '', razmMulti: '', npo: '' };
 
 function buildNormsText(address: string, norms: Norms): string {
@@ -48,7 +55,7 @@ function buildNormsText(address: string, norms: Norms): string {
   return `📍 Адрес: ${address}\nНормативы:\n${lines}`;
 }
 
-type PickerMode = 'date' | 'timeStart' | 'timeEnd' | null;
+type PickerMode = 'date' | 'endDate' | 'timeStart' | 'timeEnd' | null;
 
 export default function CreateVacancy() {
   const router = useRouter();
@@ -65,6 +72,7 @@ export default function CreateVacancy() {
   const [metroLineName, setMetroLineName] = useState('');
   const [metroStation, setMetroStation] = useState('');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [selectedEndDate, setSelectedEndDate] = useState<Date>(new Date());
   const [selectedTimeStart, setSelectedTimeStart] = useState<Date>(() => { const d = new Date(); d.setHours(8, 0, 0, 0); return d; });
   const [selectedTimeEnd, setSelectedTimeEnd] = useState<Date>(() => { const d = new Date(); d.setHours(17, 0, 0, 0); return d; });
   const [pickerMode, setPickerMode] = useState<PickerMode>(null);
@@ -77,6 +85,8 @@ export default function CreateVacancy() {
   const [metroPicker, setMetroPicker] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  // Multi-day toggle (disabled in edit mode)
+  const [multiDay, setMultiDay] = useState(false);
 
   useEffect(() => {
     if (!existing) { setLoadingInit(false); return; }
@@ -99,7 +109,11 @@ export default function CreateVacancy() {
 
   const openPicker = (mode: PickerMode) => {
     if (!mode) return;
-    setTempDate(mode === 'date' ? selectedDate : mode === 'timeStart' ? selectedTimeStart : selectedTimeEnd);
+    const dateVal = mode === 'date' ? selectedDate
+      : mode === 'endDate' ? selectedEndDate
+      : mode === 'timeStart' ? selectedTimeStart
+      : selectedTimeEnd;
+    setTempDate(dateVal);
     if (Platform.OS === 'ios') { setPickerMode(mode); setIosPickerVisible(true); }
     else setPickerMode(mode);
   };
@@ -114,23 +128,27 @@ export default function CreateVacancy() {
   const confirmIOS = () => { applyDate(pickerMode, tempDate); setIosPickerVisible(false); setPickerMode(null); };
 
   const applyDate = (mode: PickerMode, date: Date) => {
-    if (mode === 'date') setSelectedDate(date);
-    else if (mode === 'timeStart') setSelectedTimeStart(date);
-    else if (mode === 'timeEnd') setSelectedTimeEnd(date);
+    if (mode === 'date') {
+      setSelectedDate(date);
+      if (date > selectedEndDate) setSelectedEndDate(date);
+    } else if (mode === 'endDate') {
+      setSelectedEndDate(date);
+    } else if (mode === 'timeStart') {
+      setSelectedTimeStart(date);
+    } else if (mode === 'timeEnd') {
+      setSelectedTimeEnd(date);
+    }
   };
 
-  const pickerDateValue = pickerMode === 'date'
-    ? (Platform.OS === 'ios' ? tempDate : selectedDate)
-    : pickerMode === 'timeStart'
-    ? (Platform.OS === 'ios' ? tempDate : selectedTimeStart)
+  const pickerDateValue =
+    pickerMode === 'date' ? (Platform.OS === 'ios' ? tempDate : selectedDate)
+    : pickerMode === 'endDate' ? (Platform.OS === 'ios' ? tempDate : selectedEndDate)
+    : pickerMode === 'timeStart' ? (Platform.OS === 'ios' ? tempDate : selectedTimeStart)
     : (Platform.OS === 'ios' ? tempDate : selectedTimeEnd);
 
   const setNormVal = (key: NormKey, val: string) => {
-    // Replace comma with dot (iOS decimal-pad uses locale comma)
     const normalized = val.replace(',', '.');
-    // Allow digits and one decimal point only
     const cleaned = normalized.replace(/[^0-9.]/g, '');
-    // Prevent multiple dots
     const parts = cleaned.split('.');
     const sanitized = parts.length > 2 ? `${parts[0]}.${parts.slice(1).join('')}` : cleaned;
     setNorms(prev => ({ ...prev, [key]: sanitized }));
@@ -159,35 +177,75 @@ export default function CreateVacancy() {
     if (!validate() || !currentUser || saving) return;
     setSaving(true);
     const normsText = buildNormsText(address, norms);
-    const vac: Vacancy = {
-      id: existing?.id ?? uid(),
+    const base = {
       employerId: existing?.employerId ?? currentUser.id,
       company: existing?.company ?? (currentUser.company ?? `${currentUser.firstName} ${currentUser.lastName}`),
       title,
-      workType: 'stocker',
+      workType: 'stocker' as const,
       workTypeLabel: 'Кладовщик',
       metroLineId,
       metroStation,
       address,
-      date: formatISODate(selectedDate),
       timeStart: formatTime(selectedTimeStart),
       timeEnd: formatTime(selectedTimeEnd),
       salary: 0,
       normsAndPay: normsText,
       workersNeeded,
-      workersFound: existing?.workersFound ?? 0,
       isUrgent,
       noExperienceNeeded: noExp,
       conditions: normsText,
-      status: existing?.status ?? 'open',
-      createdAt: existing?.createdAt ?? nowISO(),
     };
-    await dbUpsertVacancy(vac);
-    await refreshVacancies();
-    setSaving(false);
-    showToast(isEdit ? 'Вакансия обновлена ✅' : 'Вакансия опубликована ✅', 'success');
-    router.back();
+
+    try {
+      if (isEdit && existing) {
+        const vac: Vacancy = {
+          ...base,
+          id: existing.id,
+          date: formatISODate(selectedDate),
+          workersFound: existing.workersFound,
+          status: existing.status,
+          createdAt: existing.createdAt,
+        };
+        await dbUpsertVacancy(vac);
+        showToast('Вакансия обновлена ✅', 'success');
+      } else if (multiDay) {
+        const dates = getDatesBetween(selectedDate, selectedEndDate);
+        await Promise.all(dates.map(d => {
+          const vac: Vacancy = {
+            ...base,
+            id: uid(),
+            date: formatISODate(d),
+            workersFound: 0,
+            status: 'open',
+            createdAt: nowISO(),
+          };
+          return dbUpsertVacancy(vac);
+        }));
+        showToast(`Опубликовано ${dates.length} вакансий ✅`, 'success');
+      } else {
+        const vac: Vacancy = {
+          ...base,
+          id: uid(),
+          date: formatISODate(selectedDate),
+          workersFound: 0,
+          status: 'open',
+          createdAt: nowISO(),
+        };
+        await dbUpsertVacancy(vac);
+        showToast('Вакансия опубликована ✅', 'success');
+      }
+      await refreshVacancies();
+      router.back();
+    } catch (e) {
+      showToast('Ошибка при публикации', 'error');
+      console.error('[CreateVacancy] submit error', e);
+    } finally {
+      setSaving(false);
+    }
   };
+
+  // Days preview for multi-day
+  const daysInRange = multiDay ? getDatesBetween(selectedDate, selectedEndDate) : [];
 
   if (loadingInit) {
     return (
@@ -261,16 +319,54 @@ export default function CreateVacancy() {
             />
           </View>
 
-          {/* Date */}
+          {/* Date / Multi-day */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.sectionLabel}>Дата смены</Text>
+            {!isEdit ? (
+              <View style={styles.toggleRow}>
+                <View>
+                  <Text style={styles.sectionLabel}>Несколько дней</Text>
+                  <Text style={styles.normHint}>Создать вакансии на каждый день</Text>
+                </View>
+                <Switch
+                  value={multiDay}
+                  onValueChange={v => setMultiDay(v)}
+                  trackColor={{ false: Colors.inputBorder, true: Colors.primary }}
+                  thumbColor="#fff"
+                />
+              </View>
+            ) : null}
+
             <TouchableOpacity style={styles.pickerField} onPress={() => openPicker('date')} activeOpacity={0.8}>
               <Text style={styles.pickerIcon}>📅</Text>
-              <Text style={styles.pickerValue}>{formatDisplayDate(selectedDate)}</Text>
+              <Text style={styles.pickerValue}>{multiDay ? `С ${formatDisplayDate(selectedDate)}` : formatDisplayDate(selectedDate)}</Text>
               <Text style={styles.pickerArrow}>›</Text>
             </TouchableOpacity>
             {Platform.OS !== 'ios' && pickerMode === 'date' ? (
               <DateTimePicker value={selectedDate} mode="date" display="calendar" minimumDate={new Date()} onChange={onAndroidChange} />
+            ) : null}
+
+            {multiDay ? (
+              <>
+                <TouchableOpacity style={styles.pickerField} onPress={() => openPicker('endDate')} activeOpacity={0.8}>
+                  <Text style={styles.pickerIcon}>📅</Text>
+                  <Text style={styles.pickerValue}>По {formatDisplayDate(selectedEndDate)}</Text>
+                  <Text style={styles.pickerArrow}>›</Text>
+                </TouchableOpacity>
+                {Platform.OS !== 'ios' && pickerMode === 'endDate' ? (
+                  <DateTimePicker value={selectedEndDate} mode="date" display="calendar" minimumDate={selectedDate} onChange={onAndroidChange} />
+                ) : null}
+
+                {daysInRange.length > 0 ? (
+                  <View style={styles.daysPreview}>
+                    <Text style={styles.daysPreviewTitle}>
+                      📋 Будет создано {daysInRange.length} {daysInRange.length === 1 ? 'вакансия' : daysInRange.length < 5 ? 'вакансии' : 'вакансий'}:
+                    </Text>
+                    <Text style={styles.daysPreviewDates}>
+                      {daysInRange.map(d => `${d.getDate()}.${pad2(d.getMonth() + 1)}`).join(' · ')}
+                    </Text>
+                  </View>
+                ) : null}
+              </>
             ) : null}
           </View>
 
@@ -324,7 +420,7 @@ export default function CreateVacancy() {
 
           {/* Workers needed */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.sectionLabel}>Количество мест</Text>
+            <Text style={styles.sectionLabel}>Количество мест{multiDay ? ' (на каждый день)' : ''}</Text>
             <View style={styles.stepperRow}>
               <TouchableOpacity style={styles.stepBtn} onPress={() => setWorkersNeeded(n => Math.max(1, n - 1))}>
                 <Text style={styles.stepBtnText}>−</Text>
@@ -365,7 +461,9 @@ export default function CreateVacancy() {
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
                 <Text style={styles.submitBtnTxt}>
-                  {isEdit ? '💾 Сохранить изменения' : '📋 Опубликовать вакансию'}
+                  {isEdit ? '💾 Сохранить изменения'
+                    : multiDay ? `📋 Опубликовать ${daysInRange.length} вакансий`
+                    : '📋 Опубликовать вакансию'}
                 </Text>
               )}
             </TouchableOpacity>
@@ -383,7 +481,10 @@ export default function CreateVacancy() {
                   <Text style={styles.iosCancelText}>Отмена</Text>
                 </TouchableOpacity>
                 <Text style={styles.iosSheetTitle}>
-                  {pickerMode === 'date' ? 'Дата смены' : pickerMode === 'timeStart' ? 'Начало смены' : 'Конец смены'}
+                  {pickerMode === 'date' ? (multiDay ? 'Начало периода' : 'Дата смены')
+                    : pickerMode === 'endDate' ? 'Конец периода'
+                    : pickerMode === 'timeStart' ? 'Начало смены'
+                    : 'Конец смены'}
                 </Text>
                 <TouchableOpacity onPress={confirmIOS}>
                   <Text style={styles.iosDoneText}>Готово</Text>
@@ -393,10 +494,10 @@ export default function CreateVacancy() {
                 <View style={styles.iosPickerWrap}>
                   <DateTimePicker
                     value={pickerDateValue ?? new Date()}
-                    mode={pickerMode === 'date' ? 'date' : 'time'}
+                    mode={pickerMode === 'date' || pickerMode === 'endDate' ? 'date' : 'time'}
                     display="spinner"
                     is24Hour
-                    minimumDate={pickerMode === 'date' ? new Date() : undefined}
+                    minimumDate={pickerMode === 'date' ? new Date() : pickerMode === 'endDate' ? selectedDate : undefined}
                     onChange={onIOSChange}
                     style={styles.iosPicker}
                     textColor="#111111"
@@ -459,6 +560,9 @@ const styles = StyleSheet.create({
   pickerArrow: { fontSize: 20, color: Colors.textMuted },
   timeRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   timeSep: { fontSize: 20, color: Colors.textMuted, fontWeight: '600', paddingBottom: 4 },
+  daysPreview: { backgroundColor: Colors.primaryLight, borderRadius: 12, padding: 12, gap: 4 },
+  daysPreviewTitle: { fontSize: 13, fontWeight: '700', color: Colors.primary },
+  daysPreviewDates: { fontSize: 12, color: Colors.primary, lineHeight: 18 },
   normRow: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.divider,
