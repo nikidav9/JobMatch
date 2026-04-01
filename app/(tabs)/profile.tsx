@@ -48,13 +48,14 @@ export default function ProfileScreen() {
   const [editSection, setEditSection] = useState<EditSection>(null);
   const [showConfirmLogout, setShowConfirmLogout] = useState(false);
   const [metroPicker, setMetroPicker] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
-  React.useEffect(() => {
+  // CRITICAL: useLayoutEffect runs BEFORE first render, preventing white screen
+  React.useLayoutEffect(() => {
     if (!currentUser) {
       router.replace('/');
     }
   }, [currentUser, router]);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   const [editPhone, setEditPhone] = useState('');
   const [editLast, setEditLast] = useState('');
@@ -161,13 +162,16 @@ export default function ProfileScreen() {
 
   const handleLogout = async () => {
     setShowConfirmLogout(false);
-    router.replace('/');
     try {
+      // Clear state FIRST (synchronously via setCurrentUser(null))
       await logout();
       showToast('Вы успешно вышли', 'success');
     } catch (error) {
       console.warn('[Profile] logout failed', error);
       showToast('Ошибка при выходе, попробуйте снова', 'error');
+    } finally {
+      // Navigate AFTER state is cleared
+      router.replace('/');
     }
   };
 

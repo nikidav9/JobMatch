@@ -20,7 +20,7 @@ function AuthGuard() {
     if (!ctx.currentUser && isProtected) {
       router.replace('/');
     }
-  }, [ctx?.currentUser?.id, ctx?.loading, pathname]);
+  }, [ctx?.currentUser, ctx?.loading, pathname]);
 
   return null;
 }

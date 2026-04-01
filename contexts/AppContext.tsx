@@ -77,9 +77,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
-    // Use the shared state-reset path to guarantee all cleanup is the same as setCurrentUser(null).
+    // CRITICAL: setCurrentUser(null) clears state SYNCHRONOUSLY
     setCurrentUser(null);
     setLoading(false);
+    // Async cleanup happens in background (don't block logout flow)
     try {
       await clearSessionUser();
     } catch (error) {
