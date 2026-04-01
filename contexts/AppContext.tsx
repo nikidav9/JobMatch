@@ -1,4 +1,5 @@
 import React, { createContext, useState, useEffect, useRef, ReactNode } from 'react';
+import { useRouter } from 'expo-router';
 import { User, Vacancy, Like, Chat } from '@/constants/types';
 import { getSessionUser, saveSessionUser, clearSessionUser } from '@/services/storage';
 import {
@@ -147,6 +148,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // ── Boot ──────────────────────────────────────────────────────────────────
 
+  const router = useRouter();
+
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -166,6 +169,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    if (!loading && !currentUser) {
+      router.replace('/');
+    }
+  }, [currentUser, loading, router]);
 
   // ── Background poll (every 15s) when user is logged in ───────────────────
 
