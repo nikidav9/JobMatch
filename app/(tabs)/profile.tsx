@@ -48,6 +48,12 @@ export default function ProfileScreen() {
   const [editSection, setEditSection] = useState<EditSection>(null);
   const [showConfirmLogout, setShowConfirmLogout] = useState(false);
   const [metroPicker, setMetroPicker] = useState(false);
+
+  React.useEffect(() => {
+    if (!currentUser) {
+      router.replace('/');
+    }
+  }, [currentUser, router]);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   const [editPhone, setEditPhone] = useState('');
@@ -155,14 +161,13 @@ export default function ProfileScreen() {
 
   const handleLogout = async () => {
     setShowConfirmLogout(false);
+    router.replace('/');
     try {
       await logout();
       showToast('Вы успешно вышли', 'success');
     } catch (error) {
       console.warn('[Profile] logout failed', error);
       showToast('Ошибка при выходе, попробуйте снова', 'error');
-    } finally {
-      router.replace('/');
     }
   };
 
