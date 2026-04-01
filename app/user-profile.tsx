@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
-  TouchableOpacity,
+  TouchableOpacity, ActivityIndicator,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -9,6 +9,7 @@ import { Colors, Radius, Shadow } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
 import { METRO_LINES } from '@/constants/metro';
 import { nameColorFromString, getInitials } from '@/services/storage';
+import { dbGetRatingsForUser, UserRating } from '@/services/db';
 
 function StarRow({ rating, count }: { rating: number; count: number }) {
   return (
@@ -23,12 +24,58 @@ function StarRow({ rating, count }: { rating: number; count: number }) {
   );
 }
 
+function StarsMini({ rating }: { rating: number }) {
+  return (
+    <View style={{ flexDirection: 'row', gap: 2 }}>
+      {[1, 2, 3, 4, 5].map(s => (
+        <Text key={s} style={{ fontSize: 13, color: rating >= s ? '#FBBF24' : '#E5E7EB' }}>★</Text>
+      ))}
+    </View>
+  );
+}
+
+function RatingCard({ r }: { r: UserRating }) {
+  const date = new Date(r.createdAt);
+  const dateStr = `${date.getDate().toString().padStart(2,'0')}.${(date.getMonth()+1).toString().padStart(2,'0')}.${date.getFullYear()}`;
+  const roleLabel = r.role === 'worker' ? 'Работник' : 'Работодатель';
+  return (
+    <View style={styles.reviewCard}>
+      <View style={styles.reviewTop}>
+        <StarsMini rating={r.rating} />
+        <Text style={styles.reviewRole}>{roleLabel}</Text>
+        <Text style={styles.reviewDate}>{dateStr}</Text>
+      </View>
+      {r.reviewText ? (
+        <Text style={styles.reviewText}>{r.reviewText}</Text>
+      ) : (
+        <Text style={styles.reviewEmpty}>Без комментария</Text>
+      )}
+    </View>
+  );
+}
+
+type Tab = 'info' | 'reviews';
+
 export default function UserProfileScreen() {
   const router = useRouter();
   const { userId } = useLocalSearchParams<{ userId: string }>();
   const { users } = useApp();
 
+  const [tab, setTab] = useState<Tab>('info');
+  const [ratings, setRatings] = useState<UserRating[]>([]);
+  const [loadingRatings, setLoadingRatings] = useState(false);
+
   const user = users.find(u => u.id === userId);
+
+  useEffect(() => {
+    if (!userId) return;
+    setLoadingRatings(true);
+    dbGetRatingsForUser(userId)
+      .then(setRatings)
+      .catch(() => {})
+      .finally(() => setLoadingRatings(false));
+  }, [userId]);
+
   if (!user) {
     return (
       <SafeAreaView style={styles.safe}>
@@ -86,46 +133,78 @@ export default function UserProfileScreen() {
           <StarRow rating={user.avgRating ?? 0} count={user.ratingCount ?? 0} />
         </View>
 
-        {/* Info block */}
-        <View style={styles.infoCard}>
-          <Text style={styles.sectionTitle}>Основная информация</Text>
-
-          {isWorker ? (
-            <>
-              {user.metroStation ? (
-                <InfoRow label="Метро" value={
-                  <View style={styles.metroVal}>
-                    {line ? <View style={[styles.lineDot, { backgroundColor: line.color }]} /> : null}
-                    <Text style={styles.valText}>{user.metroStation}</Text>
-                  </View>
-                } />
-              ) : null}
-              {user.age ? <InfoRow label="Возраст" value={<Text style={styles.valText}>{user.age} лет</Text>} /> : null}
-              <InfoRow label="Специализация" value={<Text style={styles.valText}>📦 Кладовщик</Text>} />
-            </>
-          ) : (
-            <>
-              {user.company ? <InfoRow label="Компания" value={<Text style={styles.valText}>{user.company}</Text>} /> : null}
-            </>
-          )}
+        {/* Tabs */}
+        <View style={styles.tabs}>
+          <TouchableOpacity style={styles.tabItem} onPress={() => setTab('info')} activeOpacity={0.8}>
+            <Text style={[styles.tabLabel, tab === 'info' && styles.tabLabelActive]}>Профиль</Text>
+            {tab === 'info' ? <View style={styles.tabLine} /> : null}
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.tabItem} onPress={() => setTab('reviews')} activeOpacity={0.8}>
+            <Text style={[styles.tabLabel, tab === 'reviews' && styles.tabLabelActive]}>
+              Отзывы{ratings.length > 0 ? ` (${ratings.length})` : ''}
+            </Text>
+            {tab === 'reviews' ? <View style={styles.tabLine} /> : null}
+          </TouchableOpacity>
         </View>
 
-        {/* Bio */}
-        {user.bio ? (
-          <View style={styles.infoCard}>
-            <Text style={styles.sectionTitle}>{isWorker ? 'О себе' : 'О компании'}</Text>
-            <Text style={styles.bioText}>{user.bio}</Text>
-          </View>
-        ) : null}
+        {tab === 'info' ? (
+          <>
+            {/* Info block */}
+            <View style={styles.infoCard}>
+              <Text style={styles.sectionTitle}>Основная информация</Text>
 
-        {/* Empty bio placeholder */}
-        {!user.bio ? (
-          <View style={[styles.infoCard, styles.emptyBio]}>
-            <Text style={styles.emptyBioText}>
-              {isWorker ? '📝 Работник пока не добавил информацию о себе' : '📝 Компания пока не добавила описание'}
-            </Text>
-          </View>
-        ) : null}
+              {isWorker ? (
+                <>
+                  {user.metroStation ? (
+                    <InfoRow label="Метро" value={
+                      <View style={styles.metroVal}>
+                        {line ? <View style={[styles.lineDot, { backgroundColor: line.color }]} /> : null}
+                        <Text style={styles.valText}>{user.metroStation}</Text>
+                      </View>
+                    } />
+                  ) : null}
+                  {user.age ? <InfoRow label="Возраст" value={<Text style={styles.valText}>{user.age} лет</Text>} /> : null}
+                  <InfoRow label="Специализация" value={<Text style={styles.valText}>📦 Кладовщик</Text>} />
+                </>
+              ) : (
+                <>
+                  {user.company ? <InfoRow label="Компания" value={<Text style={styles.valText}>{user.company}</Text>} /> : null}
+                </>
+              )}
+            </View>
+
+            {/* Bio */}
+            {user.bio ? (
+              <View style={styles.infoCard}>
+                <Text style={styles.sectionTitle}>{isWorker ? 'О себе' : 'О компании'}</Text>
+                <Text style={styles.bioText}>{user.bio}</Text>
+              </View>
+            ) : (
+              <View style={[styles.infoCard, styles.emptyBio]}>
+                <Text style={styles.emptyBioText}>
+                  {isWorker ? '📝 Работник пока не добавил информацию о себе' : '📝 Компания пока не добавила описание'}
+                </Text>
+              </View>
+            )}
+          </>
+        ) : (
+          /* Reviews tab */
+          loadingRatings ? (
+            <View style={styles.center}>
+              <ActivityIndicator size="large" color={Colors.primary} />
+            </View>
+          ) : ratings.length === 0 ? (
+            <View style={styles.emptyReviews}>
+              <Text style={{ fontSize: 40 }}>📭</Text>
+              <Text style={styles.emptyReviewsTitle}>Пока нет отзывов</Text>
+              <Text style={styles.emptyReviewsSub}>Отзывы появятся после завершения смен</Text>
+            </View>
+          ) : (
+            <View style={{ gap: 10 }}>
+              {ratings.map(r => <RatingCard key={r.id} r={r} />)}
+            </View>
+          )
+        )}
 
         <View style={{ height: 40 }} />
       </ScrollView>
@@ -152,7 +231,7 @@ const styles = StyleSheet.create({
   backText: { fontSize: 15, color: Colors.textSecondary, fontWeight: '500', width: 70 },
   headerTitle: { fontSize: 16, fontWeight: '700', color: Colors.textPrimary },
   scroll: { padding: 16, gap: 12 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 40 },
   errorText: { fontSize: 16, color: Colors.textMuted },
   topCard: {
     backgroundColor: Colors.bg, borderRadius: Radius.xl, padding: 24,
@@ -169,6 +248,15 @@ const styles = StyleSheet.create({
   starOn: { color: '#FBBF24' },
   starOff: { color: '#E5E7EB' },
   ratingText: { fontSize: 13, color: Colors.textMuted, marginLeft: 6 },
+  // Tabs
+  tabs: {
+    flexDirection: 'row', backgroundColor: Colors.bg, borderRadius: Radius.lg,
+    ...Shadow.card, overflow: 'hidden',
+  },
+  tabItem: { flex: 1, alignItems: 'center', paddingVertical: 12 },
+  tabLabel: { fontSize: 14, fontWeight: '500', color: Colors.textMuted },
+  tabLabelActive: { fontWeight: '700', color: Colors.textPrimary },
+  tabLine: { position: 'absolute', bottom: 0, left: '15%', right: '15%', height: 2, backgroundColor: Colors.primary, borderRadius: 1 },
   infoCard: {
     backgroundColor: Colors.bg, borderRadius: Radius.lg, padding: 16,
     gap: 10, ...Shadow.card,
@@ -182,4 +270,17 @@ const styles = StyleSheet.create({
   bioText: { fontSize: 15, color: Colors.textPrimary, lineHeight: 22 },
   emptyBio: { backgroundColor: Colors.surface },
   emptyBioText: { fontSize: 14, color: Colors.textMuted, textAlign: 'center', lineHeight: 20, paddingVertical: 8 },
+  // Reviews
+  reviewCard: {
+    backgroundColor: Colors.bg, borderRadius: Radius.lg, padding: 14,
+    gap: 8, ...Shadow.card,
+  },
+  reviewTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  reviewRole: { fontSize: 12, color: Colors.textMuted, fontWeight: '500', flex: 1 },
+  reviewDate: { fontSize: 12, color: Colors.textMuted },
+  reviewText: { fontSize: 14, color: Colors.textPrimary, lineHeight: 20 },
+  reviewEmpty: { fontSize: 13, color: Colors.textMuted, fontStyle: 'italic' },
+  emptyReviews: { alignItems: 'center', paddingVertical: 48, gap: 8 },
+  emptyReviewsTitle: { fontSize: 17, fontWeight: '700', color: Colors.textPrimary },
+  emptyReviewsSub: { fontSize: 14, color: Colors.textMuted, textAlign: 'center' },
 });

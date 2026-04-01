@@ -445,6 +445,36 @@ export async function dbCheckAndCreateMatch(
   return { matched: true, chatId };
 }
 
+// ─── Ratings for user ────────────────────────────────────────────────────────
+
+export interface UserRating {
+  id: string;
+  fromUserId: string;
+  rating: number;
+  reviewText?: string;
+  role: 'worker' | 'employer';
+  createdAt: string;
+  vacancyId: string;
+}
+
+export async function dbGetRatingsForUser(toUserId: string): Promise<UserRating[]> {
+  const { data, error } = await sb()
+    .from('jm_ratings')
+    .select('*')
+    .eq('to_user_id', toUserId)
+    .order('created_at', { ascending: false });
+  if (error) throwOnError('dbGetRatingsForUser', error);
+  return (data ?? []).map((r: any) => ({
+    id: r.id,
+    fromUserId: r.from_user_id,
+    rating: r.rating,
+    reviewText: r.review_text ?? undefined,
+    role: r.role,
+    createdAt: r.created_at,
+    vacancyId: r.vacancy_id,
+  }));
+}
+
 // ─── Shift confirmation ───────────────────────────────────────────────────────
 
 export async function dbConfirmShift(
@@ -471,8 +501,9 @@ export async function dbSubmitRatingAndMaybeDelete(params: {
   vacancyId: string;
   rating: number;
   role: 'worker' | 'employer';
+  reviewText?: string;
 }): Promise<{ bothRated: boolean }> {
-  const { likeId, fromUserId, toUserId, vacancyId, rating, role } = params;
+  const { likeId, fromUserId, toUserId, vacancyId, rating, role, reviewText } = params;
 
   // Save rating record
   await sb().from('jm_ratings').insert({
@@ -483,6 +514,7 @@ export async function dbSubmitRatingAndMaybeDelete(params: {
     like_id: likeId,
     rating,
     role,
+    review_text: reviewText ?? null,
     created_at: nowISO(),
   });
 

@@ -67,8 +67,16 @@ function WorkerMatches() {
   const getVacancy = (id: string) => vacancies.find(v => v.id === id);
 
   const pending = relevant.filter(l => !l.isMatch && l.employerLiked);
-  const matched = relevant.filter(l => l.isMatch && !l.shiftCompleted);
+  // Sort matched: unconfirmed first, then waiting, then confirmed
+  const matched = relevant
+    .filter(l => l.isMatch && !l.shiftCompleted)
+    .sort((a, b) => {
+      const aUrgent = !a.workerConfirmed ? 0 : 1;
+      const bUrgent = !b.workerConfirmed ? 0 : 1;
+      return aUrgent - bUrgent;
+    });
   const completed = relevant.filter(l => l.shiftCompleted);
+  // New offers & unconfirmed matches at top, completed at bottom
   const allItems = [...pending, ...matched, ...completed];
 
   // Matches needing worker confirmation (not yet confirmed by worker)
@@ -268,7 +276,16 @@ function EmployerMatches() {
 
   const pending = allLikes.filter(l => !l.isMatch && !l.employerLiked);
   const approved = allLikes.filter(l => l.employerLiked && !l.isMatch);
-  const matched = allLikes.filter(l => l.isMatch);
+  // Sort matched: unconfirmed by employer first, completed last
+  const matched = allLikes
+    .filter(l => l.isMatch)
+    .sort((a, b) => {
+      if (a.shiftCompleted && !b.shiftCompleted) return 1;
+      if (!a.shiftCompleted && b.shiftCompleted) return -1;
+      const aUrgent = !a.employerConfirmed && !a.shiftCompleted ? 0 : 1;
+      const bUrgent = !b.employerConfirmed && !b.shiftCompleted ? 0 : 1;
+      return aUrgent - bUrgent;
+    });
 
   // Matches needing employer confirmation
   const needsEmployerConfirm = matched.filter(l => l.isMatch && !l.employerConfirmed && !l.shiftCompleted);
