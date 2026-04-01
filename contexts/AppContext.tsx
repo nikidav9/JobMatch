@@ -151,8 +151,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // ── Boot ──────────────────────────────────────────────────────────────────
 
-  const router = useRouter();
-
   useEffect(() => {
     (async () => {
       setLoading(true);
