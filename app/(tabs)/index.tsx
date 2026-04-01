@@ -270,9 +270,10 @@ function WorkerFeed() {
             {cards[1] ? <View style={styles.ghost1} /> : null}
 
             <Animated.View
-              style={[styles.card, { transform: [{ translateX: pan.x }, { translateY: pan.y }, { rotate }] }]}
+              style={[styles.cardAnimated, { transform: [{ translateX: pan.x }, { translateY: pan.y }, { rotate }] }]}
               {...panResponder.panHandlers}
             >
+              <View style={styles.card}>
               {/* Swipe overlays */}
               <Animated.View style={[styles.wantOverlay, { opacity: wantOpacity }]}>
                 <Text style={styles.wantText}>ХОЧУ ♥</Text>
@@ -281,20 +282,16 @@ function WorkerFeed() {
                 <Text style={styles.skipText}>НЕТ ✕</Text>
               </Animated.View>
 
-              {/* Tappable body — opens detail */}
-              <TouchableOpacity
-                style={styles.cardTapArea}
-                activeOpacity={0.95}
-                onPress={() => setDetailVacancy(currentCard)}
-              >
-                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.cardBody} scrollEventThrottle={16}>
-                  {/* Company row */}
+              {/* Card content — no ScrollView to avoid PanResponder conflict */}
+              <View style={styles.cardTapArea}>
+                {/* Top section: company + metro + urgent */}
+                <View style={styles.cardTop}>
                   <View style={styles.companyRow}>
                     <View style={styles.avatar}>
                       <Text style={styles.avatarText}>{(currentCard.company[0] ?? '?').toUpperCase()}</Text>
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.companyName}>{currentCard.company}</Text>
+                      <Text style={styles.companyName} numberOfLines={1}>{currentCard.company}</Text>
                       <Text style={styles.metroHint}>🚇 {currentCard.metroStation}</Text>
                     </View>
                     {currentCard.isUrgent ? (
@@ -302,83 +299,104 @@ function WorkerFeed() {
                     ) : null}
                   </View>
 
-                  <Text style={styles.jobTitle}>{currentCard.title}</Text>
-                  <Text style={styles.tapHint}>Нажмите для просмотра деталей →</Text>
+                  {/* Job title */}
+                  <Text style={styles.jobTitle} numberOfLines={2}>{currentCard.title}</Text>
 
+                  {/* Chips row */}
                   <View style={styles.chipsRow}>
-                    <Chip label="📦 Кладовщик" variant="work" />
                     <Chip label={`⏰ ${currentCard.timeStart}–${currentCard.timeEnd}`} variant="time" />
                     <Chip label={`📅 ${formatDate(currentCard.date)}`} variant="date" />
-                    <Chip label={currentCard.noExperienceNeeded ? '🎓 Без опыта' : '🎓 Опыт нужен'} variant="exp" />
+                    {currentCard.noExperienceNeeded ? <Chip label="🎓 Без опыта" variant="exp" /> : null}
                   </View>
 
+                  {/* Address */}
                   {currentCard.address ? (
-                    <View style={styles.infoRow}>
-                      <Text style={styles.infoLabel}>📍 Адрес</Text>
-                      <Text style={styles.infoValue}>{currentCard.address}</Text>
+                    <View style={styles.addressRow}>
+                      <Text style={styles.addressIcon}>📍</Text>
+                      <Text style={styles.addressText} numberOfLines={2}>{currentCard.address}</Text>
                     </View>
                   ) : null}
+                </View>
 
-                  {currentCard.normsAndPay ? (
-                    <View style={styles.normsBox}>
-                      <Text style={styles.normsTitle}>Нормативы</Text>
-                      <Text style={styles.normsText} numberOfLines={8}>{currentCard.normsAndPay}</Text>
-                    </View>
-                  ) : null}
+                {/* Divider */}
+                <View style={styles.cardDivider} />
 
-                  <View style={{ marginTop: 12 }}>
-                    <View style={styles.progressTrack}>
-                      <View style={[styles.progressFill, { width: `${Math.min(100, (currentCard.workersFound / currentCard.workersNeeded) * 100)}%` }]} />
+                {/* Middle: slots progress */}
+                <View style={styles.cardMiddle}>
+                  <View style={styles.slotsRow}>
+                    <View style={styles.slotInfo}>
+                      <Text style={styles.slotLabel}>Мест осталось</Text>
+                      <Text style={styles.slotValue}>{Math.max(0, currentCard.workersNeeded - currentCard.workersFound)}</Text>
                     </View>
-                    <Text style={styles.progressLabel}>
-                      Набрано {currentCard.workersFound} из {currentCard.workersNeeded} · ⚡ Осталось {Math.max(0, currentCard.workersNeeded - currentCard.workersFound)} мест
-                    </Text>
+                    <View style={styles.slotInfo}>
+                      <Text style={styles.slotLabel}>Всего мест</Text>
+                      <Text style={styles.slotValue}>{currentCard.workersNeeded}</Text>
+                    </View>
+                    <View style={styles.slotInfo}>
+                      <Text style={styles.slotLabel}>Занято</Text>
+                      <Text style={[styles.slotValue, { color: Colors.primary }]}>{currentCard.workersFound}</Text>
+                    </View>
                   </View>
-                </ScrollView>
-              </TouchableOpacity>
+                  <View style={styles.progressTrack}>
+                    <View style={[styles.progressFill, { width: `${Math.min(100, (currentCard.workersFound / currentCard.workersNeeded) * 100)}%` }]} />
+                  </View>
+                </View>
 
-              {/* Action buttons */}
-              <View style={styles.actions}>
+                {/* Tap hint */}
                 <TouchableOpacity
-                  style={[styles.actionBtn, styles.actionUndo, !history.length && { opacity: 0.3 }]}
-                  onPress={doUndo}
-                  disabled={!history.length || swiping}
+                  style={styles.detailHintRow}
                   activeOpacity={0.7}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  onPress={() => setDetailVacancy(currentCard)}
                 >
-                  <Text style={styles.actionUndoIcon}>↩</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.actionBtn, styles.actionSkip]}
-                  onPress={() => doSkip(0.5)}
-                  disabled={swiping}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.actionSkipIcon}>✕</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.actionBtn, styles.actionSave]}
-                  onPress={doSave}
-                  activeOpacity={0.7}
-                >
-                  {/* savedIds comes directly from context — no local state duplication */}
-                  <Text style={styles.actionSaveIcon}>
-                    {savedIds.includes(currentCard.id) ? '❤️' : '🤍'}
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.actionBtn, styles.actionWant]}
-                  onPress={() => doWant(0.5)}
-                  disabled={swiping}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.actionWantIcon}>✓</Text>
+                  <Text style={styles.detailHintText}>Подробности и нормативы</Text>
+                  <Text style={styles.detailHintArrow}>→</Text>
                 </TouchableOpacity>
               </View>
+
+              {/* Action buttons — outside card content, always visible */}
+              </View>
             </Animated.View>
+
+            {/* Buttons sit BELOW the card, outside Animated.View so they never get covered */}
+            <View style={styles.actions}>
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.actionUndo, !history.length && { opacity: 0.3 }]}
+                onPress={doUndo}
+                disabled={!history.length || swiping}
+                activeOpacity={0.7}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={styles.actionUndoIcon}>↩</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.actionSkip]}
+                onPress={() => doSkip(0.5)}
+                disabled={swiping}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.actionSkipIcon}>✕</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.actionSave]}
+                onPress={doSave}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.actionSaveIcon}>
+                  {savedIds.includes(currentCard.id) ? '❤️' : '🤍'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.actionWant]}
+                onPress={() => doWant(0.5)}
+                disabled={swiping}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.actionWantIcon}>✓</Text>
+              </TouchableOpacity>
+            </View>
           </>
         )}
       </View>
@@ -632,47 +650,66 @@ const styles = StyleSheet.create({
   dcCnt: { fontSize: 10, fontWeight: '700', color: Colors.primary },
   dcCntActive: { color: 'rgba(255,255,255,0.8)' },
 
-  cardArea: { flex: 1, position: 'relative', paddingHorizontal: 10, paddingTop: 10, paddingBottom: 0 },
-  ghost1: { position: 'absolute', left: 10, right: 10, top: 10, bottom: 0, backgroundColor: Colors.bg, borderRadius: Radius.xl, transform: [{ scale: 0.97 }, { translateY: 6 }], opacity: 0.5, ...Shadow.card },
-  ghost2: { position: 'absolute', left: 10, right: 10, top: 10, bottom: 0, backgroundColor: Colors.bg, borderRadius: Radius.xl, transform: [{ scale: 0.94 }, { translateY: 12 }], opacity: 0.3, ...Shadow.card },
-  card: { position: 'absolute', left: 0, right: 0, top: 10, bottom: 0, backgroundColor: Colors.bg, borderRadius: Radius.xl, ...Shadow.strong, overflow: 'hidden' },
+  // Card area: flex column — card flex:1 on top, buttons pinned below
+  cardArea: { flex: 1, flexDirection: 'column', paddingHorizontal: 10, paddingTop: 10, paddingBottom: 8 },
+  ghost1: { position: 'absolute', left: 10, right: 10, top: 10, bottom: 90, backgroundColor: Colors.bg, borderRadius: Radius.xl, transform: [{ scale: 0.97 }, { translateY: 6 }], opacity: 0.5, ...Shadow.card },
+  ghost2: { position: 'absolute', left: 10, right: 10, top: 10, bottom: 90, backgroundColor: Colors.bg, borderRadius: Radius.xl, transform: [{ scale: 0.94 }, { translateY: 12 }], opacity: 0.3, ...Shadow.card },
+  cardAnimated: { flex: 1, marginBottom: 8 },
+  card: { flex: 1, backgroundColor: Colors.bg, borderRadius: Radius.xl, ...Shadow.strong, overflow: 'hidden' },
 
-  wantOverlay: { position: 'absolute', top: 24, left: 20, zIndex: 10, backgroundColor: Colors.green, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8, transform: [{ rotate: '-10deg' }] },
+  wantOverlay: { position: 'absolute', top: 20, left: 20, zIndex: 10, backgroundColor: Colors.green, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8, transform: [{ rotate: '-10deg' }] },
   wantText: { color: '#fff', fontSize: 20, fontWeight: '800' },
-  skipOverlay: { position: 'absolute', top: 24, right: 20, zIndex: 10, backgroundColor: Colors.red, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8, transform: [{ rotate: '10deg' }] },
+  skipOverlay: { position: 'absolute', top: 20, right: 20, zIndex: 10, backgroundColor: Colors.red, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8, transform: [{ rotate: '10deg' }] },
   skipText: { color: '#fff', fontSize: 20, fontWeight: '800' },
 
-  cardTapArea: { flex: 1 },
-  cardBody: { padding: 20, paddingBottom: 12 },
-  companyRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
-  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.primaryLight, alignItems: 'center', justifyContent: 'center' },
+  cardTapArea: { flex: 1, flexDirection: 'column' },
+
+  // Top section of card
+  cardTop: { padding: 20, paddingBottom: 16, gap: 12 },
+  companyRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.primaryLight, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   avatarText: { fontSize: 17, fontWeight: '700', color: Colors.primary },
   companyName: { fontSize: 14, fontWeight: '700', color: Colors.textPrimary },
   metroHint: { fontSize: 12, color: Colors.textMuted, marginTop: 2 },
-  urgentTag: { backgroundColor: '#FEF3C7', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
+  urgentTag: { backgroundColor: '#FEF3C7', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, flexShrink: 0 },
   urgentTagTxt: { fontSize: 11, fontWeight: '700', color: '#92400E' },
 
-  jobTitle: { fontSize: 24, fontWeight: '800', color: Colors.textPrimary, lineHeight: 30, marginBottom: 4 },
-  tapHint: { fontSize: 12, color: Colors.primary, fontWeight: '500', marginBottom: 12 },
+  jobTitle: { fontSize: 28, fontWeight: '800', color: Colors.textPrimary, lineHeight: 34 },
 
-  chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 },
+  chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
 
-  infoRow: { marginBottom: 10 },
-  infoLabel: { fontSize: 12, color: Colors.textMuted, fontWeight: '600', marginBottom: 2 },
-  infoValue: { fontSize: 14, color: Colors.textPrimary, lineHeight: 20 },
+  addressRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
+  addressIcon: { fontSize: 14, marginTop: 1 },
+  addressText: { flex: 1, fontSize: 13, color: Colors.textSecondary, lineHeight: 18 },
 
-  normsBox: { backgroundColor: Colors.surface, borderRadius: 10, padding: 12, marginBottom: 10 },
-  normsTitle: { fontSize: 13, fontWeight: '700', color: Colors.textPrimary, marginBottom: 6 },
-  normsText: { fontSize: 13, color: Colors.textSecondary, lineHeight: 20 },
+  // Divider
+  cardDivider: { height: 1, backgroundColor: Colors.divider, marginHorizontal: 20 },
 
-  progressTrack: { height: 4, backgroundColor: Colors.divider, borderRadius: 2, overflow: 'hidden' },
-  progressFill: { height: '100%', backgroundColor: Colors.primary, borderRadius: 2 },
-  progressLabel: { fontSize: 12, color: Colors.textMuted, marginTop: 6 },
+  // Middle section: slots
+  cardMiddle: { padding: 16, paddingHorizontal: 20, gap: 10 },
+  slotsRow: { flexDirection: 'row', gap: 0 },
+  slotInfo: { flex: 1, alignItems: 'center' },
+  slotLabel: { fontSize: 11, color: Colors.textMuted, fontWeight: '500', textTransform: 'uppercase', marginBottom: 4 },
+  slotValue: { fontSize: 22, fontWeight: '800', color: Colors.textPrimary },
+  progressTrack: { height: 5, backgroundColor: Colors.divider, borderRadius: 3, overflow: 'hidden' },
+  progressFill: { height: '100%', backgroundColor: Colors.primary, borderRadius: 3 },
 
+  // Detail hint row
+  detailHintRow: {
+    marginTop: 'auto' as any,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, paddingVertical: 14, paddingHorizontal: 20,
+    borderTopWidth: 1, borderTopColor: Colors.divider,
+  },
+  detailHintText: { fontSize: 13, fontWeight: '600', color: Colors.primary },
+  detailHintArrow: { fontSize: 14, color: Colors.primary },
+
+  // Action buttons row — outside card, pinned to bottom of cardArea
   actions: {
+    height: 74,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around',
-    paddingHorizontal: 20, paddingVertical: 16,
-    backgroundColor: Colors.bg, borderTopWidth: 1, borderTopColor: Colors.divider,
+    paddingHorizontal: 16,
+    backgroundColor: 'transparent',
   },
   actionBtn: { borderRadius: 100, alignItems: 'center', justifyContent: 'center', ...Shadow.card },
   actionUndo: { width: 52, height: 52, backgroundColor: Colors.bg, borderWidth: 1.5, borderColor: Colors.inputBorder },
