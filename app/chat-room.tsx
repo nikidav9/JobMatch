@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, TextInput,
@@ -170,7 +171,11 @@ export default function ChatRoom() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Text style={styles.backText}>← Назад</Text>
         </TouchableOpacity>
-        <View style={styles.headerCenter}>
+        <TouchableOpacity
+          style={styles.headerCenter}
+          activeOpacity={0.8}
+          onPress={() => otherId ? router.push({ pathname: '/user-profile', params: { userId: otherId } }) : null}
+        >
           {otherAvatarUrl ? (
             <Image
               source={{ uri: otherAvatarUrl }}
@@ -187,7 +192,8 @@ export default function ChatRoom() {
             <Text style={styles.headerName}>{otherName}</Text>
             <Text style={styles.headerSub} numberOfLines={1}>{chat.vacTitle}</Text>
           </View>
-        </View>
+          <Text style={{ fontSize: 16, color: Colors.textMuted, marginLeft: 4 }}>›</Text>
+        </TouchableOpacity>
         <View style={{ width: 70 }} />
       </View>
 

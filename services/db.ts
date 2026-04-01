@@ -35,6 +35,7 @@ function rowToUser(r: any): User {
     avgRating: r.avg_rating ?? 0,
     ratingCount: r.rating_count ?? 0,
     password: r.password ?? '',
+    bio: r.bio ?? undefined,
   };
 }
 
@@ -56,6 +57,7 @@ function userToRow(u: User) {
     avg_rating: u.avgRating ?? 0,
     rating_count: u.ratingCount ?? 0,
     password: u.password ?? '',
+    bio: u.bio ?? null,
   };
 }
 

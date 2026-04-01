@@ -50,6 +50,7 @@ export default function RootLayout() {
             <Stack.Screen name="match" options={{ presentation: 'modal' }} />
             <Stack.Screen name="rate" options={{ presentation: 'modal' }} />
             <Stack.Screen name="admin" />
+            <Stack.Screen name="user-profile" />
           </Stack>
           <ToastLayer />
         </AppProvider>

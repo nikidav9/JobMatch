@@ -65,6 +65,23 @@ export async function notifyNewApplicant(options: {
   });
 }
 
+export async function notifyConfirmShiftReminder(options: {
+  role: 'worker' | 'employer';
+  vacancyTitle: string;
+  date: string;
+}): Promise<void> {
+  const { role, vacancyTitle, date } = options;
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title: '⏰ Подтвердите выход на смену',
+      body: `${role === 'worker' ? 'Работодатель ждёт вашего подтверждения' : 'Работник ждёт вашего подтверждения'}: «${vacancyTitle}» ${date}`,
+      sound: true,
+      data: { type: 'confirm_reminder' },
+    },
+    trigger: null,
+  });
+}
+
 export async function notifyShiftConfirmed(options: {
   role: 'worker' | 'employer';
   otherName: string;

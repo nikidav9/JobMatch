@@ -17,6 +17,7 @@ export interface User {
   avatarUrl?: string;
   avgRating?: number;
   ratingCount?: number;
+  bio?: string;
 }
 
 export interface Vacancy {
