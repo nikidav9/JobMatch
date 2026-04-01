@@ -77,13 +77,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
-    _setCurrentUser(null);
-    setChats([]);
-    setSavedIds([]);
-    setLikes([]);
-    setVacancies([]);
+    // Use the shared state-reset path to guarantee all cleanup is the same as setCurrentUser(null).
+    setCurrentUser(null);
     setLoading(false);
-    await clearSessionUser();
+    try {
+      await clearSessionUser();
+    } catch (error) {
+      console.warn('[AppContext] clearSessionUser failed during logout', error);
+    }
   };
 
   // ── Fetch helpers ─────────────────────────────────────────────────────────
