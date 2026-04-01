@@ -6,7 +6,6 @@ import { Colors, Radius, Shadow } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
 import { formatDate } from '@/services/storage';
 import { dbRemoveSaved } from '@/services/db';
-import { useApp } from '@/hooks/useApp';
 import { Chip } from '@/components/ui/Chip';
 import { VacancyDetailModal } from '@/components/feature/VacancyDetailModal';
 import { Vacancy } from '@/constants/types';
