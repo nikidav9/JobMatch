@@ -124,7 +124,10 @@ export async function dbGetVacancies(): Promise<Vacancy[]> {
 
 export async function dbUpsertVacancy(v: Vacancy): Promise<void> {
   const { error } = await sb().from('jm_vacancies').upsert(vacancyToRow(v), { onConflict: 'id' });
-  if (error) console.error('dbUpsertVacancy', error.message);
+  if (error) {
+    console.error('dbUpsertVacancy', error.message);
+    throw new Error(error.message);
+  }
 }
 
 export async function dbUpdateVacancy(id: string, patch: Partial<{ status: string; workers_found: number }>): Promise<void> {
@@ -246,7 +249,10 @@ export async function dbGetMessages(chatId: string): Promise<Message[]> {
 export async function dbInsertMessage(chatId: string, senderId: string, text: string): Promise<Message> {
   const msg = { id: uid(), chat_id: chatId, sender_id: senderId, text, created_at: nowISO() };
   const { error } = await sb().from('jm_messages').insert(msg);
-  if (error) console.error('dbInsertMessage', error.message);
+  if (error) {
+    console.error('dbInsertMessage', error.message);
+    throw new Error(error.message);
+  }
   return rowToMessage(msg);
 }
 

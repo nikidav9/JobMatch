@@ -184,9 +184,9 @@ export default function CreateVacancy() {
     };
     await dbUpsertVacancy(vac);
     await refreshVacancies();
+    setSaving(false);
     showToast(isEdit ? 'Вакансия обновлена ✅' : 'Вакансия опубликована ✅', 'success');
     router.back();
-    setSaving(false);
   };
 
   if (loadingInit) {
