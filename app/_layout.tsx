@@ -16,22 +16,17 @@ function AuthGuard() {
   const [showRefresh, setShowRefresh] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  const isProtected =
-    pathname.startsWith('/(tabs)') ||
-    pathname === '/create-vacancy' ||
-    pathname === '/candidates' ||
-    pathname === '/chat-room' ||
-    pathname === '/match' ||
-    pathname === '/rate';
+  const publicPaths = new Set(['/','/login','/register-worker','/register-employer','/legal']);
+  const isProtected = !publicPaths.has(pathname);
 
   useEffect(() => {
     if (!ctx || ctx.loading) return;
     if (!ctx.currentUser && isProtected) {
       setShowRefresh(true);
       router.replace('/');
-    } else {
-      setShowRefresh(false);
+      return;
     }
+    setShowRefresh(false);
   }, [ctx?.currentUser?.id, ctx?.loading, pathname]);
 
   const handleRefresh = async () => {
