@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
@@ -215,9 +216,13 @@ export default function ProfileScreen() {
                 <Text style={styles.avatarCameraIcon}>📷</Text>
               </View>
             )}
+            {/* Hint under avatar for employers */}
           </TouchableOpacity>
 
           <Text style={styles.fullName}>{currentUser.firstName} {currentUser.lastName}</Text>
+          {currentUser.role === 'employer' ? (
+            <Text style={styles.avatarHint}>Фото компании — видно работникам в карточке вакансии</Text>
+          ) : null}
           <View style={styles.roleBadge}>
             <Text style={styles.roleText}>{currentUser.role === 'worker' ? 'Работник' : 'Работодатель'}</Text>
           </View>
@@ -437,6 +442,7 @@ const styles = StyleSheet.create({
   roleBadge: { backgroundColor: Colors.primary, borderRadius: 100, paddingHorizontal: 14, paddingVertical: 4, marginTop: 8 },
   roleText: { color: '#fff', fontSize: 13, fontWeight: '600' },
   phone: { fontSize: 14, color: Colors.textMuted, marginTop: 6 },
+  avatarHint: { fontSize: 11, color: Colors.textMuted, marginTop: 4, textAlign: 'center', maxWidth: 220 },
   logoutBtn: { alignItems: 'center', paddingVertical: 16, marginTop: 8 },
   logoutText: { color: Colors.red, fontSize: 14, fontWeight: '600' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },

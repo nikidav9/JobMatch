@@ -13,8 +13,10 @@ import {
   dbUpsertLike, dbCheckAndCreateMatch, dbRemoveLike, dbAddSaved, dbUpdateVacancy,
 } from '@/services/db';
 import { notifyWorkerSentApplication, notifyWorkerGotMatch } from '@/services/notifications';
+import { Image } from 'expo-image';
 import { Chip } from '@/components/ui/Chip';
 import { VacancyDetailModal } from '@/components/feature/VacancyDetailModal';
+import { nameColorFromString, getInitials } from '@/services/storage';
 
 const { width: SW } = Dimensions.get('window');
 const SWIPE_THRESHOLD = 80;
@@ -73,6 +75,7 @@ function WorkerFeed() {
   }, [selectedDate, vacancies, likes, currentUser, filterLineId]);
 
   const currentCard = cards[0];
+  const currentEmployer = currentCard ? users.find(u => u.id === currentCard.employerId) : null;
 
   const animateCard = useCallback((dir: 'left' | 'right', velocity: number, cb: () => void) => {
     const targetX = dir === 'right' ? SW * 1.5 : -SW * 1.5;
@@ -287,9 +290,19 @@ function WorkerFeed() {
                 {/* Top section: company + metro + urgent */}
                 <View style={styles.cardTop}>
                   <View style={styles.companyRow}>
-                    <View style={styles.avatar}>
-                      <Text style={styles.avatarText}>{(currentCard.company[0] ?? '?').toUpperCase()}</Text>
-                    </View>
+                    {/* Company avatar — employer photo or colored initial */}
+                    {currentEmployer?.avatarUrl ? (
+                      <Image
+                        source={{ uri: currentEmployer.avatarUrl }}
+                        style={styles.avatarImg}
+                        contentFit="cover"
+                        transition={150}
+                      />
+                    ) : (
+                      <View style={[styles.avatar, { backgroundColor: nameColorFromString(currentCard.employerId) }]}>
+                        <Text style={styles.avatarText}>{(currentCard.company[0] ?? '?').toUpperCase()}</Text>
+                      </View>
+                    )}
                     <View style={{ flex: 1 }}>
                       <Text style={styles.companyName} numberOfLines={1}>{currentCard.company}</Text>
                       <Text style={styles.metroHint}>🚇 {currentCard.metroStation}</Text>
@@ -309,11 +322,11 @@ function WorkerFeed() {
                     {currentCard.noExperienceNeeded ? <Chip label="🎓 Без опыта" variant="exp" /> : null}
                   </View>
 
-                  {/* Address */}
+                  {/* Address — prominent chip block */}
                   {currentCard.address ? (
-                    <View style={styles.addressRow}>
-                      <Text style={styles.addressIcon}>📍</Text>
-                      <Text style={styles.addressText} numberOfLines={2}>{currentCard.address}</Text>
+                    <View style={styles.addressChip}>
+                      <Text style={styles.addressChipIcon}>📍</Text>
+                      <Text style={styles.addressChipText} numberOfLines={2}>{currentCard.address}</Text>
                     </View>
                   ) : null}
                 </View>
@@ -667,8 +680,9 @@ const styles = StyleSheet.create({
   // Top section of card
   cardTop: { padding: 20, paddingBottom: 16, gap: 12 },
   companyRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.primaryLight, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  avatarText: { fontSize: 17, fontWeight: '700', color: Colors.primary },
+  avatar: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  avatarImg: { width: 44, height: 44, borderRadius: 22, flexShrink: 0 },
+  avatarText: { fontSize: 17, fontWeight: '700', color: '#fff' },
   companyName: { fontSize: 14, fontWeight: '700', color: Colors.textPrimary },
   metroHint: { fontSize: 12, color: Colors.textMuted, marginTop: 2 },
   urgentTag: { backgroundColor: '#FEF3C7', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, flexShrink: 0 },
@@ -678,9 +692,14 @@ const styles = StyleSheet.create({
 
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
 
-  addressRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
-  addressIcon: { fontSize: 14, marginTop: 1 },
-  addressText: { flex: 1, fontSize: 13, color: Colors.textSecondary, lineHeight: 18 },
+  addressChip: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+    backgroundColor: '#FFF7ED',
+    borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10,
+    borderWidth: 1, borderColor: '#FDBA74',
+  },
+  addressChipIcon: { fontSize: 15, marginTop: 1 },
+  addressChipText: { flex: 1, fontSize: 14, fontWeight: '600', color: '#92400E', lineHeight: 20 },
 
   // Divider
   cardDivider: { height: 1, backgroundColor: Colors.divider, marginHorizontal: 20 },
