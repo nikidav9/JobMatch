@@ -19,13 +19,97 @@ export default function ChatRoom() {
   const { chatId } = useLocalSearchParams<{ chatId: string }>();
   const { currentUser, users, chats, vacancies, refreshChats } = useApp();
 
-  const chat = chats.find(c => c.id === chatId);
+  // Use ref to keep chat data stable even if chats array momentarily changes
+  const chatRef = useRef(chats.find(c => c.id === chatId));
+  const foundChat = chats.find(c => c.id === chatId);
+  if (foundChat) chatRef.current = foundChat;
+  const chat = foundChat ?? chatRef.current;
+
   const [messages, setMessages] = useState<Message[]>(chat?.messages ?? []);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const listRef = useRef<FlatList<Message>>(null);
   const lastCountRef = useRef(messages.length);
 
+  const otherId = chat
+    ? (currentUser?.role === 'worker' ? chat.employerId : chat.workerId)
+    : '';
+  const other = users.find(u => u.id === otherId);
+  const vacancy = vacancies.find(v => v.id === chat?.vacancyId);
+  const otherName = other
+    ? `${other.firstName} ${other.lastName}`
+    : (chat?.companyName ?? '');
+  const otherColor = nameColorFromString(otherName);
+  const otherAvatarUrl = other?.avatarUrl;
+
+  // Mark as read on mount
+  useEffect(() => {
+    if (!chat || !currentUser) return;
+    dbMarkRead(chat.id, currentUser.role).catch(() => {});
+    refreshChats().catch(() => {});
+  }, [chat?.id]);
+
+  // Polling for new messages
+  useEffect(() => {
+    if (!chat?.id || !currentUser) return;
+    const localChatId = chat.id;
+    const userId = currentUser.id;
+    const role = currentUser.role;
+
+    const poll = async () => {
+      try {
+        const msgs = await dbGetMessages(localChatId);
+        if (msgs.length !== lastCountRef.current) {
+          setMessages(msgs);
+          const newMsgs = msgs.slice(lastCountRef.current);
+          const fromOther = newMsgs.filter(m => m.senderId !== userId && m.senderId !== 'system');
+          if (fromOther.length > 0) {
+            await notifyNewMessage(otherName, fromOther[fromOther.length - 1].text);
+            await dbMarkRead(localChatId, role);
+            await refreshChats();
+          }
+          lastCountRef.current = msgs.length;
+          setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
+        }
+      } catch (e) {
+        console.warn('[ChatRoom] poll error', e);
+      }
+    };
+
+    poll();
+    const interval = setInterval(poll, POLL_INTERVAL);
+    return () => clearInterval(interval);
+  }, [chat?.id]);
+
+  // Scroll to bottom when messages load
+  useEffect(() => {
+    if (messages.length > 0) {
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: false }), 150);
+    }
+  }, [messages.length]);
+
+  const sendMessage = async () => {
+    const text = input.trim();
+    if (!text || sending || !chat || !currentUser) return;
+    setSending(true);
+    setInput('');
+    try {
+      const msg = await dbInsertMessage(chat.id, currentUser.id, text);
+      setMessages(prev => [...prev, msg]);
+      lastCountRef.current += 1;
+      const forRole = currentUser.role === 'worker' ? 'employer' : 'worker';
+      await dbIncrementUnread(chat.id, forRole);
+      await refreshChats();
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
+    } catch (e) {
+      console.error('[ChatRoom] sendMessage error', e);
+      setInput(text); // Restore input on error
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // All hooks are declared above — safe to return early here
   if (!currentUser || !chat) {
     return (
       <SafeAreaView style={styles.safe}>
@@ -40,66 +124,6 @@ export default function ChatRoom() {
       </SafeAreaView>
     );
   }
-
-  const otherId = currentUser.role === 'worker' ? chat.employerId : chat.workerId;
-  const other = users.find(u => u.id === otherId);
-  const vacancy = vacancies.find(v => v.id === chat.vacancyId);
-  const otherName = other ? `${other.firstName} ${other.lastName}` : chat.companyName;
-  const otherColor = nameColorFromString(otherName);
-  const otherAvatarUrl = other?.avatarUrl;
-
-  // Mark as read on mount
-  useEffect(() => {
-    dbMarkRead(chat.id, currentUser.role);
-    refreshChats();
-  }, []);
-
-  // Polling for new messages
-  useEffect(() => {
-    const poll = async () => {
-      const msgs = await dbGetMessages(chat.id);
-      if (msgs.length !== lastCountRef.current) {
-        setMessages(msgs);
-        const newMsgs = msgs.slice(lastCountRef.current);
-        // Notify if new messages from other party and app is open
-        const fromOther = newMsgs.filter(m => m.senderId !== currentUser.id && m.senderId !== 'system');
-        if (fromOther.length > 0) {
-          await notifyNewMessage(otherName, fromOther[fromOther.length - 1].text);
-          await dbMarkRead(chat.id, currentUser.role);
-          await refreshChats();
-        }
-        lastCountRef.current = msgs.length;
-        setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
-      }
-    };
-
-    poll();
-    const interval = setInterval(poll, POLL_INTERVAL);
-    return () => clearInterval(interval);
-  }, [chat.id]);
-
-  // Scroll to bottom when messages load
-  useEffect(() => {
-    if (messages.length > 0) {
-      setTimeout(() => listRef.current?.scrollToEnd({ animated: false }), 100);
-    }
-  }, [messages.length]);
-
-  const sendMessage = async () => {
-    const text = input.trim();
-    if (!text || sending) return;
-    setSending(true);
-    setInput('');
-    const msg = await dbInsertMessage(chat.id, currentUser.id, text);
-    setMessages(prev => [...prev, msg]);
-    lastCountRef.current += 1;
-    // Increment unread for other party
-    const forRole = currentUser.role === 'worker' ? 'employer' : 'worker';
-    await dbIncrementUnread(chat.id, forRole);
-    await refreshChats();
-    setSending(false);
-    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
-  };
 
   const formatTime = (ts: string) => {
     const d = new Date(ts);
@@ -191,8 +215,12 @@ export default function ChatRoom() {
         </View>
       ) : null}
 
-      {/* Messages */}
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={0}>
+      {/* Messages + Input */}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}
+      >
         <FlatList
           ref={listRef}
           data={messages}
@@ -213,7 +241,6 @@ export default function ChatRoom() {
             placeholderTextColor={Colors.textMuted}
             multiline
             maxLength={1000}
-            onSubmitEditing={sendMessage}
             blurOnSubmit={false}
           />
           <TouchableOpacity
@@ -273,7 +300,12 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
     borderBottomWidth: 1, borderBottomColor: Colors.divider,
   },
-  vacancyItem: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: Colors.bg, borderRadius: 100, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: Colors.divider },
+  vacancyItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: Colors.bg, borderRadius: 100,
+    paddingHorizontal: 10, paddingVertical: 4,
+    borderWidth: 1, borderColor: Colors.divider,
+  },
   vacancyIcon: { fontSize: 12 },
   vacancyText: { fontSize: 12, color: Colors.textSecondary, fontWeight: '500', maxWidth: 160 },
   textInput: {

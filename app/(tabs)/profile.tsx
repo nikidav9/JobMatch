@@ -44,7 +44,7 @@ const rS = StyleSheet.create({
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { currentUser, logout, users, refreshUsers, showToast } = useApp();
+  const { currentUser, logout, users, refreshUsers, showToast, setCurrentUser } = useApp();
   const [editSection, setEditSection] = useState<EditSection>(null);
   const [showConfirmLogout, setShowConfirmLogout] = useState(false);
   const [metroPicker, setMetroPicker] = useState(false);
