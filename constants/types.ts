@@ -68,13 +68,6 @@ export interface Message {
   timestamp: string;
 }
 
-export interface ChatMessage {
-  id: string;
-  senderId: string;
-  text: string;
-  timestamp: string;
-}
-
 export interface Chat {
   id: string;
   vacancyId: string;

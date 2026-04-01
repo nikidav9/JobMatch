@@ -4,40 +4,57 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Colors, Radius, Shadow } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
 
-function Confetti() {
-  const colors = [Colors.primary, Colors.blue, Colors.green, Colors.purple, '#FFD700'];
-  const dots = Array.from({ length: 20 }).map((_, i) => {
-    const anim = useRef(new Animated.Value(0)).current;
-    const x = (Math.random() - 0.5) * 300;
-    useEffect(() => {
+// Single confetti dot — hooks called at component level (Rules of Hooks compliant)
+function ConfettiDot({ index, color, offsetX, size }: { index: number; color: string; offsetX: number; size: number }) {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const delay = index * 60;
+    const duration = 1200 + (index * 97) % 800;
+    setTimeout(() => {
       Animated.loop(
         Animated.sequence([
-          Animated.timing(anim, { toValue: 1, duration: 1200 + Math.random() * 800, useNativeDriver: true }),
+          Animated.timing(anim, { toValue: 1, duration, useNativeDriver: true }),
           Animated.timing(anim, { toValue: 0, duration: 0, useNativeDriver: true }),
         ])
       ).start();
-    }, []);
-    const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [-20, 280] });
-    const translateX = anim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, x / 2, x] });
-    const opacity = anim.interpolate({ inputRange: [0, 0.8, 1], outputRange: [1, 0.8, 0] });
-    return (
-      <Animated.View
-        key={i}
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: '50%',
-          width: 8 + Math.random() * 6,
-          height: 8 + Math.random() * 6,
-          borderRadius: 100,
-          backgroundColor: colors[i % colors.length],
-          transform: [{ translateX }, { translateY }],
-          opacity,
-        }}
-      />
-    );
-  });
-  return <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 300, overflow: 'hidden', pointerEvents: 'none' }}>{dots}</View>;
+    }, delay);
+  }, []);
+  const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [-20, 280] });
+  const translateX = anim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, offsetX / 2, offsetX] });
+  const opacity = anim.interpolate({ inputRange: [0, 0.8, 1], outputRange: [1, 0.8, 0] });
+  return (
+    <Animated.View
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: '50%',
+        width: size,
+        height: size,
+        borderRadius: 100,
+        backgroundColor: color,
+        transform: [{ translateX }, { translateY }],
+        opacity,
+      }}
+    />
+  );
+}
+
+const CONFETTI_COLORS = [Colors.primary, Colors.blue, Colors.green, Colors.purple, '#FFD700'];
+const CONFETTI_DOTS = Array.from({ length: 20 }, (_, i) => ({
+  index: i,
+  color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+  offsetX: ((i * 47 + 13) % 300) - 150,
+  size: 8 + (i * 13) % 6,
+}));
+
+function Confetti() {
+  return (
+    <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 300, overflow: 'hidden' }} pointerEvents="none">
+      {CONFETTI_DOTS.map(d => (
+        <ConfettiDot key={d.index} {...d} />
+      ))}
+    </View>
+  );
 }
 
 export default function MatchScreen() {
@@ -87,7 +104,7 @@ export default function MatchScreen() {
             <View style={styles.divider} />
             <Text style={styles.vacTitle}>{vac.title}</Text>
             <Text style={styles.vacMeta}>
-              🚇 {vac.metroStation} · 📅 {vac.date} · 💰 {vac.salary.toLocaleString('ru')} ₽
+              🚇 {vac.metroStation} · 📅 {vac.date} · ⏰ {vac.timeStart}–{vac.timeEnd}
             </Text>
           </View>
 

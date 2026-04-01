@@ -49,6 +49,7 @@ export default function ProfileScreen() {
   const [showConfirmLogout, setShowConfirmLogout] = useState(false);
   const [metroPicker, setMetroPicker] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   // CRITICAL: useLayoutEffect runs BEFORE first render, preventing white screen
   React.useLayoutEffect(() => {
@@ -88,17 +89,25 @@ export default function ProfileScreen() {
   };
 
   const saveEdit = async () => {
-    const updated = { ...currentUser };
-    if (editSection === 'personal') { updated.phone = editPhone; updated.lastName = editLast; updated.firstName = editFirst; }
-    if (editSection === 'metro') { updated.metroLineId = editMetroLineId; updated.metroStation = editMetroStation; }
-    if (editSection === 'worktypes') updated.workTypes = editWorkTypes;
-    if (editSection === 'company') { updated.company = editCompany; updated.bio = editBio; }
-    if (editSection === 'bio') updated.bio = editBio;
-    await dbUpsertUser(updated);
-    await refreshUsers();
-    setCurrentUser(updated);
-    showToast('Сохранено', 'success');
-    setEditSection(null);
+    if (savingEdit) return;
+    setSavingEdit(true);
+    try {
+      const updated = { ...currentUser };
+      if (editSection === 'personal') { updated.phone = editPhone; updated.lastName = editLast; updated.firstName = editFirst; }
+      if (editSection === 'metro') { updated.metroLineId = editMetroLineId; updated.metroStation = editMetroStation; }
+      if (editSection === 'worktypes') updated.workTypes = editWorkTypes;
+      if (editSection === 'company') { updated.company = editCompany; updated.bio = editBio; }
+      if (editSection === 'bio') updated.bio = editBio;
+      await dbUpsertUser(updated);
+      await refreshUsers();
+      setCurrentUser(updated);
+      showToast('Сохранено', 'success');
+      setEditSection(null);
+    } catch {
+      showToast('Ошибка при сохранении', 'error');
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   const pickAndUploadPhoto = async () => {
@@ -321,7 +330,7 @@ export default function ProfileScreen() {
             )}
 
             <View style={{ marginTop: 20, gap: 10 }}>
-              <PrimaryButton label="Сохранить" onPress={saveEdit} />
+              <PrimaryButton label="Сохранить" onPress={saveEdit} disabled={savingEdit} />
               <PrimaryButton label="Отмена" onPress={() => setEditSection(null)} secondary />
             </View>
           </View>

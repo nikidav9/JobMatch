@@ -71,7 +71,7 @@ export default function Login() {
 
     setCurrentUser(user);
     showToast('Добро пожаловать! 👋', 'success');
-    router.replace('/(tabs)');
+    // AppContext’s useEffect will navigate to /(tabs) once currentUser is set
     setLoading(false);
   };
 
