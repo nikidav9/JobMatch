@@ -10,7 +10,7 @@ import { Vacancy } from '@/constants/types';
 import { getTodayDates, formatDate, scoreVacancy } from '@/services/storage';
 import { METRO_LINES } from '@/constants/metro';
 import {
-  dbUpsertLike, dbCheckAndCreateMatch, dbRemoveLike, dbAddSaved,
+  dbUpsertLike, dbCheckAndCreateMatch, dbRemoveLike, dbAddSaved, dbUpdateVacancy,
 } from '@/services/db';
 import { notifyMatch } from '@/services/notifications';
 import { Chip } from '@/components/ui/Chip';
@@ -450,6 +450,11 @@ function WorkerFeed() {
 // ─────────────────────────────────────────────────
 // Employer home
 // ─────────────────────────────────────────────────
+function getTodayISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function EmployerHome() {
   const router = useRouter();
   const { currentUser, vacancies, likes, refreshVacancies, refreshAll, showToast } = useApp();
@@ -464,18 +469,37 @@ function EmployerHome() {
     setRefreshing(false);
   };
 
+  const todayISO = getTodayISO();
   const myVacancies = vacancies.filter(v => v.employerId === currentUser?.id);
-  const shown = myVacancies.filter(v => v.status === (tab === 'active' ? 'open' : 'closed'));
+
+  // Auto-close past-date vacancies that are still 'open'
+  useEffect(() => {
+    const pastOpen = myVacancies.filter(v => v.status === 'open' && v.date < todayISO);
+    if (pastOpen.length === 0) return;
+    Promise.all(pastOpen.map(v => dbUpdateVacancy(v.id, { status: 'closed' })))
+      .then(() => refreshVacancies())
+      .catch(e => console.warn('[EmployerHome] auto-close past vacancies error', e));
+  }, [vacancies]);
+
+  const shown = myVacancies.filter(v => {
+    if (tab === 'active') return v.status === 'open' && v.date >= todayISO;
+    return v.status === 'closed' || (v.status === 'open' && v.date < todayISO);
+  });
 
   const applicantCount = (vacId: string) => likes.filter(l => l.vacancyId === vacId && l.workerLiked && !l.employerLiked).length;
   const matchCount = (vacId: string) => likes.filter(l => l.vacancyId === vacId && l.isMatch).length;
 
   const closeVacancy = async (id: string) => {
-    const { dbUpdateVacancy } = await import('@/services/db');
-    await dbUpdateVacancy(id, { status: 'closed' });
-    await refreshVacancies();
-    showToast('Вакансия закрыта', 'success');
-    setConfirmClose(null);
+    try {
+      await dbUpdateVacancy(id, { status: 'closed' });
+      await refreshVacancies();
+      showToast('Вакансия закрыта', 'success');
+    } catch (e) {
+      showToast('Ошибка при закрытии вакансии', 'error');
+      console.error('[EmployerHome] closeVacancy error', e);
+    } finally {
+      setConfirmClose(null);
+    }
   };
 
   return (
