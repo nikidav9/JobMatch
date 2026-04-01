@@ -18,6 +18,7 @@ function AuthGuard() {
   useEffect(() => {
     if (!ctx || ctx.loading) return;
     if (!ctx.currentUser && isProtected) {
+      console.log('AuthGuard redirecting to /');
       router.replace('/');
     }
   }, [ctx?.currentUser, ctx?.loading, pathname]);

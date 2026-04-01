@@ -79,16 +79,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
+    console.log('logout start');
     // CRITICAL: setCurrentUser(null) clears state SYNCHRONOUSLY
     setCurrentUser(null);
     setLoading(false);
+    console.log('setCurrentUser(null) done');
     // Async cleanup happens in background (don't block logout flow)
     try {
       await clearSessionUser();
+      console.log('clearSessionUser done');
     } catch (error) {
       console.warn('[AppContext] clearSessionUser failed during logout', error);
-    } finally {
-      router.replace('/');
     }
   };
 
