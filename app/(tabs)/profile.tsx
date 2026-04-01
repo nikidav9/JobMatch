@@ -53,6 +53,7 @@ export default function ProfileScreen() {
   // CRITICAL: useLayoutEffect runs BEFORE first render, preventing white screen
   React.useLayoutEffect(() => {
     if (!currentUser) {
+      // keep guard just in case, but main redirect happens in AppContext.logout
       router.replace('/');
     }
   }, [currentUser, router]);
@@ -163,15 +164,11 @@ export default function ProfileScreen() {
   const handleLogout = async () => {
     setShowConfirmLogout(false);
     try {
-      // Clear state FIRST (synchronously via setCurrentUser(null))
       await logout();
       showToast('Вы успешно вышли', 'success');
     } catch (error) {
       console.warn('[Profile] logout failed', error);
       showToast('Ошибка при выходе, попробуйте снова', 'error');
-    } finally {
-      // Navigate AFTER state is cleared
-      router.replace('/');
     }
   };
 
