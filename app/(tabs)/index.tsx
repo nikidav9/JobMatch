@@ -12,7 +12,7 @@ import { METRO_LINES } from '@/constants/metro';
 import {
   dbUpsertLike, dbCheckAndCreateMatch, dbRemoveLike, dbAddSaved, dbUpdateVacancy,
 } from '@/services/db';
-import { notifyMatch } from '@/services/notifications';
+import { notifyWorkerSentApplication, notifyWorkerGotMatch } from '@/services/notifications';
 import { Chip } from '@/components/ui/Chip';
 import { VacancyDetailModal } from '@/components/feature/VacancyDetailModal';
 
@@ -122,16 +122,13 @@ function WorkerFeed() {
       await refreshAll();
 
       if (result.matched) {
-        // Worker device: notify worker that there is a match
-        await notifyMatch({
-          companyName: currentCard.company,
-          vacancyTitle: currentCard.title,
-          otherName: currentCard.company,
-          role: 'worker',
-        });
+        // Worker's device: tell the worker they got a match
+        await notifyWorkerGotMatch(currentCard.company, currentCard.title);
         router.push({ pathname: '/match', params: { vacancyId: currentCard.id, chatId: result.chatId } });
       } else {
         setCards(prev => prev.slice(1));
+        // Worker's device: confirm their application was sent
+        await notifyWorkerSentApplication(currentCard.title, currentCard.company);
         showToast('Отклик отправлен! Ждём решения работодателя 👍', 'success');
       }
     });

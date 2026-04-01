@@ -4,7 +4,7 @@ import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Colors, Radius, Shadow } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
-import { notifyMatch } from '@/services/notifications';
+import { notifyEmployerGotMatch } from '@/services/notifications';
 import { dbUpsertLike, dbCheckAndCreateMatch } from '@/services/db';
 import { getInitials, nameColorFromString } from '@/services/storage';
 
@@ -40,15 +40,12 @@ export default function CandidatesScreen() {
 
     if (result.matched) {
       const worker = getWorker(workerId);
-      await notifyMatch({
-        companyName: vacancy.company,
-        vacancyTitle: vacancy.title,
-        otherName: worker ? `${worker.firstName} ${worker.lastName}` : 'Работник',
-        role: 'employer',
-      });
+      const workerName = worker ? `${worker.firstName} ${worker.lastName}` : 'Работник';
+      // Employer's device: tell the employer they got a match
+      await notifyEmployerGotMatch(workerName, vacancy.title);
       showToast(`🎉 Мэтч с ${worker?.firstName ?? 'работником'}! Чат открыт`, 'match');
     } else {
-      showToast('Отклик отправлен. Ждём решения работника.', 'success');
+      showToast('Отклик одобрен. Ждём подтверждения работника.', 'success');
     }
   };
 

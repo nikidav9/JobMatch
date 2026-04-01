@@ -10,7 +10,15 @@ import { useApp } from '@/hooks/useApp';
 import { Like, Vacancy } from '@/constants/types';
 import { formatDate, getInitials, nameColorFromString } from '@/services/storage';
 import { dbUpsertLike, dbCheckAndCreateMatch, dbConfirmShift, dbSubmitRatingAndMaybeDelete } from '@/services/db';
-import { notifyMatch, notifyShiftConfirmed, notifyConfirmShiftReminder } from '@/services/notifications';
+import {
+  notifyWorkerGotMatch,
+  notifyWorkerConfirmedShift,
+  notifyWorkerEmployerConfirmed,
+  notifyEmployerGotMatch,
+  notifyEmployerConfirmedShift,
+  notifyEmployerWorkerConfirmed,
+  notifyConfirmShiftReminder,
+} from '@/services/notifications';
 import { Chip } from '@/components/ui/Chip';
 import { VacancyDetailModal } from '@/components/feature/VacancyDetailModal';
 
@@ -87,7 +95,8 @@ function WorkerMatches() {
     const result = await dbCheckAndCreateMatch(like.vacancyId, currentUser.id);
     if (result.matched) {
       const vac = getVacancy(like.vacancyId);
-      await notifyMatch({ companyName: vac?.company ?? '', vacancyTitle: vac?.title ?? '', otherName: vac?.company ?? '', role: 'worker' });
+      // Worker's device: notify worker that the match is confirmed
+      await notifyWorkerGotMatch(vac?.company ?? '', vac?.title ?? '');
       await refreshAll();
       showToast('🎉 Мэтч! Чат открыт', 'match');
       if (result.chatId) router.push({ pathname: '/match', params: { vacancyId: like.vacancyId, chatId: result.chatId } });
@@ -99,16 +108,19 @@ function WorkerMatches() {
     setLoading(like.id + '_shift');
     const { bothConfirmed } = await dbConfirmShift(like.id, 'worker');
     await refreshAll();
+    const vac = getVacancy(like.vacancyId);
+    const employer = users.find(u => u.id === like.employerId);
+    const employerName = employer ? (employer.company ?? `${employer.firstName} ${employer.lastName}`) : 'Работодатель';
     if (bothConfirmed) {
-      const vac = getVacancy(like.vacancyId);
-      const employer = users.find(u => u.id === like.employerId);
-      const employerName = employer ? (employer.company ?? `${employer.firstName} ${employer.lastName}`) : 'Работодатель';
-      await notifyShiftConfirmed({ role: 'worker', otherName: employerName, vacancyTitle: vac?.title ?? '' });
+      // Worker's device: both confirmed — shift is a go, prompt rating
+      await notifyWorkerConfirmedShift(vac?.title ?? '', true);
       showToast('Смена подтверждена! Оцените работодателя 🌟', 'success');
       if (employer && vac) {
         router.push({ pathname: '/rate', params: { likeId: like.id, toUserId: employer.id, toName: employerName, vacancyId: vac.id, role: 'worker' } });
       }
     } else {
+      // Worker's device: only worker confirmed so far
+      await notifyWorkerConfirmedShift(vac?.title ?? '', false);
       showToast('Выход подтверждён! Ждём работодателя', 'success');
     }
     setLoading(null);
@@ -302,7 +314,8 @@ function EmployerMatches() {
       const vac = getVacancy(like.vacancyId);
       const worker = getWorker(like.workerId);
       const workerName = worker ? `${worker.firstName} ${worker.lastName}` : 'Работник';
-      await notifyMatch({ companyName: vac?.company ?? '', vacancyTitle: vac?.title ?? '', otherName: workerName, role: 'employer' });
+      // Employer's device: notify employer that a match happened
+      await notifyEmployerGotMatch(workerName, vac?.title ?? '');
       showToast(`🎉 Мэтч с ${workerName}! Чат открыт`, 'match');
       if (result.chatId) router.push({ pathname: '/chat-room', params: { chatId: result.chatId } });
     } else {
@@ -323,16 +336,19 @@ function EmployerMatches() {
     setLoading(like.id + '_shift');
     const { bothConfirmed } = await dbConfirmShift(like.id, 'employer');
     await refreshAll();
+    const worker = getWorker(like.workerId);
+    const vac = getVacancy(like.vacancyId);
+    const workerName = worker ? `${worker.firstName} ${worker.lastName}` : 'Работник';
     if (bothConfirmed) {
-      const worker = getWorker(like.workerId);
-      const vac = getVacancy(like.vacancyId);
-      const workerName = worker ? `${worker.firstName} ${worker.lastName}` : 'Работник';
-      await notifyShiftConfirmed({ role: 'employer', otherName: workerName, vacancyTitle: vac?.title ?? '' });
+      // Employer's device: both confirmed — shift is a go, prompt rating
+      await notifyEmployerConfirmedShift(workerName, vac?.title ?? '', true);
       showToast('Смена подтверждена! Оцените работника 🌟', 'success');
       if (worker && vac) {
         router.push({ pathname: '/rate', params: { likeId: like.id, toUserId: worker.id, toName: workerName, vacancyId: vac.id, role: 'employer' } });
       }
     } else {
+      // Employer's device: only employer confirmed so far
+      await notifyEmployerConfirmedShift(workerName, vac?.title ?? '', false);
       showToast('Подтверждено! Ждём работника', 'success');
     }
     setLoading(null);
