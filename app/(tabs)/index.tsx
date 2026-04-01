@@ -612,9 +612,9 @@ const styles = StyleSheet.create({
   dcCntActive: { color: 'rgba(255,255,255,0.8)' },
 
   cardArea: { flex: 1, position: 'relative', paddingHorizontal: 10, paddingTop: 0, paddingBottom: 0 },
-  ghost1: { position: 'absolute', left: 10, right: 10, top: 80, bottom: 0, backgroundColor: Colors.bg, borderRadius: Radius.xl, transform: [{ scale: 0.97 }, { translateY: 6 }], opacity: 0.5, ...Shadow.card },
-  ghost2: { position: 'absolute', left: 10, right: 10, top: 80, bottom: 0, backgroundColor: Colors.bg, borderRadius: Radius.xl, transform: [{ scale: 0.94 }, { translateY: 12 }], opacity: 0.3, ...Shadow.card },
-  card: { position: 'absolute', left: 0, right: 0, top: 80, bottom: 0, backgroundColor: Colors.bg, borderRadius: Radius.xl, ...Shadow.strong, overflow: 'hidden' },
+  ghost1: { position: 'absolute', left: 10, right: 10, top: 144, bottom: 0, backgroundColor: Colors.bg, borderRadius: Radius.xl, transform: [{ scale: 0.97 }, { translateY: 6 }], opacity: 0.5, ...Shadow.card },
+  ghost2: { position: 'absolute', left: 10, right: 10, top: 144, bottom: 0, backgroundColor: Colors.bg, borderRadius: Radius.xl, transform: [{ scale: 0.94 }, { translateY: 12 }], opacity: 0.3, ...Shadow.card },
+  card: { position: 'absolute', left: 0, right: 0, top: 144, bottom: 0, backgroundColor: Colors.bg, borderRadius: Radius.xl, ...Shadow.strong, overflow: 'hidden' },
 
   wantOverlay: { position: 'absolute', top: 24, left: 20, zIndex: 10, backgroundColor: Colors.green, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8, transform: [{ rotate: '-10deg' }] },
   wantText: { color: '#fff', fontSize: 20, fontWeight: '800' },
