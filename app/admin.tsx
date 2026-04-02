@@ -75,6 +75,48 @@ export default function AdminScreen() {
     setUsers(prev => prev.map(u => u.id === userId ? { ...u, is_blocked: block } : u));
   };
 
+  const deleteUser = async (userId: string) => {
+    Alert.alert(
+      'Удалить пользователя',
+      'Это действие нельзя отменить. Удалить пользователя?',
+      [
+        { text: 'Отмена', style: 'cancel' },
+        {
+          text: 'Удалить',
+          style: 'destructive',
+          onPress: async () => {
+            await sb().from('jm_users').delete().eq('id', userId);
+            setUsers(prev => prev.filter(u => u.id !== userId));
+          },
+        },
+      ]
+    );
+  };
+
+  const deleteAllUsersExceptAdmin = async () => {
+    const nonAdminUsers = users.filter(u => u.phone !== ADMIN_PHONE);
+    if (nonAdminUsers.length === 0) {
+      Alert.alert('Нет пользователей для удаления');
+      return;
+    }
+    Alert.alert(
+      'Удалить всех пользователей кроме админа',
+      `Будет удалено ${nonAdminUsers.length} пользователей. Это действие нельзя отменить.`,
+      [
+        { text: 'Отмена', style: 'cancel' },
+        {
+          text: 'Удалить всех',
+          style: 'destructive',
+          onPress: async () => {
+            const ids = nonAdminUsers.map(u => u.id);
+            await sb().from('jm_users').delete().in('id', ids);
+            setUsers(prev => prev.filter(u => u.phone === ADMIN_PHONE));
+          },
+        },
+      ]
+    );
+  };
+
   const deleteVacancy = async (id: string) => {
     await sb().from('jm_vacancies').update({ status: 'closed' }).eq('id', id);
     setVacancies(prev => prev.map(v => v.id === id ? { ...v, status: 'closed' } : v));
@@ -134,6 +176,14 @@ export default function AdminScreen() {
           {item.is_blocked ? 'Разблокировать' : 'Заблокировать'}
         </Text>
       </TouchableOpacity>
+      {item.phone !== ADMIN_PHONE && (
+        <TouchableOpacity
+          style={[styles.actionBtn, styles.deleteBtn]}
+          onPress={() => deleteUser(item.id)}
+        >
+          <Text style={[styles.actionBtnTxt, { color: Colors.red }]}>Удалить</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 
@@ -218,13 +268,20 @@ export default function AdminScreen() {
               ListEmptyComponent={<View style={styles.center}><Text style={styles.emptyTxt}>Жалоб нет</Text></View>}
             />
           ) : tab === 'users' ? (
-            <FlatList
-              data={users}
-              keyExtractor={u => u.id}
-              contentContainerStyle={styles.list}
-              showsVerticalScrollIndicator={false}
-              renderItem={renderUser}
-            />
+            <>
+              <View style={styles.bulkActions}>
+                <TouchableOpacity style={styles.bulkBtn} onPress={deleteAllUsersExceptAdmin}>
+                  <Text style={styles.bulkBtnTxt}>Удалить всех кроме админа</Text>
+                </TouchableOpacity>
+              </View>
+              <FlatList
+                data={users}
+                keyExtractor={u => u.id}
+                contentContainerStyle={styles.list}
+                showsVerticalScrollIndicator={false}
+                renderItem={renderUser}
+              />
+            </>
           ) : (
             <FlatList
               data={vacancies}
@@ -273,7 +330,11 @@ const styles = StyleSheet.create({
   },
   blockBtn: { borderColor: Colors.red },
   unblockBtn: { borderColor: Colors.green },
+  deleteBtn: { borderColor: Colors.red, marginTop: 8 },
   actionBtnTxt: { fontSize: 13, fontWeight: '600' },
+  bulkActions: { padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.divider },
+  bulkBtn: { backgroundColor: Colors.red, paddingHorizontal: 16, paddingVertical: 10, borderRadius: Radius.md },
+  bulkBtnTxt: { color: 'white', fontSize: 14, fontWeight: '600' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
   emptyTxt: { fontSize: 15, color: Colors.textMuted, textAlign: 'center' },
 });

@@ -62,6 +62,11 @@ export async function dbUpsertUser(u: User): Promise<void> {
   if (error) console.error('dbUpsertUser', error.message);
 }
 
+export async function dbDeleteUser(id: string): Promise<void> {
+  const { error } = await sb().from('jm_users').delete().eq('id', id);
+  if (error) console.error('dbDeleteUser', error.message);
+}
+
 // ─── Vacancies ────────────────────────────────────────────────────────────────
 
 function rowToVacancy(r: any): Vacancy {
