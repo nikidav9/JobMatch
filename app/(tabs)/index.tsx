@@ -186,19 +186,13 @@ function WorkerListModal({
                           <Text style={wS.chatBtnTxt}>💬 Написать</Text>
                         </TouchableOpacity>
                       ) : type === 'rejected' ? (
-                        !rejectedByWorker ? (
-                          <TouchableOpacity
-                            style={[wS.acceptBtn, isLoading && { opacity: 0.5 }]}
-                            disabled={isLoading}
-                            onPress={() => onAccept(like)}
-                          >
-                            <Text style={wS.acceptBtnTxt}>✅ Взять всё же</Text>
-                          </TouchableOpacity>
-                        ) : (
-                          <View style={wS.infoBox}>
-                            <Text style={wS.infoTxt}>Работник отказался от этой вакансии</Text>
-                          </View>
-                        )
+                        <TouchableOpacity
+                          style={[wS.chatBtn, { flex: 1 }, isLoading && { opacity: 0.5 }]}
+                          disabled={isLoading}
+                          onPress={() => onAccept(like)}
+                        >
+                          <Text style={wS.chatBtnTxt}>💬 Написать</Text>
+                        </TouchableOpacity>
                       ) : (
                         <>
                           <TouchableOpacity
