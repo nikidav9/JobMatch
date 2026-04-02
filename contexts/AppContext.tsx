@@ -34,7 +34,7 @@ interface AppContextType {
   toast: ToastData | null;
   showToast: (message: string, type?: 'success' | 'error' | 'match') => void;
   refreshAll: (user?: User | null) => Promise<void>;
-  logout: () => Promise<void>;
+  logout: () => void;
   unreadCount: number;
   loading: boolean;
 }
@@ -78,19 +78,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const logout = async () => {
+  const logout = () => {
     console.log('logout start');
     // CRITICAL: setCurrentUser(null) clears state SYNCHRONOUSLY
     setCurrentUser(null);
     setLoading(false);
     console.log('setCurrentUser(null) done');
     // Async cleanup happens in background (don't block logout flow)
-    try {
-      await clearSessionUser();
-      console.log('clearSessionUser done');
-    } catch (error) {
+    clearSessionUser().catch((error) => {
       console.warn('[AppContext] clearSessionUser failed during logout', error);
-    }
+    });
+    console.log('clearSessionUser started');
+    router.replace('/');
   };
 
   // ── Fetch helpers ─────────────────────────────────────────────────────────

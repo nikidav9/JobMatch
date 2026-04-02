@@ -161,17 +161,12 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleLogout = async () => {
+  const handleLogout = () => {
+    console.log('handleLogout start');
     setShowConfirmLogout(false);
-    try {
-      await logout();
-      showToast('Вы успешно вышли', 'success');
-    } catch (error) {
-      console.warn('[Profile] logout failed', error);
-      showToast('Ошибка при выходе, попробуйте снова', 'error');
-    } finally {
-      router.replace('/');
-    }
+    logout();
+    console.log('logout called');
+    showToast('Вы успешно вышли', 'success');
   };
 
   return (

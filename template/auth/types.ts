@@ -53,7 +53,7 @@ export interface AuthContextType {
   signUpWithPassword: (email: string, password: string, metadata?: Record<string, any>) => Promise<SignUpResult>;
   signInWithPassword: (email: string, password: string) => Promise<AuthResult>;
   signInWithGoogle: () => Promise<GoogleSignInResult>;
-  logout: () => Promise<LogoutResult>;
+  logout: () => LogoutResult;
   refreshSession: () => Promise<void>;
 }
 
