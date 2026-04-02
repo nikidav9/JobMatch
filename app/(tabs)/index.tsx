@@ -35,7 +35,7 @@ function WorkerListModal({
   onClose: () => void;
 }) {
   const router = useRouter();
-  const { currentUser, users, vacancies, likes, refreshAll, showToast } = useApp();
+  const { currentUser, users, vacancies, likes, chats, refreshAll, showToast } = useApp();
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   const vacancy = vacancies.find(v => v.id === vacancyId);
@@ -53,10 +53,15 @@ function WorkerListModal({
   } else if (type === 'hired') {
     filteredLikes = vacLikes.filter(l => l.isMatch);
   } else {
-    filteredLikes = vacLikes.filter(l => l.workerLiked && l.employerLiked === false);
+    // Rejected: employer said no OR worker deliberately skipped
+    filteredLikes = vacLikes.filter(
+      l => l.employerLiked === false || (l.workerLiked === false && l.workerSkipped === true)
+    );
   }
 
   const getWorker = (id: string) => users.find(u => u.id === id);
+  const getChatId = (workerId: string) =>
+    chats.find(c => c.vacancyId === vacancyId && c.workerId === workerId)?.id ?? null;
 
   const onAccept = async (like: Like) => {
     if (!currentUser || !vacancy) return;
@@ -69,6 +74,12 @@ function WorkerListModal({
         const worker = getWorker(like.workerId);
         await notifyEmployerGotMatch(worker ? `${worker.firstName} ${worker.lastName}` : 'Работник', vacancy.title);
         showToast('🎉 Мэтч! Чат открыт', 'match');
+        onClose();
+        if (result.chatId) {
+          router.push({ pathname: '/chat-room', params: { chatId: result.chatId } });
+        } else {
+          router.push({ pathname: '/(tabs)/chats' });
+        }
       } else {
         showToast('Принято. Ждём подтверждения работника.', 'success');
       }
@@ -76,6 +87,16 @@ function WorkerListModal({
       showToast('Ошибка', 'error');
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const openChat = (workerId: string) => {
+    const chatId = getChatId(workerId);
+    onClose();
+    if (chatId) {
+      router.push({ pathname: '/chat-room', params: { chatId } });
+    } else {
+      router.push({ pathname: '/(tabs)/chats' });
     }
   };
 
@@ -110,8 +131,10 @@ function WorkerListModal({
 
           {filteredLikes.length === 0 ? (
             <View style={wS.empty}>
-              <Text style={{ fontSize: 36 }}>🔍</Text>
-              <Text style={wS.emptyTxt}>Нет пользователей в этой категории</Text>
+              <Text style={{ fontSize: 36 }}>{type === 'applicants' ? '👀' : type === 'hired' ? '🤝' : '🙅'}</Text>
+              <Text style={wS.emptyTxt}>
+                {type === 'applicants' ? 'Нет новых откликов' : type === 'hired' ? 'Никого не набрано' : 'Нет отклонённых'}
+              </Text>
             </View>
           ) : (
             <FlatList
@@ -124,6 +147,7 @@ function WorkerListModal({
                 const workerColor = nameColorFromString(worker.id);
                 const initials = getInitials(`${worker.firstName} ${worker.lastName}`);
                 const isLoading = actionLoading === like.workerId;
+                const rejectedByWorker = like.workerLiked === false && like.workerSkipped === true;
                 return (
                   <View style={wS.card}>
                     <TouchableOpacity
@@ -141,29 +165,40 @@ function WorkerListModal({
                       <View style={{ flex: 1 }}>
                         <Text style={wS.name}>{worker.firstName} {worker.lastName}</Text>
                         <Text style={wS.meta}>
-                          📞 {like.isMatch ? worker.phone : '•••• скрыт до мэтча'}
+                          {like.isMatch ? `📞 ${worker.phone}` : `🚇 ${worker.metroStation ?? '—'}`}
                           {(worker.avgRating ?? 0) > 0 ? `  ·  ⭐ ${(worker.avgRating ?? 0).toFixed(1)}` : ''}
                         </Text>
+                        {type === 'rejected' ? (
+                          <Text style={wS.rejectionReason}>
+                            {rejectedByWorker ? '← Сам отказался' : '← Вы отклонили'}
+                          </Text>
+                        ) : null}
                       </View>
                       <Text style={wS.profileArrow}>Профиль ›</Text>
                     </TouchableOpacity>
 
                     <View style={wS.btnRow}>
-                      {like.isMatch ? (
+                      {type === 'hired' ? (
                         <TouchableOpacity
                           style={wS.chatBtn}
-                          onPress={() => { onClose(); router.push({ pathname: '/(tabs)/chats' }); }}
+                          onPress={() => openChat(like.workerId)}
                         >
-                          <Text style={wS.chatBtnTxt}>💬 Открыть чат</Text>
+                          <Text style={wS.chatBtnTxt}>💬 Написать</Text>
                         </TouchableOpacity>
                       ) : type === 'rejected' ? (
-                        <TouchableOpacity
-                          style={[wS.acceptBtn, isLoading && { opacity: 0.5 }]}
-                          disabled={isLoading}
-                          onPress={() => onAccept(like)}
-                        >
-                          <Text style={wS.acceptBtnTxt}>✅ Принять всё же</Text>
-                        </TouchableOpacity>
+                        !rejectedByWorker ? (
+                          <TouchableOpacity
+                            style={[wS.acceptBtn, isLoading && { opacity: 0.5 }]}
+                            disabled={isLoading}
+                            onPress={() => onAccept(like)}
+                          >
+                            <Text style={wS.acceptBtnTxt}>✅ Взять всё же</Text>
+                          </TouchableOpacity>
+                        ) : (
+                          <View style={wS.infoBox}>
+                            <Text style={wS.infoTxt}>Работник отказался от этой вакансии</Text>
+                          </View>
+                        )
                       ) : (
                         <>
                           <TouchableOpacity
@@ -171,14 +206,14 @@ function WorkerListModal({
                             disabled={isLoading}
                             onPress={() => onReject(like)}
                           >
-                            <Text style={wS.rejectBtnTxt}>👎 Отклонить</Text>
+                            <Text style={wS.rejectBtnTxt}>✕ Не подходит</Text>
                           </TouchableOpacity>
                           <TouchableOpacity
-                            style={[wS.acceptBtn, isLoading && { opacity: 0.5 }]}
+                            style={[wS.acceptBtn, { flex: 1 }, isLoading && { opacity: 0.5 }]}
                             disabled={isLoading}
                             onPress={() => onAccept(like)}
                           >
-                            <Text style={wS.acceptBtnTxt}>✅ Принять</Text>
+                            <Text style={wS.acceptBtnTxt}>✅ Написать</Text>
                           </TouchableOpacity>
                         </>
                       )}
@@ -213,12 +248,16 @@ const wS = StyleSheet.create({
   meta: { fontSize: 12, color: Colors.textMuted, marginTop: 2 },
   profileArrow: { fontSize: 12, color: Colors.primary, fontWeight: '600' },
   btnRow: { flexDirection: 'row', gap: 8 },
-  rejectBtn: { flex: 1, borderWidth: 1.5, borderColor: Colors.inputBorder, borderRadius: 100, paddingVertical: 9, alignItems: 'center' },
-  rejectBtnTxt: { fontSize: 13, color: Colors.textSecondary, fontWeight: '600' },
-  acceptBtn: { flex: 1, backgroundColor: Colors.primary, borderRadius: 100, paddingVertical: 9, alignItems: 'center' },
+  rejectionReason: { fontSize: 11, color: Colors.red, marginTop: 3, fontStyle: 'italic' },
+  btnRow: { flexDirection: 'row', gap: 8 },
+  rejectBtn: { flex: 1, borderWidth: 1.5, borderColor: '#FECACA', borderRadius: 100, paddingVertical: 9, alignItems: 'center', backgroundColor: '#FEF2F2' },
+  rejectBtnTxt: { fontSize: 13, color: Colors.red, fontWeight: '600' },
+  acceptBtn: { backgroundColor: Colors.primary, borderRadius: 100, paddingVertical: 9, paddingHorizontal: 14, alignItems: 'center' },
   acceptBtnTxt: { fontSize: 13, color: '#fff', fontWeight: '700' },
-  chatBtn: { flex: 1, borderWidth: 1.5, borderColor: Colors.blue, borderRadius: 100, paddingVertical: 9, alignItems: 'center' },
-  chatBtnTxt: { fontSize: 13, color: Colors.blue, fontWeight: '600' },
+  chatBtn: { flex: 1, borderWidth: 1.5, borderColor: Colors.primary, borderRadius: 100, paddingVertical: 9, alignItems: 'center' },
+  chatBtnTxt: { fontSize: 13, color: Colors.primary, fontWeight: '600' },
+  infoBox: { flex: 1, backgroundColor: Colors.surface, borderRadius: 10, paddingVertical: 9, paddingHorizontal: 12, alignItems: 'center' },
+  infoTxt: { fontSize: 12, color: Colors.textMuted, textAlign: 'center' },
 });
 
 // ─────────────────────────────────────────────────
@@ -704,7 +743,12 @@ function EmployerHome() {
   const applicantCount = (vacId: string) =>
     likes.filter(l => l.vacancyId === vacId && l.workerLiked && !l.isMatch && l.employerLiked !== false).length;
   const rejectedCount = (vacId: string) =>
-    likes.filter(l => l.vacancyId === vacId && l.workerLiked && l.employerLiked === false).length;
+    likes.filter(
+      l => l.vacancyId === vacId && (
+        l.employerLiked === false ||
+        (l.workerLiked === false && l.workerSkipped === true)
+      )
+    ).length;
 
   const closeVacancy = async (id: string) => {
     try {
@@ -759,9 +803,11 @@ function EmployerHome() {
           shown.map(v => (
             <View key={v.id} style={styles.vacCard}>
               <View style={styles.vacTop}>
-                <Text style={styles.vacTitle} numberOfLines={1}>{v.title}</Text>
-                <View style={styles.vacTopRight}>
+                <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 }}>
                   {v.isUrgent ? <View style={styles.urgentBadge}><Text style={styles.urgentText}>🔥</Text></View> : null}
+                  <Text style={styles.vacTitle} numberOfLines={1}>{v.title}</Text>
+                </View>
+                <View style={styles.vacTopRight}>
                   <TouchableOpacity
                     style={styles.editBtn}
                     onPress={() => router.push({ pathname: '/create-vacancy', params: { editId: v.id } })}
@@ -769,6 +815,14 @@ function EmployerHome() {
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
                     <Text style={styles.editBtnText}>✏️</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.editBtn, { borderColor: '#FECACA', backgroundColor: '#FEF2F2' }]}
+                    onPress={() => setConfirmClose(v.id)}
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={styles.editBtnText}>🗑</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -798,19 +852,7 @@ function EmployerHome() {
               <View style={styles.vacProgress}>
                 <View style={[styles.progressFill, { width: `${Math.min(100, (v.workersFound / v.workersNeeded) * 100)}%` }]} />
               </View>
-              {tab === 'active' ? (
-                <View style={styles.vacActions}>
-                  <TouchableOpacity
-                    style={styles.candBtn}
-                    onPress={() => router.push({ pathname: '/candidates', params: { vacancyId: v.id } })}
-                  >
-                    <Text style={styles.candBtnText}>👥 Все кандидаты</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.deleteBtn} onPress={() => setConfirmClose(v.id)}>
-                    <Text style={styles.deleteBtnText}>🗑</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : null}
+              {null /* vacActions removed — delete moved to header, candidates accessible via stat boxes */}
             </View>
           ))
         )}
