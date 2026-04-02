@@ -418,7 +418,7 @@ export async function dbCheckAndCreateMatch(
 
   await sb()
     .from('jm_likes')
-    .update({ is_match: true, matched_at: nowISO() })
+    .update({ is_match: true, matched_at: nowISO(), worker_confirmed: true, employer_confirmed: true, shift_completed: true })
     .eq('vacancy_id', vacancyId)
     .eq('worker_id', workerId);
 
