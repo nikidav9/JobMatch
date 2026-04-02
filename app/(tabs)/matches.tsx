@@ -226,17 +226,18 @@ function EmployerMatches() {
     try {
       await dbUpsertLike(like.vacancyId, like.workerId, currentUser.id, { employerLiked: true });
       const result = await dbCheckAndCreateMatch(like.vacancyId, like.workerId);
-      await refreshAll();
-      if (result.matched) {
-        const vac = getVacancy(like.vacancyId);
-        const worker = getWorker(like.workerId);
-        const workerName = worker ? `${worker.firstName} ${worker.lastName}` : 'Работник';
-        await notifyEmployerGotMatch(workerName, vac?.title ?? '');
-        showToast(`🎉 Мэтч с ${workerName}! Чат открыт`, 'match');
-        if (result.chatId) router.push({ pathname: '/chat-room', params: { chatId: result.chatId } });
+      const vac = getVacancy(like.vacancyId);
+      const worker = getWorker(like.workerId);
+      const workerName = worker ? `${worker.firstName} ${worker.lastName}` : 'Работник';
+      await notifyEmployerGotMatch(workerName, vac?.title ?? '');
+      showToast(`🎉 Мэтч с ${workerName}! Чат открыт`, 'match');
+      // Navigate first, then refresh in background
+      if (result.chatId) {
+        router.push({ pathname: '/chat-room', params: { chatId: result.chatId } });
       } else {
-        showToast('Предложение отправлено работнику', 'success');
+        router.push({ pathname: '/(tabs)/chats' });
       }
+      refreshAll().catch(() => {});
     } catch {
       showToast('Ошибка', 'error');
     }

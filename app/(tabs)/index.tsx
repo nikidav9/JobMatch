@@ -71,19 +71,17 @@ function WorkerListModal({
       await dbUpsertLike(vacancyId, like.workerId, currentUser.id, { employerLiked: true });
       const result = await dbCheckAndCreateMatch(vacancyId, like.workerId);
       await refreshAll();
-      if (result.matched) {
-        const worker = getWorker(like.workerId);
-        await notifyEmployerGotMatch(worker ? `${worker.firstName} ${worker.lastName}` : 'Работник', vacancy.title);
-        showToast('🎉 Мэтч! Чат открыт', 'match');
-        onClose();
-        if (result.chatId) {
-          router.push({ pathname: '/chat-room', params: { chatId: result.chatId } });
-        } else {
-          router.push({ pathname: '/(tabs)/chats' });
-        }
+      const worker = getWorker(like.workerId);
+      await notifyEmployerGotMatch(worker ? `${worker.firstName} ${worker.lastName}` : 'Работник', vacancy.title);
+      showToast('🎉 Мэтч! Чат открыт', 'match');
+      // Navigate immediately, refresh in background
+      onClose();
+      if (result.chatId) {
+        router.push({ pathname: '/chat-room', params: { chatId: result.chatId } });
       } else {
-        showToast('Принято. Ждём подтверждения работника.', 'success');
+        router.push({ pathname: '/(tabs)/chats' });
       }
+      refreshAll().catch(() => {});
     } catch {
       showToast('Ошибка', 'error');
     } finally {
