@@ -54,12 +54,16 @@ export default function TabLayout() {
   const matchBadge = (() => {
     if (!currentUser) return 0;
     if (isWorker) {
-      return likes.filter(
-        l => l.workerId === currentUser.id && l.workerLiked && l.employerLiked && !l.isMatch
-      ).length;
+      const awaiting = likes.filter(l => l.workerId === currentUser.id && l.workerLiked && l.employerLiked === null && !l.isMatch).length;
+      const rejected = likes.filter(l => l.workerId === currentUser.id && l.workerLiked && l.employerLiked === false).length;
+      const matched = likes.filter(l => l.workerId === currentUser.id && l.isMatch).length;
+      return awaiting + rejected + matched;
     }
     const myVacIds = vacancies.filter(v => v.employerId === currentUser.id).map(v => v.id);
-    return likes.filter(l => myVacIds.includes(l.vacancyId) && l.workerLiked && !l.employerLiked).length;
+    const pending = likes.filter(l => myVacIds.includes(l.vacancyId) && l.workerLiked && l.employerLiked === null).length;
+    const rejected = likes.filter(l => myVacIds.includes(l.vacancyId) && l.workerLiked && l.employerLiked === false).length;
+    const matched = likes.filter(l => myVacIds.includes(l.vacancyId) && l.isMatch).length;
+    return pending + rejected + matched;
   })();
 
   const tabBarHeight = Platform.select({

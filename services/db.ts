@@ -312,7 +312,10 @@ export async function dbCreateChat(
   employerId: string,
   vacancyId: string,
   vacTitle: string,
-  companyName: string
+  companyName: string,
+  systemMessage?: string,
+  initialUnreadWorker = 0,
+  initialUnreadEmployer = 0
 ): Promise<string> {
   const { data: existing } = await sb()
     .from('jm_chats')
@@ -330,14 +333,18 @@ export async function dbCreateChat(
     employer_id: employerId,
     vac_title: vacTitle,
     company_name: companyName,
-    unread_worker: 1,
-    unread_employer: 1,
+    unread_worker: initialUnreadWorker,
+    unread_employer: initialUnreadEmployer,
     created_at: nowISO(),
   };
   const { error } = await sb().from('jm_chats').insert(row);
   if (error) throwOnError('dbCreateChat', error);
 
-  await dbInsertMessage(chatId, 'system', '🎉 Мэтч! Вы подошли друг другу. Познакомьтесь и обсудите детали!');
+  if (systemMessage) {
+    // system messages are not assigned to a user
+    await dbInsertMessage(chatId, 'system', systemMessage);
+  }
+
   return chatId;
 }
 
@@ -434,7 +441,10 @@ export async function dbCheckAndCreateMatch(
     likeRow.employer_id,
     vacancyId,
     vac?.title ?? '',
-    vac?.company ?? ''
+    vac?.company ?? '',
+    '🎉 Мэтч! Вы подошли друг другу. Познакомьтесь и обсудите детали!',
+    1,
+    1
   );
 
   // Update vacancy workersFound and status if limit reached

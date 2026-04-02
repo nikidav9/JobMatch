@@ -59,6 +59,7 @@ function WorkerMatches() {
   const [loading, setLoading] = useState<string | null>(null);
   const [detailVacancy, setDetailVacancy] = useState<Vacancy | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'rejected' | 'matched' | 'completed'>('all');
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -69,13 +70,13 @@ function WorkerMatches() {
   if (!currentUser) return null;
 
   const relevant = likes.filter(
-    l => l.workerId === currentUser.id && l.workerLiked && (l.employerLiked || l.isMatch)
+    l => l.workerId === currentUser.id && l.workerLiked
   );
 
   const getVacancy = (id: string) => vacancies.find(v => v.id === id);
 
-  const pending = relevant.filter(l => !l.isMatch && l.employerLiked);
-  // Sort matched: unconfirmed first, then waiting, then confirmed
+  const awaitingReview = relevant.filter(l => !l.isMatch && l.employerLiked === null);
+  const rejected = relevant.filter(l => l.employerLiked === false);
   const matched = relevant
     .filter(l => l.isMatch && !l.shiftCompleted)
     .sort((a, b) => {
@@ -84,8 +85,18 @@ function WorkerMatches() {
       return aUrgent - bUrgent;
     });
   const completed = relevant.filter(l => l.shiftCompleted);
-  // New offers & unconfirmed matches at top, completed at bottom
-  const allItems = [...pending, ...matched, ...completed];
+
+  const allItems = [...awaitingReview, ...matched, ...completed, ...rejected];
+
+  const shownItems = statusFilter === 'all'
+    ? allItems
+    : statusFilter === 'pending'
+      ? awaitingReview
+      : statusFilter === 'rejected'
+        ? rejected
+        : statusFilter === 'matched'
+          ? matched
+          : completed;
 
   // Matches needing worker confirmation (not yet confirmed by worker)
   const needsWorkerConfirm = matched.filter(l => l.isMatch && !l.workerConfirmed);
@@ -140,14 +151,29 @@ function WorkerMatches() {
     showToast('Напоминание отправлено 🔔', 'success');
   };
 
-  if (allItems.length === 0) {
+  if (shownItems.length === 0) {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.header}><Text style={styles.title}>Мэтчи</Text></View>
+        <View style={styles.filterRow}>
+          {['all','pending','rejected','matched','completed'].map((key) => {
+            const label = key === 'all' ? 'Все' : key === 'pending' ? 'На рассмотрении' : key === 'rejected' ? 'Отказ' : key === 'matched' ? 'Мэтч' : 'Завершено';
+            const count = key === 'all' ? allItems.length : key === 'pending' ? awaitingReview.length : key === 'rejected' ? rejected.length : key === 'matched' ? matched.length : completed.length;
+            return (
+              <TouchableOpacity
+                key={key}
+                onPress={() => setStatusFilter(key as any)}
+                style={[styles.filterChip, statusFilter === key && styles.filterChipActive]}
+              >
+                <Text style={[styles.filterChipText, statusFilter === key && styles.filterChipTextActive]}>{label} ({count})</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
         <View style={styles.empty}>
           <Text style={{ fontSize: 48 }}>🤝</Text>
-          <Text style={styles.emptyTitle}>Пока нет предложений</Text>
-          <Text style={styles.emptySub}>Когда работодатель захочет взять вас на смену — появится здесь</Text>
+          <Text style={styles.emptyTitle}>Нет заявок в выбранном статусе</Text>
+          <Text style={styles.emptySub}>Выберите другой статус, чтобы увидеть результаты</Text>
         </View>
       </SafeAreaView>
     );
@@ -249,12 +275,29 @@ function WorkerMatches() {
           <View style={styles.urgentBadge}>
             <Text style={styles.urgentBadgeText}>⏰ {needsWorkerConfirm.length} ждут подтверждения</Text>
           </View>
-        ) : pending.length > 0 ? (
-          <View style={styles.badge}><Text style={styles.badgeText}>{pending.length}</Text></View>
         ) : null}
       </View>
+      <View style={styles.filterRow}>
+        {[
+          { key: 'all', label: `Все (${allItems.length})` },
+          { key: 'pending', label: `На рассмотрении (${awaitingReview.length})` },
+          { key: 'rejected', label: `Отказ (${rejected.length})` },
+          { key: 'matched', label: `Мэтч (${matched.length})` },
+          { key: 'completed', label: `Завершено (${completed.length})` },
+        ].map(item => (
+          <TouchableOpacity
+            key={item.key}
+            style={[styles.filterChip, statusFilter === item.key && styles.filterChipActive]}
+            onPress={() => setStatusFilter(item.key as any)}
+          >
+            <Text style={[styles.filterChipText, statusFilter === item.key && styles.filterChipTextActive]}>
+              {item.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
       <FlatList
-        data={allItems}
+        data={shownItems}
         keyExtractor={l => l.id}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
@@ -532,6 +575,11 @@ const styles = StyleSheet.create({
   badgeText: { color: '#fff', fontSize: 13, fontWeight: '700' },
   urgentBadge: { backgroundColor: '#FEF3C7', borderRadius: 100, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: '#F59E0B' },
   urgentBadgeText: { color: '#92400E', fontSize: 12, fontWeight: '700' },
+  filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 16, paddingBottom: 8 },
+  filterChip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.divider },
+  filterChipActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  filterChipText: { fontSize: 12, color: Colors.textMuted },
+  filterChipTextActive: { color: '#fff', fontWeight: '700' },
   tabs: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: Colors.divider },
   tabItem: { flex: 1, alignItems: 'center', paddingVertical: 12 },
   tabLabel: { fontSize: 14, fontWeight: '500', color: Colors.textMuted },

@@ -10,7 +10,14 @@ import { Like, User, Vacancy } from '@/constants/types';
 import { getTodayDates, formatDate, scoreVacancy } from '@/services/storage';
 import { METRO_LINES } from '@/constants/metro';
 import {
-  dbUpsertLike, dbCheckAndCreateMatch, dbRemoveLike, dbAddSaved, dbUpdateVacancy,
+  dbUpsertLike,
+  dbCheckAndCreateMatch,
+  dbRemoveLike,
+  dbAddSaved,
+  dbUpdateVacancy,
+  dbCreateChat,
+  dbInsertMessage,
+  dbIncrementUnread,
 } from '@/services/db';
 import { notifyWorkerSentApplication, notifyWorkerGotMatch, notifyEmployerGotMatch } from '@/services/notifications';
 import { Image } from 'expo-image';
@@ -115,6 +122,40 @@ function WorkerListModal({
     }
   };
 
+  const onDiscussRejected = async (like: Like) => {
+    if (!currentUser || !vacancy) return;
+    setActionLoading(like.workerId);
+    try {
+      const worker = users.find(u => u.id === like.workerId);
+      if (!worker) throw new Error('Работник не найден');
+
+      const chatId = await dbCreateChat(
+        like.workerId,
+        currentUser.id,
+        vacancyId,
+        vacancy.title,
+        vacancy.company,
+        '',
+        0,
+        0,
+      );
+
+      const text = `Здравствуйте, ${worker.firstName}! Вы были отклонены по вакансии «${vacancy.title}». Я бы хотел обсудить причину и, возможно, найти решение.`;
+      await dbInsertMessage(chatId, currentUser.id, text);
+      await dbIncrementUnread(chatId, 'worker');
+      await refreshAll();
+
+      showToast('Сообщение отправлено. Открываем чат...', 'success');
+      onClose();
+      router.push({ pathname: '/chat-room', params: { chatId } });
+    } catch (error) {
+      console.error('[WorkerListModal] onDiscussRejected', error);
+      showToast('Ошибка при отправке сообщения', 'error');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   return (
     <Modal visible animationType="slide" transparent onRequestClose={onClose}>
       <View style={wS.overlay}>
@@ -190,7 +231,7 @@ function WorkerListModal({
                         <TouchableOpacity
                           style={[wS.chatBtn, { flex: 1 }, isLoading && { opacity: 0.5 }]}
                           disabled={isLoading}
-                          onPress={() => onAccept(like)}
+                          onPress={() => onDiscussRejected(like)}
                         >
                           <Text style={wS.chatBtnTxt}>💬 Написать</Text>
                         </TouchableOpacity>
@@ -244,7 +285,6 @@ const wS = StyleSheet.create({
   profileArrow: { fontSize: 12, color: Colors.primary, fontWeight: '600' },
   btnRow: { flexDirection: 'row', gap: 8 },
   rejectionReason: { fontSize: 11, color: Colors.red, marginTop: 3, fontStyle: 'italic' },
-  btnRow: { flexDirection: 'row', gap: 8 },
   rejectBtn: { flex: 1, borderWidth: 1.5, borderColor: '#FECACA', borderRadius: 100, paddingVertical: 9, alignItems: 'center', backgroundColor: '#FEF2F2' },
   rejectBtnTxt: { fontSize: 13, color: Colors.red, fontWeight: '600' },
   acceptBtn: { backgroundColor: Colors.primary, borderRadius: 100, paddingVertical: 9, paddingHorizontal: 14, alignItems: 'center' },
