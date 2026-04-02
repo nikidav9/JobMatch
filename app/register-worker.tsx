@@ -76,24 +76,35 @@ export default function RegisterWorker() {
     setStep(3);
   };
 
+  const [finishing, setFinishing] = useState(false);
+
   const finish = async () => {
-    const user = {
-      id: uid(),
-      role: 'worker' as const,
-      phone: extractPhoneDigits(phone),
-      password,
-      lastName,
-      firstName,
-      metroLineId,
-      metroStation,
-      workTypes,
-      createdAt: nowISO(),
-    };
-    await dbUpsertUser(user);
-    await refreshUsers();
-    setCurrentUser(user);
-    showToast('Добро пожаловать! 👋', 'success');
-    router.replace('/(tabs)');
+    if (finishing) return;
+    setFinishing(true);
+    try {
+      const user = {
+        id: uid(),
+        role: 'worker' as const,
+        phone: extractPhoneDigits(phone),
+        password,
+        lastName,
+        firstName,
+        metroLineId,
+        metroStation,
+        workTypes,
+        createdAt: nowISO(),
+      };
+      await dbUpsertUser(user);
+      await refreshUsers();
+      setCurrentUser(user);
+      showToast('Добро пожаловать! 👋', 'success');
+      router.replace('/(tabs)');
+    } catch (e) {
+      console.error('[RegisterWorker] finish error', e);
+      showToast('Ошибка регистрации. Попробуйте ещё раз.', 'error');
+    } finally {
+      setFinishing(false);
+    }
   };
 
   const line = METRO_LINES.find(l => l.id === metroLineId);
@@ -270,7 +281,7 @@ export default function RegisterWorker() {
               <Text style={styles.subtitle}>Выбери специализацию</Text>
               <WorkTypeSelector selected={workTypes} onToggle={toggleWork} />
               <View style={{ marginTop: 28 }}>
-                <PrimaryButton label="Начать поиск →" onPress={finish} disabled={workTypes.length === 0} />
+                <PrimaryButton label="Начать поиск →" onPress={finish} disabled={workTypes.length === 0 || finishing} />
               </View>
             </View>
           )}

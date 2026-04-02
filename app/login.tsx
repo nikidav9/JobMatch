@@ -71,7 +71,7 @@ export default function Login() {
 
     setCurrentUser(user);
     showToast('Добро пожаловать! 👋', 'success');
-    router.replace('/(tabs)');
+    // AppContext’s useEffect will navigate to /(tabs) once currentUser is set
     setLoading(false);
   };
 
@@ -81,7 +81,12 @@ export default function Login() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView style={styles.sheet} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <KeyboardAvoidingView
+        style={{ flex: 1, justifyContent: 'flex-end' }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      >
+        <View style={styles.sheet}>
         <View style={styles.handle} />
 
         <Text style={styles.title}>Войти</Text>
@@ -127,6 +132,7 @@ export default function Login() {
         <TouchableOpacity style={styles.cancel} onPress={() => router.back()}>
           <Text style={styles.cancelText}>Отмена</Text>
         </TouchableOpacity>
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -141,6 +147,7 @@ const styles = StyleSheet.create({
     padding: 24,
     paddingBottom: 40,
     gap: 14,
+    // Sheet adapts to keyboard via parent KeyboardAvoidingView
   },
   handle: {
     width: 36, height: 4, backgroundColor: Colors.inputBorder,

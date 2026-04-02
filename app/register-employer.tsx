@@ -64,22 +64,33 @@ export default function RegisterEmployer() {
     setStep(3);
   };
 
+  const [finishing, setFinishing] = useState(false);
+
   const finish = async () => {
-    const user = {
-      id: uid(),
-      role: 'employer' as const,
-      phone: extractPhoneDigits(phone),
-      password,
-      lastName,
-      firstName,
-      company,
-      createdAt: nowISO(),
-    };
-    await dbUpsertUser(user);
-    await refreshUsers();
-    setCurrentUser(user);
-    showToast('Добро пожаловать! 👋', 'success');
-    router.replace('/(tabs)');
+    if (finishing) return;
+    setFinishing(true);
+    try {
+      const user = {
+        id: uid(),
+        role: 'employer' as const,
+        phone: extractPhoneDigits(phone),
+        password,
+        lastName,
+        firstName,
+        company,
+        createdAt: nowISO(),
+      };
+      await dbUpsertUser(user);
+      await refreshUsers();
+      setCurrentUser(user);
+      showToast('Добро пожаловать! 👋', 'success');
+      router.replace('/(tabs)');
+    } catch (e) {
+      console.error('[RegisterEmployer] finish error', e);
+      showToast('Ошибка регистрации. Попробуйте ещё раз.', 'error');
+    } finally {
+      setFinishing(false);
+    }
   };
 
   return (
@@ -219,7 +230,7 @@ export default function RegisterEmployer() {
               <Text style={styles.subtitle}>Будет отображаться в вакансиях</Text>
               <AppInput value={company} onChangeText={setCompany} placeholder="ООО МегаСклад" autoFocus />
               <View style={{ marginTop: 28 }}>
-                <PrimaryButton label="Начать работу →" onPress={finish} disabled={!company.trim()} />
+                <PrimaryButton label="Начать работу →" onPress={finish} disabled={!company.trim() || finishing} />
               </View>
             </View>
           )}

@@ -147,10 +147,19 @@ export default function ChatsScreen() {
     currentUser.role === 'worker' ? c.workerId === currentUser.id : c.employerId === currentUser.id
   );
 
-  const filtered = myChats.filter(c =>
-    c.vacTitle.toLowerCase().includes(search.toLowerCase()) ||
-    c.companyName.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = myChats.filter(c => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    // Search by vacancy title, company name, and the other person's name
+    const otherId = currentUser.role === 'worker' ? c.employerId : c.workerId;
+    const other = users.find(u => u.id === otherId);
+    const otherName = other ? `${other.firstName} ${other.lastName}`.toLowerCase() : '';
+    return (
+      c.vacTitle.toLowerCase().includes(q) ||
+      c.companyName.toLowerCase().includes(q) ||
+      otherName.includes(q)
+    );
+  });
 
   const handleDelete = async (chatId: string) => {
     await dbDeleteChat(chatId);

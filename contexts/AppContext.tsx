@@ -1,5 +1,6 @@
 import React, { createContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { useRouter } from 'expo-router';
+import { getSupabaseClient } from '@/template';
 import { User, Vacancy, Like, Chat } from '@/constants/types';
 import { getSessionUser, saveSessionUser, clearSessionUser } from '@/services/storage';
 import {
@@ -177,15 +178,64 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [currentUser, loading, router]);
 
+  // ── Auto-cleanup: delete vacancies with no applicants 5 min before shift start ──
+
+  const cleanupStaleVacancies = async () => {
+    try {
+      const { data } = await getSupabaseClient()
+        .from('jm_vacancies')
+        .select('id, date, time_start')
+        .eq('status', 'open');
+      if (!data) return;
+
+      const now = new Date();
+      const toDelete: string[] = [];
+
+      for (const v of data) {
+        if (!v.date || !v.time_start) continue;
+        const [h, m] = (v.time_start as string).split(':').map(Number);
+        const shiftStart = new Date(`${v.date}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:00`);
+        const diffMs = shiftStart.getTime() - now.getTime();
+        // Delete if 5 min or less remain before shift start
+        if (diffMs <= 5 * 60 * 1000 && diffMs > -60 * 60 * 1000) {
+          // Check if any worker liked this vacancy
+          const { data: likeRows } = await getSupabaseClient()
+            .from('jm_likes')
+            .select('id')
+            .eq('vacancy_id', v.id)
+            .eq('worker_liked', true)
+            .limit(1);
+          if (!likeRows || likeRows.length === 0) {
+            toDelete.push(v.id);
+          }
+        }
+      }
+
+      for (const id of toDelete) {
+        await getSupabaseClient().from('jm_vacancies').delete().eq('id', id);
+        console.log('[AppContext] auto-deleted stale vacancy', id);
+      }
+
+      if (toDelete.length > 0) {
+        await refreshVacancies();
+      }
+    } catch (e) {
+      console.warn('[AppContext] cleanupStaleVacancies error', e);
+    }
+  };
+
   // ── Background poll (every 15s) when user is logged in ───────────────────
 
   useEffect(() => {
     if (!currentUser) return;
+    // Run cleanup immediately and then on each poll
+    cleanupStaleVacancies();
     const interval = setInterval(() => {
       refreshVacancies();
       refreshLikes();
       refreshChats(currentUser);
       refreshSaved(currentUser);
+      cleanupStaleVacancies();
     }, 15_000);
     return () => clearInterval(interval);
   }, [currentUser?.id]);

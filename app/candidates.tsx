@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, FlatList } from 'react-native';
+import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Colors, Radius, Shadow } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
-import { notifyMatch } from '@/services/notifications';
+import { notifyEmployerGotMatch } from '@/services/notifications';
 import { dbUpsertLike, dbCheckAndCreateMatch } from '@/services/db';
+import { getInitials, nameColorFromString } from '@/services/storage';
 
 export default function CandidatesScreen() {
   const router = useRouter();
@@ -32,22 +34,18 @@ export default function CandidatesScreen() {
       return;
     }
 
-    // Accept
     await dbUpsertLike(vacancyId, workerId, currentUser.id, { employerLiked: true });
     const result = await dbCheckAndCreateMatch(vacancyId, workerId);
     await refreshAll();
 
     if (result.matched) {
       const worker = getWorker(workerId);
-      await notifyMatch({
-        companyName: vacancy.company,
-        vacancyTitle: vacancy.title,
-        otherName: worker ? `${worker.firstName} ${worker.lastName}` : 'Работник',
-        role: 'employer',
-      });
+      const workerName = worker ? `${worker.firstName} ${worker.lastName}` : 'Работник';
+      // Employer's device: tell the employer they got a match
+      await notifyEmployerGotMatch(workerName, vacancy.title);
       showToast(`🎉 Мэтч с ${worker?.firstName ?? 'работником'}! Чат открыт`, 'match');
     } else {
-      showToast('Отклик отправлен. Ждём решения работника.', 'success');
+      showToast('Отклик одобрен. Ждём подтверждения работника.', 'success');
     }
   };
 
@@ -93,33 +91,46 @@ export default function CandidatesScreen() {
           const worker = getWorker(like.workerId);
           if (!worker) return null;
           const isMatch = like.isMatch;
-          const initials = `${worker.firstName[0] ?? ''}${worker.lastName[0] ?? ''}`.toUpperCase();
+          const workerColor = nameColorFromString(worker.id);
+          const initials = getInitials(`${worker.firstName} ${worker.lastName}`);
           return (
             <View style={styles.card}>
-              <View style={styles.cardTop}>
-                <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>{initials}</Text>
-                </View>
+              {/* Tappable worker profile row */}
+              <TouchableOpacity
+                style={styles.cardTop}
+                onPress={() => router.push({ pathname: '/user-profile', params: { userId: worker.id } })}
+                activeOpacity={0.8}
+              >
+                {worker.avatarUrl ? (
+                  <Image source={{ uri: worker.avatarUrl }} style={styles.avatar} contentFit="cover" transition={150} />
+                ) : (
+                  <View style={[styles.avatar, { backgroundColor: workerColor }]}>
+                    <Text style={styles.avatarText}>{initials}</Text>
+                  </View>
+                )}
                 <View style={{ flex: 1 }}>
                   <Text style={styles.workerName}>{worker.firstName} {worker.lastName}</Text>
                   <Text style={styles.workerMeta}>
                     🚇 {worker.metroStation ?? '—'}
                     {worker.age ? `  ·  ${worker.age} лет` : ''}
                   </Text>
+                  {(worker.avgRating ?? 0) > 0 ? (
+                    <Text style={styles.workerRating}>⭐ {(worker.avgRating ?? 0).toFixed(1)} ({worker.ratingCount} отз.)</Text>
+                  ) : null}
                 </View>
-              </View>
+                <Text style={styles.profileArrow}>Профиль ›</Text>
+              </TouchableOpacity>
+
+              {/* Bio snippet */}
+              {worker.bio ? (
+                <Text style={styles.bioSnippet} numberOfLines={2}>{worker.bio}</Text>
+              ) : null}
 
               <View style={styles.infoGrid}>
                 <View style={styles.infoRow}>
                   <Text style={styles.infoLabel}>Специальность</Text>
                   <View style={styles.infoChip}><Text style={styles.infoChipText}>📦 Кладовщик</Text></View>
                 </View>
-                {(worker.avgRating ?? 0) > 0 ? (
-                  <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>Рейтинг</Text>
-                    <Text style={styles.ratingVal}>⭐ {(worker.avgRating ?? 0).toFixed(1)} <Text style={styles.ratingCount}>({worker.ratingCount} отз.)</Text></Text>
-                  </View>
-                ) : null}
                 <View style={styles.infoRow}>
                   <Text style={styles.infoLabel}>Телефон</Text>
                   <Text style={[styles.infoVal, isMatch && { color: Colors.primary }]}>
@@ -131,10 +142,7 @@ export default function CandidatesScreen() {
               {isMatch ? (
                 <TouchableOpacity
                   style={styles.chatBtn}
-                  onPress={() => {
-                    const chat = require('@/contexts/AppContext');
-                    router.push({ pathname: '/chats' });
-                  }}
+                  onPress={() => router.push({ pathname: '/(tabs)/chats' })}
                   activeOpacity={0.8}
                 >
                   <Text style={styles.chatBtnText}>💬 Открыть чат</Text>
@@ -173,18 +181,19 @@ const styles = StyleSheet.create({
   list: { padding: 16, gap: 12, paddingBottom: 100 },
   card: { backgroundColor: Colors.bg, borderRadius: Radius.lg, padding: 16, ...Shadow.card, gap: 12 },
   cardTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.primaryLight, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { fontSize: 16, fontWeight: '700', color: Colors.primary },
+  avatar: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontSize: 17, fontWeight: '700', color: '#fff' },
   workerName: { fontSize: 15, fontWeight: '700', color: Colors.textPrimary },
   workerMeta: { fontSize: 12, color: Colors.textMuted, marginTop: 2 },
+  workerRating: { fontSize: 12, color: '#FBBF24', fontWeight: '600', marginTop: 2 },
+  profileArrow: { fontSize: 12, color: Colors.primary, fontWeight: '600' },
+  bioSnippet: { fontSize: 13, color: Colors.textSecondary, lineHeight: 18, backgroundColor: Colors.surface, borderRadius: 8, padding: 10 },
   infoGrid: { gap: 8, borderTopWidth: 1, borderTopColor: Colors.divider, paddingTop: 10 },
   infoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   infoLabel: { fontSize: 13, color: Colors.textMuted },
   infoChip: { backgroundColor: Colors.primaryLight, borderRadius: 100, paddingHorizontal: 10, paddingVertical: 3 },
   infoChipText: { fontSize: 12, fontWeight: '600', color: Colors.primary },
   infoVal: { fontSize: 14, fontWeight: '600', color: Colors.textPrimary },
-  ratingVal: { fontSize: 13, fontWeight: '700', color: '#FBBF24' },
-  ratingCount: { fontSize: 11, color: Colors.textMuted, fontWeight: '400' },
   actions: { flexDirection: 'row', gap: 10 },
   skipBtn: { flex: 1, borderWidth: 1.5, borderColor: Colors.inputBorder, borderRadius: 100, paddingVertical: 10, alignItems: 'center' },
   skipText: { fontSize: 13, fontWeight: '600', color: Colors.textSecondary },

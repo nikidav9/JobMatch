@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
@@ -19,7 +20,7 @@ import { WorkTypeSelector } from '@/components/feature/WorkTypeSelector';
 import { WorkType } from '@/constants/types';
 import { METRO_LINES } from '@/constants/metro';
 
-type EditSection = 'personal' | 'metro' | 'worktypes' | 'company' | null;
+type EditSection = 'personal' | 'metro' | 'worktypes' | 'company' | 'bio' | null;
 
 function StarRating({ rating, count }: { rating: number; count: number }) {
   return (
@@ -44,11 +45,12 @@ const rS = StyleSheet.create({
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { currentUser, logout, users, refreshUsers, showToast } = useApp();
+  const { currentUser, logout, users, refreshUsers, showToast, setCurrentUser } = useApp();
   const [editSection, setEditSection] = useState<EditSection>(null);
   const [showConfirmLogout, setShowConfirmLogout] = useState(false);
   const [metroPicker, setMetroPicker] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   // CRITICAL: useLayoutEffect runs BEFORE first render, preventing white screen
   React.useLayoutEffect(() => {
@@ -66,6 +68,7 @@ export default function ProfileScreen() {
   const [editMetroStation, setEditMetroStation] = useState('');
   const [editWorkTypes, setEditWorkTypes] = useState<WorkType[]>([]);
   const [editCompany, setEditCompany] = useState('');
+  const [editBio, setEditBio] = useState('');
 
   if (!currentUser) return null;
 
@@ -83,19 +86,29 @@ export default function ProfileScreen() {
     setEditMetroLineName(line?.name ?? '');
     setEditWorkTypes((currentUser.workTypes ?? []) as WorkType[]);
     setEditCompany(currentUser.company ?? '');
+    setEditBio(currentUser.bio ?? '');
   };
 
   const saveEdit = async () => {
-    const updated = { ...currentUser };
-    if (editSection === 'personal') { updated.phone = editPhone; updated.lastName = editLast; updated.firstName = editFirst; }
-    if (editSection === 'metro') { updated.metroLineId = editMetroLineId; updated.metroStation = editMetroStation; }
-    if (editSection === 'worktypes') updated.workTypes = editWorkTypes;
-    if (editSection === 'company') updated.company = editCompany;
-    await dbUpsertUser(updated);
-    await refreshUsers();
-    setCurrentUser(updated);
-    showToast('Сохранено', 'success');
-    setEditSection(null);
+    if (savingEdit) return;
+    setSavingEdit(true);
+    try {
+      const updated = { ...currentUser };
+      if (editSection === 'personal') { updated.phone = editPhone; updated.lastName = editLast; updated.firstName = editFirst; }
+      if (editSection === 'metro') { updated.metroLineId = editMetroLineId; updated.metroStation = editMetroStation; }
+      if (editSection === 'worktypes') updated.workTypes = editWorkTypes;
+      if (editSection === 'company') { updated.company = editCompany; updated.bio = editBio; }
+      if (editSection === 'bio') updated.bio = editBio;
+      await dbUpsertUser(updated);
+      await refreshUsers();
+      setCurrentUser(updated);
+      showToast('Сохранено', 'success');
+      setEditSection(null);
+    } catch {
+      showToast('Ошибка при сохранении', 'error');
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   const pickAndUploadPhoto = async () => {
@@ -198,9 +211,13 @@ export default function ProfileScreen() {
                 <Text style={styles.avatarCameraIcon}>📷</Text>
               </View>
             )}
+            {/* Hint under avatar for employers */}
           </TouchableOpacity>
 
           <Text style={styles.fullName}>{currentUser.firstName} {currentUser.lastName}</Text>
+          {currentUser.role === 'employer' ? (
+            <Text style={styles.avatarHint}>Фото компании — видно работникам в карточке вакансии</Text>
+          ) : null}
           <View style={styles.roleBadge}>
             <Text style={styles.roleText}>{currentUser.role === 'worker' ? 'Работник' : 'Работодатель'}</Text>
           </View>
@@ -224,6 +241,10 @@ export default function ProfileScreen() {
               ]}
             />
             <SectionCard icon="💼" title="Специализация" onEdit={() => openEdit('worktypes')} rows={[]} chips={['📦 Кладовщик']} />
+            <SectionCard icon="📝" title="О себе" onEdit={() => openEdit('bio')}
+              rows={currentUser.bio ? [{ label: '', value: currentUser.bio }] : []}
+              placeholder="Расскажите о себе — опыт, навыки, предпочтения"
+            />
           </>
         ) : (
           <>
@@ -235,6 +256,10 @@ export default function ProfileScreen() {
               ]}
             />
             <SectionCard icon="🏢" title="Компания" onEdit={() => openEdit('company')} rows={[{ label: 'Название', value: currentUser.company ?? '—' }]} />
+            <SectionCard icon="📝" title="О компании" onEdit={() => openEdit('bio')}
+              rows={currentUser.bio ? [{ label: '', value: currentUser.bio }] : []}
+              placeholder="Расскажите о компании, условиях, коллективе"
+            />
           </>
         )}
 
@@ -288,11 +313,24 @@ export default function ProfileScreen() {
               <WorkTypeSelector selected={editWorkTypes} onToggle={t => setEditWorkTypes(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t])} />
             )}
             {editSection === 'company' && (
-              <AppInput label="Название компании" value={editCompany} onChangeText={setEditCompany} placeholder="ООО МегаСклад" />
+              <View style={{ gap: 12 }}>
+                <AppInput label="Название компании" value={editCompany} onChangeText={setEditCompany} placeholder="ООО МегаСклад" />
+                <AppInput label="О компании" value={editBio} onChangeText={setEditBio} placeholder="Расскажите о компании..." multiline numberOfLines={4} />
+              </View>
+            )}
+            {editSection === 'bio' && (
+              <AppInput
+                label={currentUser.role === 'worker' ? 'О себе' : 'О компании'}
+                value={editBio}
+                onChangeText={setEditBio}
+                placeholder={currentUser.role === 'worker' ? 'Расскажите о себе — опыт, навыки, предпочтения' : 'Расскажите о компании, условиях, коллективе'}
+                multiline
+                numberOfLines={5}
+              />
             )}
 
             <View style={{ marginTop: 20, gap: 10 }}>
-              <PrimaryButton label="Сохранить" onPress={saveEdit} />
+              <PrimaryButton label="Сохранить" onPress={saveEdit} disabled={savingEdit} />
               <PrimaryButton label="Отмена" onPress={() => setEditSection(null)} secondary />
             </View>
           </View>
@@ -320,10 +358,11 @@ export default function ProfileScreen() {
   );
 }
 
-function SectionCard({ icon, title, onEdit, rows, chips }: {
+function SectionCard({ icon, title, onEdit, rows, chips, placeholder }: {
   icon: string; title: string; onEdit: () => void;
   rows: { label: string; value: string; lineColor?: string }[];
   chips?: string[];
+  placeholder?: string;
 }) {
   return (
     <View style={sS.card}>
@@ -332,14 +371,21 @@ function SectionCard({ icon, title, onEdit, rows, chips }: {
         <TouchableOpacity onPress={onEdit}><Text style={sS.editLink}>Изменить</Text></TouchableOpacity>
       </View>
       {rows.map((r, i) => (
-        <View key={i} style={sS.row}>
-          <Text style={sS.label}>{r.label}</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            {r.lineColor ? <View style={[sS.dot, { backgroundColor: r.lineColor }]} /> : null}
-            <Text style={sS.value}>{r.value}</Text>
+        r.label ? (
+          <View key={i} style={sS.row}>
+            <Text style={sS.label}>{r.label}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              {r.lineColor ? <View style={[sS.dot, { backgroundColor: r.lineColor }]} /> : null}
+              <Text style={sS.value}>{r.value}</Text>
+            </View>
           </View>
-        </View>
+        ) : (
+          <Text key={i} style={sS.bioText}>{r.value}</Text>
+        )
       ))}
+      {rows.length === 0 && placeholder ? (
+        <Text style={sS.placeholder}>{placeholder}</Text>
+      ) : null}
       {chips && chips.length > 0 ? (
         <View style={sS.chipsRow}>
           {chips.map((c, i) => <View key={i} style={sS.chip}><Text style={sS.chipText}>{c}</Text></View>)}
@@ -361,6 +407,8 @@ const sS = StyleSheet.create({
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
   chip: { backgroundColor: Colors.primaryLight, borderRadius: 100, paddingHorizontal: 14, paddingVertical: 6 },
   chipText: { fontSize: 13, fontWeight: '600', color: Colors.primary },
+  bioText: { fontSize: 14, color: Colors.textPrimary, lineHeight: 20, paddingTop: 8 },
+  placeholder: { fontSize: 13, color: Colors.textMuted, fontStyle: 'italic', paddingTop: 4 },
 });
 
 const styles = StyleSheet.create({
@@ -389,6 +437,7 @@ const styles = StyleSheet.create({
   roleBadge: { backgroundColor: Colors.primary, borderRadius: 100, paddingHorizontal: 14, paddingVertical: 4, marginTop: 8 },
   roleText: { color: '#fff', fontSize: 13, fontWeight: '600' },
   phone: { fontSize: 14, color: Colors.textMuted, marginTop: 6 },
+  avatarHint: { fontSize: 11, color: Colors.textMuted, marginTop: 4, textAlign: 'center', maxWidth: 220 },
   logoutBtn: { alignItems: 'center', paddingVertical: 16, marginTop: 8 },
   logoutText: { color: Colors.red, fontSize: 14, fontWeight: '600' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },

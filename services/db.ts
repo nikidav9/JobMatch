@@ -7,6 +7,14 @@ import { uid, nowISO } from '@/services/storage';
 
 const sb = () => getSupabaseClient();
 
+// ─── Error helper ────────────────────────────────────────────────────────────
+
+function throwOnError(label: string, error: any): never {
+  const msg = error?.message ?? String(error);
+  console.error(`[db] ${label}:`, msg);
+  throw new Error(msg);
+}
+
 // ─── Users ────────────────────────────────────────────────────────────────────
 
 function rowToUser(r: any): User {
@@ -27,6 +35,7 @@ function rowToUser(r: any): User {
     avgRating: r.avg_rating ?? 0,
     ratingCount: r.rating_count ?? 0,
     password: r.password ?? '',
+    bio: r.bio ?? undefined,
   };
 }
 
@@ -48,18 +57,19 @@ function userToRow(u: User) {
     avg_rating: u.avgRating ?? 0,
     rating_count: u.ratingCount ?? 0,
     password: u.password ?? '',
+    bio: u.bio ?? null,
   };
 }
 
 export async function dbGetUsers(): Promise<User[]> {
   const { data, error } = await sb().from('jm_users').select('*').order('created_at', { ascending: true });
-  if (error) { console.error('dbGetUsers', error.message); return []; }
+  if (error) throwOnError('dbGetUsers', error);
   return (data ?? []).map(rowToUser);
 }
 
 export async function dbUpsertUser(u: User): Promise<void> {
   const { error } = await sb().from('jm_users').upsert(userToRow(u), { onConflict: 'id' });
-  if (error) console.error('dbUpsertUser', error.message);
+  if (error) throwOnError('dbUpsertUser', error);
 }
 
 export async function dbDeleteUser(id: string): Promise<void> {
@@ -123,18 +133,21 @@ function vacancyToRow(v: Vacancy) {
 
 export async function dbGetVacancies(): Promise<Vacancy[]> {
   const { data, error } = await sb().from('jm_vacancies').select('*').order('created_at', { ascending: false });
-  if (error) { console.error('dbGetVacancies', error.message); return []; }
+  if (error) throwOnError('dbGetVacancies', error);
   return (data ?? []).map(rowToVacancy);
 }
 
 export async function dbUpsertVacancy(v: Vacancy): Promise<void> {
   const { error } = await sb().from('jm_vacancies').upsert(vacancyToRow(v), { onConflict: 'id' });
-  if (error) console.error('dbUpsertVacancy', error.message);
+  if (error) {
+    console.error('dbUpsertVacancy', error.message);
+    throw new Error(error.message);
+  }
 }
 
 export async function dbUpdateVacancy(id: string, patch: Partial<{ status: string; workers_found: number }>): Promise<void> {
   const { error } = await sb().from('jm_vacancies').update(patch).eq('id', id);
-  if (error) console.error('dbUpdateVacancy', error.message);
+  if (error) throwOnError('dbUpdateVacancy', error);
 }
 
 // ─── Likes ────────────────────────────────────────────────────────────────────
@@ -160,7 +173,7 @@ function rowToLike(r: any): Like {
 
 export async function dbGetLikes(): Promise<Like[]> {
   const { data, error } = await sb().from('jm_likes').select('*');
-  if (error) { console.error('dbGetLikes', error.message); return []; }
+  if (error) throwOnError('dbGetLikes', error);
   return (data ?? []).map(rowToLike);
 }
 
@@ -183,7 +196,7 @@ export async function dbUpsertLike(
     worker_id: workerId,
     employer_id: employerId,
     worker_liked: false,
-    employer_liked: false,
+    employer_liked: null,
     worker_skipped: false,
     is_match: false,
     matched_at: null,
@@ -209,7 +222,7 @@ export async function dbUpsertLike(
   };
 
   const { error } = await sb().from('jm_likes').upsert(row, { onConflict: 'vacancy_id,worker_id' });
-  if (error) console.error('dbUpsertLike', error.message);
+  if (error) throwOnError('dbUpsertLike', error);
   return rowToLike(row);
 }
 
@@ -219,12 +232,12 @@ export async function dbRemoveLike(vacancyId: string, workerId: string): Promise
     .delete()
     .eq('vacancy_id', vacancyId)
     .eq('worker_id', workerId);
-  if (error) console.error('dbRemoveLike', error.message);
+  if (error) throwOnError('dbRemoveLike', error);
 }
 
 export async function dbDeleteMatch(likeId: string): Promise<void> {
   const { error } = await sb().from('jm_likes').delete().eq('id', likeId);
-  if (error) console.error('dbDeleteMatch', error.message);
+  if (error) throwOnError('dbDeleteMatch', error);
 }
 
 // ─── Messages ─────────────────────────────────────────────────────────────────
@@ -244,14 +257,17 @@ export async function dbGetMessages(chatId: string): Promise<Message[]> {
     .select('*')
     .eq('chat_id', chatId)
     .order('created_at', { ascending: true });
-  if (error) { console.error('dbGetMessages', error.message); return []; }
+  if (error) throwOnError('dbGetMessages', error);
   return (data ?? []).map(rowToMessage);
 }
 
 export async function dbInsertMessage(chatId: string, senderId: string, text: string): Promise<Message> {
   const msg = { id: uid(), chat_id: chatId, sender_id: senderId, text, created_at: nowISO() };
   const { error } = await sb().from('jm_messages').insert(msg);
-  if (error) console.error('dbInsertMessage', error.message);
+  if (error) {
+    console.error('dbInsertMessage', error.message);
+    throw new Error(error.message);
+  }
   return rowToMessage(msg);
 }
 
@@ -279,7 +295,7 @@ export async function dbGetChats(userId: string, role: 'worker' | 'employer'): P
     .select('*')
     .eq(field, userId)
     .order('created_at', { ascending: false });
-  if (error) { console.error('dbGetChats', error.message); return []; }
+  if (error) throwOnError('dbGetChats', error);
 
   const chatRows = data ?? [];
   const chats = await Promise.all(
@@ -319,7 +335,7 @@ export async function dbCreateChat(
     created_at: nowISO(),
   };
   const { error } = await sb().from('jm_chats').insert(row);
-  if (error) console.error('dbCreateChat', error.message);
+  if (error) throwOnError('dbCreateChat', error);
 
   await dbInsertMessage(chatId, 'system', '🎉 Мэтч! Вы подошли друг другу. Познакомьтесь и обсудите детали!');
   return chatId;
@@ -328,7 +344,7 @@ export async function dbCreateChat(
 export async function dbMarkRead(chatId: string, role: 'worker' | 'employer'): Promise<void> {
   const field = role === 'worker' ? 'unread_worker' : 'unread_employer';
   const { error } = await sb().from('jm_chats').update({ [field]: 0 }).eq('id', chatId);
-  if (error) console.error('dbMarkRead', error.message);
+  if (error) throwOnError('dbMarkRead', error);
 }
 
 export async function dbIncrementUnread(chatId: string, forRole: 'worker' | 'employer'): Promise<void> {
@@ -348,18 +364,18 @@ export async function dbDeleteChat(chatId: string): Promise<void> {
 
 export async function dbGetSaved(userId: string): Promise<string[]> {
   const { data, error } = await sb().from('jm_saved').select('vacancy_id').eq('user_id', userId);
-  if (error) { console.error('dbGetSaved', error.message); return []; }
+  if (error) throwOnError('dbGetSaved', error);
   return (data ?? []).map((r: any) => r.vacancy_id);
 }
 
 export async function dbAddSaved(userId: string, vacancyId: string): Promise<void> {
   const { error } = await sb().from('jm_saved').upsert({ user_id: userId, vacancy_id: vacancyId });
-  if (error) console.error('dbAddSaved', error.message);
+  if (error) throwOnError('dbAddSaved', error);
 }
 
 export async function dbRemoveSaved(userId: string, vacancyId: string): Promise<void> {
   const { error } = await sb().from('jm_saved').delete().eq('user_id', userId).eq('vacancy_id', vacancyId);
-  if (error) console.error('dbRemoveSaved', error.message);
+  if (error) throwOnError('dbRemoveSaved', error);
 }
 
 // ─── Complaints ───────────────────────────────────────────────────────────────
@@ -386,7 +402,7 @@ export async function dbFileComplaint(params: {
     description: params.description ?? null,
     created_at: nowISO(),
   });
-  if (error) console.error('dbFileComplaint', error.message);
+  if (error) throwOnError('dbFileComplaint', error);
 }
 
 // ─── Match logic ──────────────────────────────────────────────────────────────
@@ -434,6 +450,36 @@ export async function dbCheckAndCreateMatch(
   return { matched: true, chatId };
 }
 
+// ─── Ratings for user ────────────────────────────────────────────────────────
+
+export interface UserRating {
+  id: string;
+  fromUserId: string;
+  rating: number;
+  reviewText?: string;
+  role: 'worker' | 'employer';
+  createdAt: string;
+  vacancyId: string;
+}
+
+export async function dbGetRatingsForUser(toUserId: string): Promise<UserRating[]> {
+  const { data, error } = await sb()
+    .from('jm_ratings')
+    .select('*')
+    .eq('to_user_id', toUserId)
+    .order('created_at', { ascending: false });
+  if (error) throwOnError('dbGetRatingsForUser', error);
+  return (data ?? []).map((r: any) => ({
+    id: r.id,
+    fromUserId: r.from_user_id,
+    rating: r.rating,
+    reviewText: r.review_text ?? undefined,
+    role: r.role,
+    createdAt: r.created_at,
+    vacancyId: r.vacancy_id,
+  }));
+}
+
 // ─── Shift confirmation ───────────────────────────────────────────────────────
 
 export async function dbConfirmShift(
@@ -460,8 +506,9 @@ export async function dbSubmitRatingAndMaybeDelete(params: {
   vacancyId: string;
   rating: number;
   role: 'worker' | 'employer';
+  reviewText?: string;
 }): Promise<{ bothRated: boolean }> {
-  const { likeId, fromUserId, toUserId, vacancyId, rating, role } = params;
+  const { likeId, fromUserId, toUserId, vacancyId, rating, role, reviewText } = params;
 
   // Save rating record
   await sb().from('jm_ratings').insert({
@@ -472,6 +519,7 @@ export async function dbSubmitRatingAndMaybeDelete(params: {
     like_id: likeId,
     rating,
     role,
+    review_text: reviewText ?? null,
     created_at: nowISO(),
   });
 

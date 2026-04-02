@@ -11,7 +11,7 @@ import { VacancyDetailModal } from '@/components/feature/VacancyDetailModal';
 import { Vacancy } from '@/constants/types';
 
 export default function SavedScreen() {
-  const { currentUser, vacancies, savedIds, refreshSaved, refreshVacancies, showToast } = useApp();
+  const { currentUser, vacancies, savedIds, optimisticRemoveSaved, refreshSaved, refreshVacancies, showToast } = useApp();
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = async () => {
@@ -26,8 +26,10 @@ export default function SavedScreen() {
   const savedVacancies = vacancies.filter(v => savedIds.includes(v.id));
 
   const removeSaved = async (id: string) => {
-    await dbRemoveSaved(currentUser.id, id);
-    await refreshSaved();
+    optimisticRemoveSaved(id);
+    dbRemoveSaved(currentUser.id, id)
+      .then(() => refreshSaved())
+      .catch(() => {});
     showToast('Удалено из избранного', 'success');
   };
 

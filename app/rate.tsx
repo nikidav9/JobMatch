@@ -40,6 +40,7 @@ export default function RateScreen() {
         vacancyId,
         rating,
         role,
+        reviewText: review.trim() || undefined,
       });
 
       await refreshAll();

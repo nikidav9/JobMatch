@@ -17,6 +17,7 @@ export interface User {
   avatarUrl?: string;
   avgRating?: number;
   ratingCount?: number;
+  bio?: string;
 }
 
 export interface Vacancy {
@@ -49,7 +50,7 @@ export interface Like {
   workerId: string;
   employerId: string;
   workerLiked: boolean;
-  employerLiked: boolean;
+  employerLiked: boolean | null;
   workerSkipped: boolean;
   isMatch: boolean;
   matchedAt?: string;
@@ -61,13 +62,6 @@ export interface Like {
 }
 
 export interface Message {
-  id: string;
-  senderId: string;
-  text: string;
-  timestamp: string;
-}
-
-export interface ChatMessage {
   id: string;
   senderId: string;
   text: string;
