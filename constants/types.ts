@@ -50,7 +50,7 @@ export interface Like {
   workerId: string;
   employerId: string;
   workerLiked: boolean;
-  employerLiked: boolean;
+  employerLiked: boolean | null;
   workerSkipped: boolean;
   isMatch: boolean;
   matchedAt?: string;

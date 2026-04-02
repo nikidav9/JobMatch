@@ -191,7 +191,7 @@ export async function dbUpsertLike(
     worker_id: workerId,
     employer_id: employerId,
     worker_liked: false,
-    employer_liked: false,
+    employer_liked: null,
     worker_skipped: false,
     is_match: false,
     matched_at: null,

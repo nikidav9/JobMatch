@@ -49,11 +49,12 @@ function WorkerListModal({
   const vacLikes = likes.filter(l => l.vacancyId === vacancyId);
   let filteredLikes: Like[] = [];
   if (type === 'applicants') {
+    // Отклики: работник лайкнул, матча нет, работодатель ещё не ответил (null) или принял (true, но матч не создан)
     filteredLikes = vacLikes.filter(l => l.workerLiked && !l.isMatch && l.employerLiked !== false);
   } else if (type === 'hired') {
     filteredLikes = vacLikes.filter(l => l.isMatch);
   } else {
-    // Rejected: employer said no OR worker deliberately skipped
+    // Отклонённые: работодатель явно отклонил (false) ИЛИ работник сам пропустил (workerSkipped)
     filteredLikes = vacLikes.filter(
       l => l.employerLiked === false || (l.workerLiked === false && l.workerSkipped === true)
     );
@@ -735,8 +736,10 @@ function EmployerHome() {
 
   // Stat counts
   const applicantCount = (vacId: string) =>
+    // Ожидают ответа: работник откликнулся, матча нет, работодатель ещё не отклонил
     likes.filter(l => l.vacancyId === vacId && l.workerLiked && !l.isMatch && l.employerLiked !== false).length;
   const rejectedCount = (vacId: string) =>
+    // Отклонённые: явный отказ работодателя (false) ИЛИ самоотказ работника
     likes.filter(
       l => l.vacancyId === vacId && (
         l.employerLiked === false ||
