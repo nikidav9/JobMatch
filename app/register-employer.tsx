@@ -12,8 +12,8 @@ import { useApp } from '@/hooks/useApp';
 import { uid, nowISO, isPhoneComplete, extractPhoneDigits } from '@/services/storage';
 import { dbUpsertUser, dbGetUsers } from '@/services/db';
 
-// Steps: 1-Phone, 2-Password, 3-Name, 4-Legal, 5-Company
-const TOTAL = 5;
+// Steps: 1-Phone, 2-Password, 3-Name, 4-Legal
+const TOTAL = 4;
 const SUPPORT_EMAIL = 'zpouches@yandex.ru';
 
 export default function RegisterEmployer() {
@@ -27,7 +27,6 @@ export default function RegisterEmployer() {
   const [lastName, setLastName] = useState('');
   const [firstName, setFirstName] = useState('');
   const [agreed, setAgreed] = useState(false);
-  const [company, setCompany] = useState('');
   const [checking, setChecking] = useState(false);
   const [phoneError, setPhoneError] = useState('');
   const [passError, setPassError] = useState('');
@@ -77,7 +76,7 @@ export default function RegisterEmployer() {
         password,
         lastName,
         firstName,
-        company,
+        company: '', // явная пустая компания для физлиц
         createdAt: nowISO(),
       };
       await dbUpsertUser(user);
@@ -218,19 +217,7 @@ export default function RegisterEmployer() {
               </TouchableOpacity>
 
               <View style={{ marginTop: 16 }}>
-                <PrimaryButton label="Продолжить →" onPress={next} disabled={!agreed} />
-              </View>
-            </View>
-          )}
-
-          {/* Step 5: Company */}
-          {step === 5 && (
-            <View style={styles.stepContent}>
-              <Text style={styles.title}>Название компании</Text>
-              <Text style={styles.subtitle}>Будет отображаться в вакансиях</Text>
-              <AppInput value={company} onChangeText={setCompany} placeholder="ООО МегаСклад" autoFocus />
-              <View style={{ marginTop: 28 }}>
-                <PrimaryButton label="Начать работу →" onPress={finish} disabled={!company.trim() || finishing} />
+                <PrimaryButton label="Начать работу →" onPress={finish} disabled={!agreed || finishing} />
               </View>
             </View>
           )}
