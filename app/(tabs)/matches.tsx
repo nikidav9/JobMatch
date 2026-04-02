@@ -17,7 +17,6 @@ import {
   notifyEmployerGotMatch,
   notifyEmployerConfirmedShift,
   notifyEmployerWorkerConfirmed,
-  notifyConfirmShiftReminder,
 } from '@/services/notifications';
 import { Chip } from '@/components/ui/Chip';
 import { VacancyDetailModal } from '@/components/feature/VacancyDetailModal';
@@ -35,17 +34,17 @@ function MatchStatus({ like }: { like: Like }) {
   return <View style={[styles.statusBadge, { backgroundColor: Colors.surface }]}><Text style={[styles.statusTxt, { color: Colors.textMuted }]}>⏳ Ожидает ответа</Text></View>;
 }
 
-// ─── Confirmation reminder banner ─────────────────────────────────────────────
-function ConfirmBanner({ onConfirm, onRemind }: { onConfirm: () => void; onRemind: () => void }) {
+// ─── Confirmation banner ─────────────────────────────────────────────────────
+function ConfirmBanner({ onConfirm }: { onConfirm: () => void }) {
   return (
     <View style={styles.confirmBanner}>
       <Text style={styles.confirmBannerIcon}>⏰</Text>
       <View style={{ flex: 1 }}>
         <Text style={styles.confirmBannerTitle}>Подтвердите выход на смену</Text>
-        <Text style={styles.confirmBannerSub}>Нажмите кнопку ниже или получите напоминание</Text>
+        <Text style={styles.confirmBannerSub}>Нажмите кнопку ниже</Text>
       </View>
-      <TouchableOpacity style={styles.remindBtn} onPress={onRemind} activeOpacity={0.8}>
-        <Text style={styles.remindBtnText}>🔔</Text>
+      <TouchableOpacity style={styles.confirmBtn} onPress={onConfirm} activeOpacity={0.8}>
+        <Text style={styles.confirmBtnText}>✔</Text>
       </TouchableOpacity>
     </View>
   );
@@ -145,12 +144,6 @@ function WorkerMatches() {
     showToast('Отклонено', 'success');
   };
 
-  const sendReminder = async (like: Like) => {
-    const vac = getVacancy(like.vacancyId);
-    await notifyConfirmShiftReminder({ role: 'worker', vacancyTitle: vac?.title ?? '', date: formatDate(vac?.date ?? '') });
-    showToast('Напоминание отправлено 🔔', 'success');
-  };
-
   if (shownItems.length === 0) {
     return (
       <SafeAreaView style={styles.safe}>
@@ -194,12 +187,9 @@ function WorkerMatches() {
       <View style={[styles.card, isMatched && !isCompleted && styles.matchedCard, isCompleted && styles.completedCard]}>
         <MatchStatus like={like} />
 
-        {/* Confirmation reminder banner for unconfirmed matches */}
+        {/* Confirmation banner for unconfirmed matches */}
         {isMatched && !isCompleted && !workerAlreadyConfirmed ? (
-          <ConfirmBanner
-            onConfirm={() => confirmShift(like)}
-            onRemind={() => sendReminder(like)}
-          />
+          <ConfirmBanner onConfirm={() => confirmShift(like)} />
         ) : null}
 
         <TouchableOpacity activeOpacity={0.8} onPress={() => setDetailVacancy(vac)}>
@@ -397,12 +387,6 @@ function EmployerMatches() {
     setLoading(null);
   };
 
-  const sendReminder = async (like: Like) => {
-    const vac = getVacancy(like.vacancyId);
-    await notifyConfirmShiftReminder({ role: 'employer', vacancyTitle: vac?.title ?? '', date: formatDate(vac?.date ?? '') });
-    showToast('Напоминание отправлено 🔔', 'success');
-  };
-
   const pendingAll = [...pending, ...approved];
   const shown = tab === 'pending' ? pendingAll : matched;
 
@@ -425,10 +409,7 @@ function EmployerMatches() {
 
           {/* Confirmation reminder banner for unconfirmed matches */}
           {!like.shiftCompleted && !employerAlreadyConfirmed ? (
-            <ConfirmBanner
-              onConfirm={() => confirmShift(like)}
-              onRemind={() => sendReminder(like)}
-            />
+            <ConfirmBanner onConfirm={() => confirmShift(like)} />
           ) : null}
 
           {/* Worker profile */}
@@ -641,8 +622,8 @@ const styles = StyleSheet.create({
   confirmBannerIcon: { fontSize: 22 },
   confirmBannerTitle: { fontSize: 13, fontWeight: '700', color: '#92400E' },
   confirmBannerSub: { fontSize: 11, color: '#B45309', marginTop: 2 },
-  remindBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#F59E0B' },
-  remindBtnText: { fontSize: 16 },
+  confirmBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: Colors.green, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: Colors.green },
+  confirmBtnText: { fontSize: 16, color: '#fff', fontWeight: '700' },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, paddingBottom: 80 },
   emptyTitle: { fontSize: 18, fontWeight: '700', color: Colors.textPrimary, marginTop: 12 },
   emptySub: { fontSize: 14, color: Colors.textMuted, textAlign: 'center', marginTop: 6, lineHeight: 20 },
