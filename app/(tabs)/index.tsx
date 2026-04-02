@@ -68,20 +68,34 @@ function WorkerListModal({
     if (!currentUser || !vacancy) return;
     setActionLoading(like.workerId);
     try {
-      await dbUpsertLike(vacancyId, like.workerId, currentUser.id, { employerLiked: true });
-      const result = await dbCheckAndCreateMatch(vacancyId, like.workerId);
-      await refreshAll();
-      const worker = getWorker(like.workerId);
-      await notifyEmployerGotMatch(worker ? `${worker.firstName} ${worker.lastName}` : 'Работник', vacancy.title);
-      showToast('🎉 Мэтч! Чат открыт', 'match');
-      // Navigate immediately, refresh in background
-      onClose();
-      if (result.chatId) {
-        router.push({ pathname: '/chat-room', params: { chatId: result.chatId } });
+      if (type === 'rejected') {
+        // Re-invite rejected worker: reset both sides so worker sees offer in matches tab
+        await dbUpsertLike(vacancyId, like.workerId, currentUser.id, {
+          employerLiked: true,
+          workerLiked: true,
+          workerSkipped: false,
+          isMatch: false,
+        });
+        await refreshAll();
+        // Notify worker that employer wants to discuss
+        await notifyWorkerGotMatch(vacancy.company, vacancy.title);
+        showToast('Предложение отправлено работнику 📤', 'success');
+        onClose();
       } else {
-        router.push({ pathname: '/(tabs)/chats' });
+        // Applicants: immediate match + open chat
+        await dbUpsertLike(vacancyId, like.workerId, currentUser.id, { employerLiked: true });
+        const result = await dbCheckAndCreateMatch(vacancyId, like.workerId);
+        const worker = getWorker(like.workerId);
+        await notifyEmployerGotMatch(worker ? `${worker.firstName} ${worker.lastName}` : 'Работник', vacancy.title);
+        showToast('🎉 Мэтч! Чат открыт', 'match');
+        onClose();
+        if (result.chatId) {
+          router.push({ pathname: '/chat-room', params: { chatId: result.chatId } });
+        } else {
+          router.push({ pathname: '/(tabs)/chats' });
+        }
+        refreshAll().catch(() => {});
       }
-      refreshAll().catch(() => {});
     } catch {
       showToast('Ошибка', 'error');
     } finally {
@@ -186,11 +200,11 @@ function WorkerListModal({
                         </TouchableOpacity>
                       ) : type === 'rejected' ? (
                         <TouchableOpacity
-                          style={[wS.chatBtn, { flex: 1 }, isLoading && { opacity: 0.5 }]}
+                          style={[wS.acceptBtn, { flex: 1 }, isLoading && { opacity: 0.5 }]}
                           disabled={isLoading}
                           onPress={() => onAccept(like)}
                         >
-                          <Text style={wS.chatBtnTxt}>💬 Написать</Text>
+                          <Text style={wS.acceptBtnTxt}>📤 Предложить снова</Text>
                         </TouchableOpacity>
                       ) : (
                         <>

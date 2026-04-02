@@ -34,9 +34,10 @@ function WorkerMatches() {
 
   if (!currentUser) return null;
 
-  // Relevant likes: worker liked + employer responded
+  // Relevant likes: employer wants worker OR already matched
+  // Includes re-invites (employerLiked:true even if worker was previously rejected)
   const relevant = likes.filter(
-    l => l.workerId === currentUser.id && l.workerLiked && (l.employerLiked || l.isMatch)
+    l => l.workerId === currentUser.id && l.workerLiked && (l.employerLiked === true || l.isMatch)
   );
 
   const getVacancy = (id: string) => vacancies.find(v => v.id === id);
@@ -53,10 +54,15 @@ function WorkerMatches() {
       const result = await dbCheckAndCreateMatch(like.vacancyId, currentUser.id);
       if (result.matched) {
         const vac = getVacancy(like.vacancyId);
+        // Notify current worker device that match is confirmed
         await notifyWorkerGotMatch(vac?.company ?? '', vac?.title ?? '');
         await refreshAll();
         showToast('🎉 Мэтч! Чат открыт', 'match');
-        if (result.chatId) router.push({ pathname: '/match', params: { vacancyId: like.vacancyId, chatId: result.chatId } });
+        if (result.chatId) {
+          router.push({ pathname: '/chat-room', params: { chatId: result.chatId } });
+        } else {
+          router.push({ pathname: '/(tabs)/chats' });
+        }
       }
     } catch {
       showToast('Ошибка', 'error');
@@ -111,7 +117,7 @@ function WorkerMatches() {
           </View>
         ) : (
           <View style={[styles.statusBadge, { backgroundColor: '#FFF7ED' }]}>
-            <Text style={[styles.statusTxt, { color: '#92400E' }]}>✅ Работодатель хочет взять вас!</Text>
+            <Text style={[styles.statusTxt, { color: '#92400E' }]}>📤 Рабодатель хочет взять вас на смену!</Text>
           </View>
         )}
 
@@ -155,7 +161,7 @@ function WorkerMatches() {
               {isLoadingDecline ? <ActivityIndicator size="small" color={Colors.red} /> : <Text style={styles.declineBtnText}>✕ Не подходит</Text>}
             </TouchableOpacity>
             <TouchableOpacity style={[styles.acceptBtn, isLoadingConfirm && { opacity: 0.5 }]} onPress={() => confirmMatch(like)} disabled={!!loading} activeOpacity={0.8}>
-              {isLoadingConfirm ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.acceptBtnText}>✅ Всё подходит!</Text>}
+              {isLoadingConfirm ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.acceptBtnText}>✅ Готов обсудить детали!</Text>}
             </TouchableOpacity>
           </View>
         ) : (
@@ -366,7 +372,7 @@ function EmployerMatches() {
         <View style={styles.empty}>
           <Text style={{ fontSize: 48 }}>{tab === 'pending' ? '📥' : '🤝'}</Text>
           <Text style={styles.emptyTitle}>{tab === 'pending' ? 'Нет откликов' : 'Нет мэтчей'}</Text>
-          <Text style={styles.emptySub}>{tab === 'pending' ? 'Когда работники откликнутся — они появятся здесь' : 'Мэтчи появятся после взаимного подтверждения'}</Text>
+          <Text style={styles.emptySub}>{tab === 'pending' ? 'Когда работники откликнутся — они появятся здесь' : 'Чат открывается после подтверждения работника'}</Text>
         </View>
       ) : (
         <FlatList
