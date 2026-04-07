@@ -534,25 +534,39 @@ function WorkerFeed() {
 
   return (
     <View style={{ flex: 1 }}>
-      {/* Date strip */}
+      {/* Date strip + inline filter button */}
       <View style={styles.dateStrip}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.dateRow}
-        >
-          {dates.map(d => {
-            const active = d === selectedDate;
-            const cnt = getDateCount(d);
-            return (
-              <TouchableOpacity key={d} style={[styles.dateChip, active && styles.dateChipActive]} onPress={() => setSelectedDate(d)} activeOpacity={0.8}>
-                <Text style={[styles.dcDay, active && styles.dcDayActive]}>{getRuDay(d)}</Text>
-                <Text style={[styles.dcNum, active && styles.dcNumActive]}>{new Date(d + 'T00:00:00').getDate()}</Text>
-                <Text style={[styles.dcCnt, active && styles.dcCntActive]}>{cnt}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+        <View style={styles.dateStripInner}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.dateRow}
+            style={{ flex: 1 }}
+          >
+            {dates.map(d => {
+              const active = d === selectedDate;
+              const cnt = getDateCount(d);
+              return (
+                <TouchableOpacity key={d} style={[styles.dateChip, active && styles.dateChipActive]} onPress={() => setSelectedDate(d)} activeOpacity={0.8}>
+                  <Text style={[styles.dcDay, active && styles.dcDayActive]}>{getRuDay(d)}</Text>
+                  <Text style={[styles.dcNum, active && styles.dcNumActive]}>{new Date(d + 'T00:00:00').getDate()}</Text>
+                  <Text style={[styles.dcCnt, active && styles.dcCntActive]}>{cnt}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+          <TouchableOpacity
+            style={[pS.inlineFilter, filterLineId ? pS.inlineFilterActive : null]}
+            onPress={() => setFilterPicker(true)}
+            activeOpacity={0.8}
+          >
+            {filterLineId && activeFilterLine ? (
+              <View style={[pS.filterLineDot, { backgroundColor: activeFilterLine.color }]} />
+            ) : (
+              <Text style={pS.inlineFilterIcon}>🚇</Text>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Card area */}
@@ -751,21 +765,7 @@ function WorkerFeed() {
         }
       />
 
-      {/* filter button — rendered outside card area so it overlays */}
-      <TouchableOpacity
-        style={[pS.floatFilter, filterLineId ? pS.floatFilterActive : null]}
-        onPress={() => setFilterPicker(true)}
-        activeOpacity={0.8}
-      >
-        {filterLineId && activeFilterLine ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-            <View style={[pS.filterLineDot, { backgroundColor: activeFilterLine.color }]} />
-            <Text style={pS.floatFilterActiveTxt} numberOfLines={1}>{activeFilterLine.name}</Text>
-          </View>
-        ) : (
-          <Text style={pS.floatFilterTxt}>🚇 Фильтр</Text>
-        )}
-      </TouchableOpacity>
+
     </View>
   );
 }
@@ -1321,7 +1321,6 @@ function EmployerHome() {
 function WorkerHome() {
   const [mode, setMode] = useState<AppMode>('shift');
   const { currentUser } = useApp();
-  const router = useRouter();
 
   if (!currentUser) return null;
 
@@ -1332,16 +1331,10 @@ function WorkerHome() {
           <Text style={styles.logoB}>Job</Text>
           <Text style={styles.logoO}>Too</Text>
         </Text>
-        <View style={{ flex: 1, paddingHorizontal: 12 }}>
-          <ModeSwitcher mode={mode} onChange={setMode} />
-        </View>
-        {mode === 'shift' ? (
-          <View style={{ width: 40 }} />
-        ) : (
-          <View style={{ width: 40 }} />
-        )}
       </View>
-
+      <View style={styles.modeSwitcherRow}>
+        <ModeSwitcher mode={mode} onChange={setMode} />
+      </View>
       {mode === 'shift' ? <WorkerFeed /> : <WorkerPermMode />}
     </SafeAreaView>
   );
@@ -1360,16 +1353,15 @@ export default function HomeScreen() {
 // Permanent mode styles
 // ─────────────────────────────────────────────────
 const pS = StyleSheet.create({
-  floatFilter: {
-    position: 'absolute', top: 12, right: 12,
-    borderWidth: 1.5, borderColor: Colors.inputBorder, borderRadius: 100,
-    paddingHorizontal: 12, paddingVertical: 7, backgroundColor: Colors.bg,
-    maxWidth: 160, zIndex: 10,
-  },
-  floatFilterActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryLight },
-  floatFilterTxt: { fontSize: 13, color: Colors.textMuted, fontWeight: '500' },
-  floatFilterActiveTxt: { fontSize: 12, color: Colors.primary, fontWeight: '700', maxWidth: 110 },
   filterLineDot: { width: 8, height: 8, borderRadius: 4 },
+  inlineFilter: {
+    width: 44, height: 44, borderRadius: 12, marginRight: 8,
+    borderWidth: 1.5, borderColor: Colors.inputBorder,
+    backgroundColor: Colors.bg,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+  },
+  inlineFilterActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryLight },
+  inlineFilterIcon: { fontSize: 20 },
   // Worker perm list
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 },
   searchBox: {
@@ -1463,7 +1455,9 @@ const styles = StyleSheet.create({
   addBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
 
   dateStrip: { borderBottomWidth: 1, borderBottomColor: Colors.divider, backgroundColor: Colors.bg },
+  dateStripInner: { flexDirection: 'row', alignItems: 'center' },
   dateRow: { paddingHorizontal: 12, paddingVertical: 10, gap: 8, flexDirection: 'row' },
+  modeSwitcherRow: { paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.divider },
   dateChip: { minWidth: 52, height: 64, borderRadius: 14, backgroundColor: Colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
   dateChipActive: { backgroundColor: Colors.primary },
   dcDay: { fontSize: 10, fontWeight: '600', textTransform: 'uppercase', color: Colors.textMuted },
