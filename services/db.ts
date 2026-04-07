@@ -2,7 +2,7 @@
  * Supabase data layer — replaces AsyncStorage for persistent data.
  */
 import { getSupabaseClient } from '@/template';
-import { User, Vacancy, Like, Chat, Message } from '@/constants/types';
+import { User, Vacancy, Like, Chat, Message, PermVacancy, PermApplication, PermApplicationStatus } from '@/constants/types';
 import { uid, nowISO } from '@/services/storage';
 
 const sb = () => getSupabaseClient();
@@ -458,6 +458,124 @@ export async function dbCheckAndCreateMatch(
   }
 
   return { matched: true, chatId };
+}
+
+// ─── Permanent vacancies ─────────────────────────────────────────────────────
+
+function rowToPermVacancy(r: any): PermVacancy {
+  return {
+    id: r.id,
+    employerId: r.employer_id,
+    company: r.company,
+    title: r.title,
+    metroLineId: r.metro_line_id ?? undefined,
+    metroStation: r.metro_station ?? undefined,
+    address: r.address ?? undefined,
+    salary: r.salary,
+    schedule: r.schedule ?? '',
+    description: r.description ?? undefined,
+    status: r.status,
+    createdAt: r.created_at,
+  };
+}
+
+export async function dbGetPermVacancies(): Promise<PermVacancy[]> {
+  const { data, error } = await sb().from('jm_perm_vacancies').select('*').eq('status', 'open').order('created_at', { ascending: false });
+  if (error) throwOnError('dbGetPermVacancies', error);
+  return (data ?? []).map(rowToPermVacancy);
+}
+
+export async function dbGetPermVacanciesByEmployer(employerId: string): Promise<PermVacancy[]> {
+  const { data, error } = await sb().from('jm_perm_vacancies').select('*').eq('employer_id', employerId).order('created_at', { ascending: false });
+  if (error) throwOnError('dbGetPermVacanciesByEmployer', error);
+  return (data ?? []).map(rowToPermVacancy);
+}
+
+export async function dbUpsertPermVacancy(v: PermVacancy): Promise<void> {
+  const { error } = await sb().from('jm_perm_vacancies').upsert({
+    id: v.id,
+    employer_id: v.employerId,
+    company: v.company,
+    title: v.title,
+    metro_line_id: v.metroLineId ?? null,
+    metro_station: v.metroStation ?? null,
+    address: v.address ?? null,
+    salary: v.salary,
+    schedule: v.schedule,
+    description: v.description ?? null,
+    status: v.status,
+    created_at: v.createdAt,
+  }, { onConflict: 'id' });
+  if (error) throwOnError('dbUpsertPermVacancy', error);
+}
+
+export async function dbClosePermVacancy(id: string): Promise<void> {
+  const { error } = await sb().from('jm_perm_vacancies').update({ status: 'closed' }).eq('id', id);
+  if (error) throwOnError('dbClosePermVacancy', error);
+}
+
+// ─── Permanent applications ───────────────────────────────────────────────────
+
+function rowToPermApp(r: any): PermApplication {
+  return {
+    id: r.id,
+    vacancyId: r.vacancy_id,
+    workerId: r.worker_id,
+    employerId: r.employer_id,
+    status: r.status as PermApplicationStatus,
+    createdAt: r.created_at,
+  };
+}
+
+export async function dbGetPermApplications(userId: string, role: 'worker' | 'employer'): Promise<PermApplication[]> {
+  const field = role === 'worker' ? 'worker_id' : 'employer_id';
+  const { data, error } = await sb().from('jm_perm_applications').select('*').eq(field, userId).order('created_at', { ascending: false });
+  if (error) throwOnError('dbGetPermApplications', error);
+  return (data ?? []).map(rowToPermApp);
+}
+
+export async function dbGetPermApplicationsForVacancy(vacancyId: string): Promise<PermApplication[]> {
+  const { data, error } = await sb().from('jm_perm_applications').select('*').eq('vacancy_id', vacancyId).order('created_at', { ascending: false });
+  if (error) throwOnError('dbGetPermApplicationsForVacancy', error);
+  return (data ?? []).map(rowToPermApp);
+}
+
+export async function dbApplyPermVacancy(vacancyId: string, workerId: string, employerId: string): Promise<void> {
+  const { error } = await sb().from('jm_perm_applications').upsert({
+    id: uid(),
+    vacancy_id: vacancyId,
+    worker_id: workerId,
+    employer_id: employerId,
+    status: 'pending',
+    created_at: nowISO(),
+  }, { onConflict: 'vacancy_id,worker_id' });
+  if (error) throwOnError('dbApplyPermVacancy', error);
+}
+
+export async function dbSetPermApplicationStatus(
+  appId: string,
+  status: PermApplicationStatus,
+): Promise<void> {
+  const { error } = await sb().from('jm_perm_applications').update({ status }).eq('id', appId);
+  if (error) throwOnError('dbSetPermApplicationStatus', error);
+}
+
+// ─── Permanent saved ──────────────────────────────────────────────────────────
+
+export async function dbGetPermSaved(userId: string): Promise<string[]> {
+  const { data, error } = await sb().from('jm_perm_saved').select('vacancy_id').eq('user_id', userId);
+  if (error) throwOnError('dbGetPermSaved', error);
+  return (data ?? []).map((r: any) => r.vacancy_id);
+}
+
+export async function dbAddPermSaved(userId: string, vacancyId: string): Promise<void> {
+  const { error } = await sb().from('jm_perm_saved').upsert({ user_id: userId, vacancy_id: vacancyId });
+  if (error) throwOnError('dbAddPermSaved', error);
+}
+
+export async function dbRemovePermSaved(userId: string, vacancyId: string): Promise<void> {
+  const { error } = await sb().from('jm_perm_saved').delete().eq('user_id', userId).eq('vacancy_id', vacancyId);
+  if (error) throwOnError('dbRemovePermSaved', error);
 }
 
 // ─── Ratings for user ────────────────────────────────────────────────────────

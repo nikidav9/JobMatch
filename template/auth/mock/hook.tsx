@@ -71,10 +71,10 @@ export function useMockAuth(): AuthContextType {
     }
   };
 
-  const logout = (): LogoutResult => {
+  const logout = async (): Promise<LogoutResult> => {
     context.setOperationLoading(true);
     try {
-      const result = mockAuthService.logout();
+      const result = await mockAuthService.logout();
       
       if (!result) {
         console.warn('[SDK:useMockAuth] Invalid logout result format:', result);

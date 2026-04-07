@@ -51,6 +51,8 @@ export default function RootLayout() {
             <Stack.Screen name="rate" options={{ presentation: 'modal' }} />
             <Stack.Screen name="admin" />
             <Stack.Screen name="user-profile" />
+            <Stack.Screen name="create-perm-vacancy" />
+            <Stack.Screen name="perm-applications" />
           </Stack>
           <ToastLayer />
         </AppProvider>

@@ -1,12 +1,13 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView, SafeAreaView,
   Animated, PanResponder, Dimensions, RefreshControl, Modal, FlatList,
+  TextInput,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Colors, Radius, Shadow } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
-import { Like, User, Vacancy } from '@/constants/types';
+import { Like, User, Vacancy, PermVacancy } from '@/constants/types';
 import { getTodayDates, formatDate, scoreVacancy } from '@/services/storage';
 import { METRO_LINES } from '@/constants/metro';
 import {
@@ -18,6 +19,10 @@ import {
   dbCreateChat,
   dbInsertMessage,
   dbIncrementUnread,
+  dbApplyPermVacancy,
+  dbAddPermSaved,
+  dbRemovePermSaved,
+  dbClosePermVacancy,
 } from '@/services/db';
 import { notifyWorkerSentApplication, notifyWorkerGotMatch, notifyEmployerGotMatch } from '@/services/notifications';
 import { Image } from 'expo-image';
@@ -28,6 +33,45 @@ import { nameColorFromString, getInitials } from '@/services/storage';
 const { width: SW } = Dimensions.get('window');
 const SWIPE_THRESHOLD = 80;
 const VELOCITY_THRESHOLD = 0.3;
+
+// ─────────────────────────────────────────────────
+// Mode switcher
+// ─────────────────────────────────────────────────
+type AppMode = 'shift' | 'perm';
+
+function ModeSwitcher({ mode, onChange }: { mode: AppMode; onChange: (m: AppMode) => void }) {
+  return (
+    <View style={ms.container}>
+      <TouchableOpacity
+        style={[ms.btn, mode === 'shift' && ms.btnActive]}
+        onPress={() => onChange('shift')}
+        activeOpacity={0.8}
+      >
+        <Text style={[ms.btnTxt, mode === 'shift' && ms.btnTxtActive]}>⚡ Подработка</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[ms.btn, mode === 'perm' && ms.btnActive]}
+        onPress={() => onChange('perm')}
+        activeOpacity={0.8}
+      >
+        <Text style={[ms.btnTxt, mode === 'perm' && ms.btnTxtActive]}>💼 Работа</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+const ms = StyleSheet.create({
+  container: {
+    flexDirection: 'row', gap: 4,
+    backgroundColor: Colors.surface,
+    borderRadius: 100, padding: 4,
+    borderWidth: 1, borderColor: Colors.divider,
+  },
+  btn: { flex: 1, borderRadius: 100, paddingVertical: 7, alignItems: 'center' },
+  btnActive: { backgroundColor: Colors.bg, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 2 },
+  btnTxt: { fontSize: 13, fontWeight: '600', color: Colors.textMuted },
+  btnTxtActive: { color: Colors.textPrimary, fontWeight: '700' },
+});
 
 // ─────────────────────────────────────────────────
 // Worker List Modal (for employer vacancy stats)
@@ -56,12 +100,10 @@ function WorkerListModal({
   const vacLikes = likes.filter(l => l.vacancyId === vacancyId);
   let filteredLikes: Like[] = [];
   if (type === 'applicants') {
-    // Отклики: работник лайкнул, матча нет, работодатель ещё не ответил (null) или принял (true, но матч не создан)
     filteredLikes = vacLikes.filter(l => l.workerLiked && !l.isMatch && l.employerLiked !== false);
   } else if (type === 'hired') {
     filteredLikes = vacLikes.filter(l => l.isMatch);
   } else {
-    // Отклонённые: работодатель явно отклонил (false) ИЛИ работник сам пропустил (workerSkipped)
     filteredLikes = vacLikes.filter(
       l => l.employerLiked === false || (l.workerLiked === false && l.workerSkipped === true)
     );
@@ -296,7 +338,7 @@ const wS = StyleSheet.create({
 });
 
 // ─────────────────────────────────────────────────
-// Worker swipe feed
+// Worker swipe feed (Подработка)
 // ─────────────────────────────────────────────────
 function WorkerFeed() {
   const router = useRouter();
@@ -318,7 +360,6 @@ function WorkerFeed() {
   const [dates] = useState(getTodayDates(7));
   const [selectedDate, setSelectedDate] = useState(getTodayDates(7)[0]);
   const [cards, setCards] = useState<Vacancy[]>([]);
-  // History keyed by date — undo only affects current date
   const [history, setHistory] = useState<Record<string, Vacancy[]>>({});
   const [swiping, setSwiping] = useState(false);
   const [detailVacancy, setDetailVacancy] = useState<Vacancy | null>(null);
@@ -492,29 +533,7 @@ function WorkerFeed() {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.logo}>
-          <Text style={styles.logoB}>Job</Text>
-          <Text style={styles.logoO}>Too</Text>
-        </Text>
-        <TouchableOpacity
-          style={[styles.filterBtn, filterLineId ? styles.filterBtnActive : null]}
-          onPress={() => setFilterPicker(true)}
-          activeOpacity={0.8}
-        >
-          {filterLineId && activeFilterLine ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <View style={[styles.filterLineDot, { backgroundColor: activeFilterLine.color }]} />
-              <Text style={styles.filterBtnActiveTxt} numberOfLines={1}>{activeFilterLine.name}</Text>
-            </View>
-          ) : (
-            <Text style={styles.filterBtnTxt}>🚇 Фильтр</Text>
-          )}
-        </TouchableOpacity>
-      </View>
-
+    <View style={{ flex: 1 }}>
       {/* Date strip */}
       <View style={styles.dateStrip}>
         <ScrollView
@@ -731,12 +750,297 @@ function WorkerFeed() {
           </View>
         }
       />
-    </SafeAreaView>
+
+      {/* filter button — rendered outside card area so it overlays */}
+      <TouchableOpacity
+        style={[pS.floatFilter, filterLineId ? pS.floatFilterActive : null]}
+        onPress={() => setFilterPicker(true)}
+        activeOpacity={0.8}
+      >
+        {filterLineId && activeFilterLine ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <View style={[pS.filterLineDot, { backgroundColor: activeFilterLine.color }]} />
+            <Text style={pS.floatFilterActiveTxt} numberOfLines={1}>{activeFilterLine.name}</Text>
+          </View>
+        ) : (
+          <Text style={pS.floatFilterTxt}>🚇 Фильтр</Text>
+        )}
+      </TouchableOpacity>
+    </View>
   );
 }
 
 // ─────────────────────────────────────────────────
-// Employer home
+// Worker Permanent mode
+// ─────────────────────────────────────────────────
+type PermTab = 'all' | 'applied' | 'saved';
+
+function WorkerPermMode() {
+  const router = useRouter();
+  const {
+    currentUser, users, permVacancies, permApplications,
+    permSavedIds, optimisticAddPermSaved, optimisticRemovePermSaved,
+    refreshPermVacancies, refreshPermApplications, refreshPermSaved,
+    showToast,
+  } = useApp();
+
+  const [tab, setTab] = useState<PermTab>('all');
+  const [refreshing, setRefreshing] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const [filterLineId, setFilterLineId] = useState<string | null>(null);
+  const [filterPicker, setFilterPicker] = useState(false);
+  const [minSalary, setMinSalary] = useState('');
+  const [applying, setApplying] = useState<string | null>(null);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([refreshPermVacancies(), refreshPermApplications(), refreshPermSaved()]);
+    setRefreshing(false);
+  };
+
+  if (!currentUser) return null;
+
+  const myApps = permApplications.filter(a => a.workerId === currentUser.id);
+  const myAppVacIds = new Set(myApps.map(a => a.vacancyId));
+
+  const allOpen = permVacancies.filter(v => {
+    if (searchText && !v.title.toLowerCase().includes(searchText.toLowerCase()) && !(v.company.toLowerCase().includes(searchText.toLowerCase()))) return false;
+    if (filterLineId && v.metroLineId !== filterLineId) return false;
+    const minS = parseInt(minSalary, 10);
+    if (!isNaN(minS) && v.salary < minS) return false;
+    return true;
+  });
+
+  const appliedVacancies = permVacancies.filter(v => myAppVacIds.has(v.id));
+  const savedVacancies = permVacancies.filter(v => permSavedIds.includes(v.id));
+
+  const shownVacancies = tab === 'all' ? allOpen : tab === 'applied' ? appliedVacancies : savedVacancies;
+
+  const applyTo = async (v: PermVacancy) => {
+    if (!currentUser) return;
+    if (myAppVacIds.has(v.id)) {
+      showToast('Уже откликнулись', 'success');
+      return;
+    }
+    setApplying(v.id);
+    try {
+      await dbApplyPermVacancy(v.id, currentUser.id, v.employerId);
+      await refreshPermApplications();
+      showToast('Отклик отправлен! 📨', 'success');
+    } catch {
+      showToast('Ошибка', 'error');
+    } finally {
+      setApplying(null);
+    }
+  };
+
+  const toggleSave = async (v: PermVacancy) => {
+    if (!currentUser) return;
+    if (permSavedIds.includes(v.id)) {
+      optimisticRemovePermSaved(v.id);
+      dbRemovePermSaved(currentUser.id, v.id).catch(() => {});
+      showToast('Удалено из избранного', 'success');
+    } else {
+      optimisticAddPermSaved(v.id);
+      dbAddPermSaved(currentUser.id, v.id).catch(() => {});
+      showToast('Сохранено ❤️', 'success');
+    }
+  };
+
+  const getAppStatus = (vacId: string) => myApps.find(a => a.vacancyId === vacId)?.status ?? null;
+
+  const STATUS_MAP: Record<string, { label: string; color: string; bg: string }> = {
+    pending:  { label: '⏳ На рассмотрении', color: '#92400E', bg: '#FFF7ED' },
+    approved: { label: '✅ Приглашён',        color: Colors.green, bg: '#D1FAE5' },
+    rejected: { label: '✕ Отказ',            color: Colors.red,   bg: '#FEE2E2' },
+  };
+
+  const activeFilterLine = METRO_LINES.find(l => l.id === filterLineId);
+
+  const renderPerm = ({ item: v }: { item: PermVacancy }) => {
+    const isApplied = myAppVacIds.has(v.id);
+    const isSaved = permSavedIds.includes(v.id);
+    const isApplying = applying === v.id;
+    const appStatus = getAppStatus(v.id);
+    const statusInfo = appStatus ? STATUS_MAP[appStatus] : null;
+
+    return (
+      <View style={pS.card}>
+        {statusInfo ? (
+          <View style={[pS.statusBadge, { backgroundColor: statusInfo.bg }]}>
+            <Text style={[pS.statusTxt, { color: statusInfo.color }]}>{statusInfo.label}</Text>
+          </View>
+        ) : null}
+
+        <View style={pS.cardHead}>
+          <View style={{ flex: 1 }}>
+            <Text style={pS.jobTitle} numberOfLines={2}>{v.title}</Text>
+            <Text style={pS.company}>{v.company}</Text>
+          </View>
+          <TouchableOpacity
+            style={pS.saveBtn}
+            onPress={() => toggleSave(v)}
+            activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={pS.saveBtnIcon}>{isSaved ? '❤️' : '🤍'}</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={pS.metaRow}>
+          {v.metroStation ? <Text style={pS.metaItem}>🚇 {v.metroStation}</Text> : null}
+          {v.address ? <Text style={pS.metaItem} numberOfLines={1}>📍 {v.address}</Text> : null}
+        </View>
+
+        <View style={pS.tagsRow}>
+          <View style={pS.salaryTag}>
+            <Text style={pS.salaryTxt}>{v.salary.toLocaleString('ru-RU')} ₽/мес</Text>
+          </View>
+          <View style={pS.scheduleTag}>
+            <Text style={pS.scheduleTxt}>🗓 {v.schedule}</Text>
+          </View>
+        </View>
+
+        {v.description ? (
+          <Text style={pS.desc} numberOfLines={2}>{v.description}</Text>
+        ) : null}
+
+        <TouchableOpacity
+          style={[pS.applyBtn, isApplied && pS.applyBtnDone, isApplying && { opacity: 0.6 }]}
+          onPress={() => applyTo(v)}
+          disabled={isApplied || isApplying}
+          activeOpacity={0.8}
+        >
+          <Text style={[pS.applyBtnTxt, isApplied && { color: Colors.green }]}>
+            {isApplied ? '✓ Отклик отправлен' : 'Откликнуться'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  return (
+    <View style={{ flex: 1 }}>
+      {/* Search + filter */}
+      <View style={pS.searchRow}>
+        <View style={pS.searchBox}>
+          <Text style={pS.searchIcon}>🔍</Text>
+          <TextInput
+            style={pS.searchInput}
+            value={searchText}
+            onChangeText={setSearchText}
+            placeholder="Поиск вакансий..."
+            placeholderTextColor={Colors.textMuted}
+          />
+          {searchText ? (
+            <TouchableOpacity onPress={() => setSearchText('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Text style={pS.searchClear}>✕</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+        <TouchableOpacity
+          style={[pS.filterBtn, filterLineId ? pS.filterBtnActive : null]}
+          onPress={() => setFilterPicker(true)}
+          activeOpacity={0.8}
+        >
+          <Text style={[pS.filterBtnTxt, filterLineId ? { color: Colors.primary } : null]}>🚇</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Salary filter */}
+      <View style={pS.salaryFilterRow}>
+        <Text style={pS.salaryFilterLabel}>Зарплата от</Text>
+        <TextInput
+          style={pS.salaryFilterInput}
+          value={minSalary}
+          onChangeText={setMinSalary}
+          placeholder="0"
+          placeholderTextColor={Colors.textMuted}
+          keyboardType="numeric"
+        />
+        <Text style={pS.salaryFilterLabel}>₽</Text>
+        {filterLineId && activeFilterLine ? (
+          <TouchableOpacity style={pS.activeLineChip} onPress={() => setFilterLineId(null)}>
+            <View style={[pS.filterLineDot, { backgroundColor: activeFilterLine.color }]} />
+            <Text style={pS.activeLineChipTxt}>{activeFilterLine.name} ✕</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+
+      {/* Tabs */}
+      <View style={pS.tabs}>
+        {([
+          { key: 'all',     label: `Все (${allOpen.length})` },
+          { key: 'applied', label: `Отклики (${appliedVacancies.length})` },
+          { key: 'saved',   label: `Избранное (${savedVacancies.length})` },
+        ] as { key: PermTab; label: string }[]).map(t => (
+          <TouchableOpacity key={t.key} style={pS.tabItem} onPress={() => setTab(t.key)} activeOpacity={0.8}>
+            <Text style={[pS.tabLabel, tab === t.key && pS.tabLabelActive]}>{t.label}</Text>
+            {tab === t.key ? <View style={pS.tabUnderline} /> : null}
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* List */}
+      {shownVacancies.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Text style={{ fontSize: 48 }}>{tab === 'all' ? '🔍' : tab === 'applied' ? '📥' : '❤️'}</Text>
+          <Text style={styles.emptyTitle}>
+            {tab === 'all' ? 'Нет вакансий' : tab === 'applied' ? 'Нет откликов' : 'Нет избранного'}
+          </Text>
+          <Text style={styles.emptySubtitle}>
+            {tab === 'all' ? 'Попробуйте изменить фильтры' : tab === 'applied' ? 'Откликайтесь на вакансии' : 'Сохраняйте понравившиеся вакансии'}
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          data={shownVacancies}
+          keyExtractor={v => v.id}
+          contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 100 }}
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} colors={[Colors.primary]} />}
+          renderItem={renderPerm}
+        />
+      )}
+
+      {/* Metro filter overlay */}
+      {filterPicker ? (
+        <View style={styles.filterOverlay}>
+          <View style={styles.filterSheet}>
+            <View style={styles.filterSheetHeader}>
+              <Text style={styles.filterSheetTitle}>Фильтр по линии метро</Text>
+              <TouchableOpacity onPress={() => setFilterPicker(false)}>
+                <Text style={styles.filterClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            {filterLineId ? (
+              <TouchableOpacity style={styles.clearFilterRow} onPress={() => { setFilterLineId(null); setFilterPicker(false); }}>
+                <Text style={styles.clearFilterTxt}>✕ Сбросить фильтр</Text>
+              </TouchableOpacity>
+            ) : null}
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {METRO_LINES.map((l: any) => (
+                <TouchableOpacity
+                  key={l.id}
+                  style={[styles.lineRow, filterLineId === l.id ? styles.lineRowActive : null]}
+                  onPress={() => { setFilterLineId(l.id); setFilterPicker(false); }}
+                  activeOpacity={0.8}
+                >
+                  <View style={[styles.lineDot, { backgroundColor: l.color }]} />
+                  <Text style={[styles.lineName, filterLineId === l.id ? { color: Colors.primary, fontWeight: '700' } : null]}>{l.name}</Text>
+                  {filterLineId === l.id ? <Text style={{ color: Colors.primary }}>✓</Text> : null}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────
+// Employer home — combined Shift + Perm
 // ─────────────────────────────────────────────────
 function getTodayISO() {
   const d = new Date();
@@ -745,7 +1049,8 @@ function getTodayISO() {
 
 function EmployerHome() {
   const router = useRouter();
-  const { currentUser, vacancies, likes, refreshVacancies, refreshAll, showToast } = useApp();
+  const { currentUser, vacancies, likes, permVacancies, permApplications, refreshVacancies, refreshPermVacancies, refreshPermApplications, refreshAll, showToast } = useApp();
+  const [mode, setMode] = useState<AppMode>('shift');
   const [tab, setTab] = useState<'active' | 'closed'>('active');
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -760,6 +1065,7 @@ function EmployerHome() {
 
   const todayISO = getTodayISO();
   const myVacancies = vacancies.filter(v => v.employerId === currentUser?.id);
+  const myPermVacancies = permVacancies.filter(v => v.employerId === currentUser?.id);
 
   useEffect(() => {
     const pastOpen = myVacancies.filter(v => v.status === 'open' && v.date < todayISO);
@@ -774,18 +1080,23 @@ function EmployerHome() {
     return v.status === 'closed' || (v.status === 'open' && v.date < todayISO);
   });
 
-  // Stat counts
+  const shownPerm = myPermVacancies.filter(v => {
+    if (tab === 'active') return v.status === 'open';
+    return v.status === 'closed';
+  });
+
   const applicantCount = (vacId: string) =>
-    // Ожидают ответа: работник откликнулся, матча нет, работодатель ещё не отклонил
     likes.filter(l => l.vacancyId === vacId && l.workerLiked && !l.isMatch && l.employerLiked !== false).length;
   const rejectedCount = (vacId: string) =>
-    // Отклонённые: явный отказ работодателя (false) ИЛИ самоотказ работника
     likes.filter(
       l => l.vacancyId === vacId && (
         l.employerLiked === false ||
         (l.workerLiked === false && l.workerSkipped === true)
       )
     ).length;
+
+  const permApplicantCount = (vacId: string) =>
+    permApplications.filter(a => a.vacancyId === vacId).length;
 
   const closeVacancy = async (id: string) => {
     try {
@@ -799,6 +1110,16 @@ function EmployerHome() {
     }
   };
 
+  const closePermVacancy = async (id: string) => {
+    try {
+      await dbClosePermVacancy(id);
+      await refreshPermVacancies();
+      showToast('Вакансия закрыта', 'success');
+    } catch {
+      showToast('Ошибка', 'error');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
@@ -806,9 +1127,18 @@ function EmployerHome() {
           <Text style={styles.logoB}>Job</Text>
           <Text style={styles.logoO}>Too</Text>
         </Text>
-        <TouchableOpacity style={styles.addBtn} onPress={() => router.push('/create-vacancy')} activeOpacity={0.8}>
-          <Text style={styles.addBtnText}>＋ Вакансия</Text>
+        <TouchableOpacity
+          style={mode === 'shift' ? styles.addBtn : [styles.addBtn, { backgroundColor: '#7C3AED' }]}
+          onPress={() => router.push(mode === 'shift' ? '/create-vacancy' : '/create-perm-vacancy')}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.addBtnText}>＋ {mode === 'shift' ? 'Смена' : 'Вакансия'}</Text>
         </TouchableOpacity>
+      </View>
+
+      {/* Mode switcher */}
+      <View style={{ paddingHorizontal: 16, paddingVertical: 10 }}>
+        <ModeSwitcher mode={mode} onChange={setMode} />
       </View>
 
       <View style={styles.tabs}>
@@ -827,71 +1157,136 @@ function EmployerHome() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} colors={[Colors.primary]} />
         }
       >
-        {shown.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={{ fontSize: 52 }}>📋</Text>
-            <Text style={styles.emptyTitle}>Нет активных вакансий</Text>
-            <Text style={styles.emptySubtitle}>Создайте первую вакансию</Text>
-            <TouchableOpacity style={styles.createBtn} onPress={() => router.push('/create-vacancy')}>
-              <Text style={styles.createBtnText}>+ Создать вакансию</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          shown.map(v => (
-            <View key={v.id} style={styles.vacCard}>
-              <View style={styles.vacTop}>
-                <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                  {v.isUrgent ? <View style={styles.urgentBadge}><Text style={styles.urgentText}>🔥</Text></View> : null}
-                  <Text style={styles.vacTitle} numberOfLines={1}>{v.title}</Text>
-                </View>
-                <View style={styles.vacTopRight}>
-                  <TouchableOpacity
-                    style={styles.editBtn}
-                    onPress={() => router.push({ pathname: '/create-vacancy', params: { editId: v.id } })}
-                    activeOpacity={0.7}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Text style={styles.editBtnText}>✏️</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.editBtn, { borderColor: '#FECACA', backgroundColor: '#FEF2F2' }]}
-                    onPress={() => setConfirmClose(v.id)}
-                    activeOpacity={0.7}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Text style={styles.editBtnText}>🗑</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-              <Text style={styles.vacMeta}>🚇 {v.metroStation} · 📅 {formatDate(v.date)} · ⏰ {v.timeStart}–{v.timeEnd}</Text>
-              {v.address ? <Text style={styles.vacAddress}>📍 {v.address}</Text> : null}
-
-              {/* Clickable stat boxes */}
-              <View style={styles.statsRow}>
-                {[
-                  { num: applicantCount(v.id), label: 'Отклики', color: Colors.blue, type: 'applicants' as const },
-                  { num: rejectedCount(v.id), label: 'Отклонено', color: Colors.red, type: 'rejected' as const },
-                  { num: `${v.workersFound}/${v.workersNeeded}`, label: 'Набрано', color: Colors.green, type: 'hired' as const },
-                ].map((s, i) => (
-                  <TouchableOpacity
-                    key={i}
-                    style={styles.statBox}
-                    onPress={() => setWorkerListModal({ vacId: v.id, type: s.type })}
-                    activeOpacity={0.75}
-                  >
-                    <Text style={[styles.statNum, { color: s.color }]}>{s.num}</Text>
-                    <Text style={styles.statLabel}>{s.label}</Text>
-                    <Text style={styles.statTap}>↗</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <View style={styles.vacProgress}>
-                <View style={[styles.progressFill, { width: `${Math.min(100, (v.workersFound / v.workersNeeded) * 100)}%` }]} />
-              </View>
-              {null /* vacActions removed — delete moved to header, candidates accessible via stat boxes */}
+        {/* Shift mode */}
+        {mode === 'shift' ? (
+          shown.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={{ fontSize: 52 }}>📋</Text>
+              <Text style={styles.emptyTitle}>Нет активных вакансий</Text>
+              <Text style={styles.emptySubtitle}>Создайте первую вакансию</Text>
+              <TouchableOpacity style={styles.createBtn} onPress={() => router.push('/create-vacancy')}>
+                <Text style={styles.createBtnText}>+ Создать смену</Text>
+              </TouchableOpacity>
             </View>
-          ))
+          ) : (
+            shown.map(v => (
+              <View key={v.id} style={styles.vacCard}>
+                <View style={styles.vacTop}>
+                  <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                    {v.isUrgent ? <View style={styles.urgentBadge}><Text style={styles.urgentText}>🔥</Text></View> : null}
+                    <Text style={styles.vacTitle} numberOfLines={1}>{v.title}</Text>
+                  </View>
+                  <View style={styles.vacTopRight}>
+                    <TouchableOpacity
+                      style={styles.editBtn}
+                      onPress={() => router.push({ pathname: '/create-vacancy', params: { editId: v.id } })}
+                      activeOpacity={0.7}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text style={styles.editBtnText}>✏️</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.editBtn, { borderColor: '#FECACA', backgroundColor: '#FEF2F2' }]}
+                      onPress={() => setConfirmClose(v.id)}
+                      activeOpacity={0.7}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text style={styles.editBtnText}>🗑</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                <Text style={styles.vacMeta}>🚇 {v.metroStation} · 📅 {formatDate(v.date)} · ⏰ {v.timeStart}–{v.timeEnd}</Text>
+                {v.address ? <Text style={styles.vacAddress}>📍 {v.address}</Text> : null}
+
+                <View style={styles.statsRow}>
+                  {[
+                    { num: applicantCount(v.id), label: 'Отклики', color: Colors.blue, type: 'applicants' as const },
+                    { num: rejectedCount(v.id), label: 'Отклонено', color: Colors.red, type: 'rejected' as const },
+                    { num: `${v.workersFound}/${v.workersNeeded}`, label: 'Набрано', color: Colors.green, type: 'hired' as const },
+                  ].map((s, i) => (
+                    <TouchableOpacity
+                      key={i}
+                      style={styles.statBox}
+                      onPress={() => setWorkerListModal({ vacId: v.id, type: s.type })}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[styles.statNum, { color: s.color }]}>{s.num}</Text>
+                      <Text style={styles.statLabel}>{s.label}</Text>
+                      <Text style={styles.statTap}>↗</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <View style={styles.vacProgress}>
+                  <View style={[styles.progressFill, { width: `${Math.min(100, (v.workersFound / v.workersNeeded) * 100)}%` }]} />
+                </View>
+              </View>
+            ))
+          )
+        ) : (
+          /* Permanent mode */
+          shownPerm.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={{ fontSize: 52 }}>💼</Text>
+              <Text style={styles.emptyTitle}>Нет постоянных вакансий</Text>
+              <Text style={styles.emptySubtitle}>Создайте первую вакансию на постоянную работу</Text>
+              <TouchableOpacity style={[styles.createBtn, { borderColor: '#7C3AED' }]} onPress={() => router.push('/create-perm-vacancy')}>
+                <Text style={[styles.createBtnText, { color: '#7C3AED' }]}>+ Создать вакансию</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            shownPerm.map(v => (
+              <View key={v.id} style={[styles.vacCard, pS.permVacCard]}>
+                <View style={styles.vacTop}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.vacTitle} numberOfLines={1}>{v.title}</Text>
+                    <Text style={pS.permCompany}>{v.company}</Text>
+                  </View>
+                  <View style={styles.vacTopRight}>
+                    <TouchableOpacity
+                      style={styles.editBtn}
+                      onPress={() => router.push({ pathname: '/create-perm-vacancy', params: { editId: v.id } })}
+                      activeOpacity={0.7}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text style={styles.editBtnText}>✏️</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.editBtn, { borderColor: '#FECACA', backgroundColor: '#FEF2F2' }]}
+                      onPress={() => closePermVacancy(v.id)}
+                      activeOpacity={0.7}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text style={styles.editBtnText}>🗑</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                <View style={pS.permMetaRow}>
+                  {v.metroStation ? <Text style={styles.vacMeta}>🚇 {v.metroStation}</Text> : null}
+                  {v.address ? <Text style={styles.vacAddress}>📍 {v.address}</Text> : null}
+                </View>
+                <View style={pS.permTagsRow}>
+                  <View style={pS.permSalaryTag}>
+                    <Text style={pS.permSalaryTxt}>{v.salary.toLocaleString('ru-RU')} ₽/мес</Text>
+                  </View>
+                  <View style={pS.permScheduleTag}>
+                    <Text style={pS.permScheduleTxt}>🗓 {v.schedule}</Text>
+                  </View>
+                </View>
+
+                {/* Applications stat */}
+                <TouchableOpacity
+                  style={pS.appStatBtn}
+                  onPress={() => router.push({ pathname: '/perm-applications', params: { vacancyId: v.id } })}
+                  activeOpacity={0.8}
+                >
+                  <Text style={pS.appStatNum}>{permApplicantCount(v.id)}</Text>
+                  <Text style={pS.appStatLabel}>откликов</Text>
+                  <Text style={pS.appStatArrow}>Посмотреть ↗</Text>
+                </TouchableOpacity>
+              </View>
+            ))
+          )
         )}
       </ScrollView>
 
@@ -920,12 +1315,140 @@ function EmployerHome() {
   );
 }
 
+// ─────────────────────────────────────────────────
+// Worker Home (wrapper with mode switcher)
+// ─────────────────────────────────────────────────
+function WorkerHome() {
+  const [mode, setMode] = useState<AppMode>('shift');
+  const { currentUser } = useApp();
+  const router = useRouter();
+
+  if (!currentUser) return null;
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <View style={styles.header}>
+        <Text style={styles.logo}>
+          <Text style={styles.logoB}>Job</Text>
+          <Text style={styles.logoO}>Too</Text>
+        </Text>
+        <View style={{ flex: 1, paddingHorizontal: 12 }}>
+          <ModeSwitcher mode={mode} onChange={setMode} />
+        </View>
+        {mode === 'shift' ? (
+          <View style={{ width: 40 }} />
+        ) : (
+          <View style={{ width: 40 }} />
+        )}
+      </View>
+
+      {mode === 'shift' ? <WorkerFeed /> : <WorkerPermMode />}
+    </SafeAreaView>
+  );
+}
+
+// ─────────────────────────────────────────────────
+// Root export
+// ─────────────────────────────────────────────────
 export default function HomeScreen() {
   const { currentUser } = useApp();
   if (!currentUser) return null;
-  return currentUser.role === 'worker' ? <WorkerFeed /> : <EmployerHome />;
+  return currentUser.role === 'worker' ? <WorkerHome /> : <EmployerHome />;
 }
 
+// ─────────────────────────────────────────────────
+// Permanent mode styles
+// ─────────────────────────────────────────────────
+const pS = StyleSheet.create({
+  floatFilter: {
+    position: 'absolute', top: 12, right: 12,
+    borderWidth: 1.5, borderColor: Colors.inputBorder, borderRadius: 100,
+    paddingHorizontal: 12, paddingVertical: 7, backgroundColor: Colors.bg,
+    maxWidth: 160, zIndex: 10,
+  },
+  floatFilterActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryLight },
+  floatFilterTxt: { fontSize: 13, color: Colors.textMuted, fontWeight: '500' },
+  floatFilterActiveTxt: { fontSize: 12, color: Colors.primary, fontWeight: '700', maxWidth: 110 },
+  filterLineDot: { width: 8, height: 8, borderRadius: 4 },
+  // Worker perm list
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 },
+  searchBox: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderWidth: 1.5, borderColor: Colors.inputBorder, borderRadius: 12,
+    paddingHorizontal: 12, paddingVertical: 10, backgroundColor: Colors.bg,
+  },
+  searchIcon: { fontSize: 16 },
+  searchInput: { flex: 1, fontSize: 14, color: Colors.textPrimary },
+  searchClear: { fontSize: 14, color: Colors.textMuted },
+  filterBtn: {
+    width: 44, height: 44, borderRadius: 12,
+    borderWidth: 1.5, borderColor: Colors.inputBorder,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  filterBtnActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryLight },
+  filterBtnTxt: { fontSize: 18 },
+  salaryFilterRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingBottom: 10 },
+  salaryFilterLabel: { fontSize: 13, color: Colors.textMuted },
+  salaryFilterInput: {
+    borderWidth: 1.5, borderColor: Colors.inputBorder, borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 6,
+    fontSize: 14, color: Colors.textPrimary, width: 80, textAlign: 'center',
+  },
+  activeLineChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: Colors.primaryLight, borderRadius: 100, paddingHorizontal: 10, paddingVertical: 5,
+    marginLeft: 'auto' as any,
+  },
+  activeLineChipTxt: { fontSize: 12, color: Colors.primary, fontWeight: '600' },
+  tabs: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: Colors.divider },
+  tabItem: { flex: 1, alignItems: 'center', paddingVertical: 10 },
+  tabLabel: { fontSize: 12, fontWeight: '500', color: Colors.textMuted },
+  tabLabelActive: { fontWeight: '700', color: Colors.textPrimary },
+  tabUnderline: { position: 'absolute', bottom: 0, left: '15%', right: '15%', height: 2, backgroundColor: '#7C3AED', borderRadius: 1 },
+  // Vacancy card
+  card: { backgroundColor: Colors.bg, borderRadius: Radius.lg, padding: 16, ...Shadow.card, gap: 10 },
+  cardHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  jobTitle: { fontSize: 17, fontWeight: '800', color: Colors.textPrimary, lineHeight: 22 },
+  company: { fontSize: 12, color: Colors.textMuted, marginTop: 3 },
+  saveBtn: { padding: 4 },
+  saveBtnIcon: { fontSize: 22 },
+  metaRow: { gap: 2 },
+  metaItem: { fontSize: 13, color: Colors.textMuted },
+  tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  salaryTag: { backgroundColor: '#D1FAE5', borderRadius: 100, paddingHorizontal: 12, paddingVertical: 5 },
+  salaryTxt: { fontSize: 13, fontWeight: '800', color: Colors.green },
+  scheduleTag: { backgroundColor: Colors.surface, borderRadius: 100, paddingHorizontal: 12, paddingVertical: 5 },
+  scheduleTxt: { fontSize: 13, color: Colors.textSecondary, fontWeight: '500' },
+  desc: { fontSize: 13, color: Colors.textMuted, lineHeight: 18 },
+  applyBtn: {
+    backgroundColor: '#7C3AED', borderRadius: 100,
+    paddingVertical: 12, alignItems: 'center',
+  },
+  applyBtnDone: { backgroundColor: '#D1FAE5' },
+  applyBtnTxt: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  statusBadge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, alignSelf: 'flex-start' },
+  statusTxt: { fontSize: 12, fontWeight: '700' },
+  // Employer perm vacancy card
+  permVacCard: { borderLeftWidth: 3, borderLeftColor: '#7C3AED' },
+  permCompany: { fontSize: 12, color: Colors.textMuted, marginTop: 2 },
+  permMetaRow: { gap: 2 },
+  permTagsRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  permSalaryTag: { backgroundColor: '#D1FAE5', borderRadius: 100, paddingHorizontal: 12, paddingVertical: 5 },
+  permSalaryTxt: { fontSize: 13, fontWeight: '800', color: Colors.green },
+  permScheduleTag: { backgroundColor: Colors.surface, borderRadius: 100, paddingHorizontal: 12, paddingVertical: 5 },
+  permScheduleTxt: { fontSize: 13, color: Colors.textSecondary, fontWeight: '500' },
+  appStatBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#EDE9FE', borderRadius: 10, padding: 10,
+  },
+  appStatNum: { fontSize: 20, fontWeight: '800', color: '#7C3AED' },
+  appStatLabel: { fontSize: 12, color: '#7C3AED', flex: 1 },
+  appStatArrow: { fontSize: 12, color: '#7C3AED', fontWeight: '600' },
+});
+
+// ─────────────────────────────────────────────────
+// Shared styles (shift mode)
+// ─────────────────────────────────────────────────
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.bg },
   header: {
@@ -1021,11 +1544,6 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 18, fontWeight: '700', color: Colors.textPrimary, marginTop: 12, textAlign: 'center' },
   emptySubtitle: { fontSize: 14, color: Colors.textMuted, marginTop: 6, textAlign: 'center' },
 
-  filterBtn: { borderWidth: 1.5, borderColor: Colors.inputBorder, borderRadius: 100, paddingHorizontal: 12, paddingVertical: 7, maxWidth: 160 },
-  filterBtnActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryLight },
-  filterBtnTxt: { fontSize: 13, color: Colors.textMuted, fontWeight: '500' },
-  filterBtnActiveTxt: { fontSize: 12, color: Colors.primary, fontWeight: '700', maxWidth: 110 },
-  filterLineDot: { width: 8, height: 8, borderRadius: 4 },
   filterOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 100, justifyContent: 'flex-end' },
   filterSheet: { backgroundColor: Colors.bg, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 40, maxHeight: '70%' },
   filterSheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.divider },
