@@ -6,7 +6,7 @@ import {
 import { useRouter } from 'expo-router';
 import { Colors, Radius, Shadow } from '@/constants/theme';
 import { getSupabaseClient } from '@/template';
-import { formatDate } from '@/services/storage';
+import { useApp } from '@/hooks/useApp';
 
 const sb = () => getSupabaseClient();
 
@@ -42,33 +42,89 @@ interface AdminVacancy {
   company: string;
   status: string;
   employer_id: string;
+  date?: string;
   created_at: string;
 }
 
-type Tab = 'worker-complaints' | 'employer-complaints' | 'users' | 'vacancies';
+interface AdminPermVacancy {
+  id: string;
+  title: string;
+  company: string;
+  status: string;
+  employer_id: string;
+  salary: number;
+  schedule: string;
+  metro_station?: string;
+  created_at: string;
+}
+
+type Tab = 'worker-complaints' | 'employer-complaints' | 'users' | 'vacancies' | 'perm-vacancies';
 
 export default function AdminScreen() {
   const router = useRouter();
+  const { currentUser } = useApp();
+
   const [tab, setTab] = useState<Tab>('worker-complaints');
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [vacancies, setVacancies] = useState<AdminVacancy[]>([]);
+  const [permVacancies, setPermVacancies] = useState<AdminPermVacancy[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => { loadAll(); }, []);
+  // Access guard
+  const isAdmin = currentUser?.phone === ADMIN_PHONE;
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    loadAll();
+  }, [isAdmin]);
 
   const loadAll = async () => {
     setLoading(true);
-    const [{ data: c }, { data: u }, { data: v }] = await Promise.all([
+    const [
+      { data: c },
+      { data: u },
+      { data: v },
+      { data: pv },
+    ] = await Promise.all([
       sb().from('jm_complaints').select('*').order('created_at', { ascending: false }),
       sb().from('jm_users').select('id,phone,first_name,last_name,role,company,is_blocked,password').order('created_at', { ascending: false }),
-      sb().from('jm_vacancies').select('id,title,company,status,employer_id,created_at').order('created_at', { ascending: false }),
+      sb().from('jm_vacancies').select('id,title,company,status,employer_id,date,created_at').order('created_at', { ascending: false }),
+      sb().from('jm_perm_vacancies').select('id,title,company,status,employer_id,salary,schedule,metro_station,created_at').order('created_at', { ascending: false }),
     ]);
     setComplaints((c ?? []) as Complaint[]);
     setUsers((u ?? []) as AdminUser[]);
     setVacancies((v ?? []) as AdminVacancy[]);
+    setPermVacancies((pv ?? []) as AdminPermVacancy[]);
     setLoading(false);
   };
+
+  // ── Not admin ──────────────────────────────────────────────────────────────
+
+  if (!isAdmin) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()}>
+            <Text style={styles.backTxt}>← Назад</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Администрирование</Text>
+          <View style={{ width: 60 }} />
+        </View>
+        <View style={styles.center}>
+          <Text style={{ fontSize: 48 }}>🔒</Text>
+          <Text style={[styles.emptyTxt, { marginTop: 12, fontSize: 16, fontWeight: '700', color: Colors.textPrimary }]}>
+            Доступ запрещён
+          </Text>
+          <Text style={[styles.emptyTxt, { marginTop: 6 }]}>
+            Эта страница доступна только администратору
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // ── Actions ────────────────────────────────────────────────────────────────
 
   const blockUser = async (userId: string, block: boolean) => {
     await sb().from('jm_users').update({ is_blocked: block }).eq('id', userId);
@@ -100,8 +156,8 @@ export default function AdminScreen() {
       return;
     }
     Alert.alert(
-      'Удалить всех пользователей кроме админа',
-      `Будет удалено ${nonAdminUsers.length} пользователей. Это действие нельзя отменить.`,
+      'Удалить всех кроме админа',
+      `Будет удалено ${nonAdminUsers.length} пользователей. Это нельзя отменить.`,
       [
         { text: 'Отмена', style: 'cancel' },
         {
@@ -117,13 +173,39 @@ export default function AdminScreen() {
     );
   };
 
-  const deleteVacancy = async (id: string) => {
+  const closeVacancy = async (id: string) => {
     await sb().from('jm_vacancies').update({ status: 'closed' }).eq('id', id);
     setVacancies(prev => prev.map(v => v.id === id ? { ...v, status: 'closed' } : v));
   };
 
+  const closePermVacancy = async (id: string) => {
+    await sb().from('jm_perm_vacancies').update({ status: 'closed' }).eq('id', id);
+    setPermVacancies(prev => prev.map(v => v.id === id ? { ...v, status: 'closed' } : v));
+  };
+
+  const deletePermVacancy = async (id: string) => {
+    Alert.alert('Удалить вакансию', 'Удалить постоянную вакансию?', [
+      { text: 'Отмена', style: 'cancel' },
+      {
+        text: 'Удалить',
+        style: 'destructive',
+        onPress: async () => {
+          await sb().from('jm_perm_vacancies').delete().eq('id', id);
+          setPermVacancies(prev => prev.filter(v => v.id !== id));
+        },
+      },
+    ]);
+  };
+
+  // ── Renders ────────────────────────────────────────────────────────────────
+
   const workerComplaints = complaints.filter(c => c.complaint_type === 'worker');
   const employerComplaints = complaints.filter(c => c.complaint_type === 'employer');
+
+  const formatDT = (iso: string) => {
+    const d = new Date(iso);
+    return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  };
 
   const renderComplaint = ({ item }: { item: Complaint }) => (
     <View style={styles.card}>
@@ -141,7 +223,7 @@ export default function AdminScreen() {
           <Text style={[styles.cardVal, { flex: 1 }]}>{item.description}</Text>
         </View>
       ) : null}
-      <Text style={styles.cardDate}>{new Date(item.created_at).toLocaleDateString('ru-RU')}</Text>
+      <Text style={styles.cardDate}>{formatDT(item.created_at)}</Text>
     </View>
   );
 
@@ -151,6 +233,11 @@ export default function AdminScreen() {
         <Text style={styles.cardLabel}>{item.role === 'worker' ? '👷' : '🏢'}</Text>
         <Text style={styles.cardVal}>{item.first_name} {item.last_name}</Text>
         {item.is_blocked ? <View style={styles.blockedBadge}><Text style={styles.blockedBadgeTxt}>Заблокирован</Text></View> : null}
+        <View style={[styles.roleBadge, { backgroundColor: item.role === 'worker' ? Colors.primaryLight : '#EDE9FE' }]}>
+          <Text style={[styles.roleBadgeTxt, { color: item.role === 'worker' ? Colors.primary : '#7C3AED' }]}>
+            {item.role === 'worker' ? 'Работник' : 'Работодатель'}
+          </Text>
+        </View>
       </View>
       <View style={styles.cardRow}>
         <Text style={styles.cardLabel}>Тел:</Text>
@@ -168,63 +255,107 @@ export default function AdminScreen() {
           <Text style={styles.cardVal}>{item.company}</Text>
         </View>
       ) : null}
-      <TouchableOpacity
-        style={[styles.actionBtn, item.is_blocked ? styles.unblockBtn : styles.blockBtn]}
-        onPress={() => blockUser(item.id, !item.is_blocked)}
-      >
-        <Text style={[styles.actionBtnTxt, item.is_blocked ? { color: Colors.green } : { color: Colors.red }]}>
-          {item.is_blocked ? 'Разблокировать' : 'Заблокировать'}
-        </Text>
-      </TouchableOpacity>
-      {item.phone !== ADMIN_PHONE && (
+      <View style={styles.btnRow}>
         <TouchableOpacity
-          style={[styles.actionBtn, styles.deleteBtn]}
-          onPress={() => deleteUser(item.id)}
+          style={[styles.actionBtn, item.is_blocked ? styles.unblockBtn : styles.blockBtn, { flex: 1 }]}
+          onPress={() => blockUser(item.id, !item.is_blocked)}
         >
-          <Text style={[styles.actionBtnTxt, { color: Colors.red }]}>Удалить</Text>
+          <Text style={[styles.actionBtnTxt, item.is_blocked ? { color: Colors.green } : { color: Colors.red }]}>
+            {item.is_blocked ? 'Разблокировать' : 'Заблокировать'}
+          </Text>
         </TouchableOpacity>
-      )}
+        {item.phone !== ADMIN_PHONE && (
+          <TouchableOpacity
+            style={[styles.actionBtn, styles.deleteBtn, { flex: 1 }]}
+            onPress={() => deleteUser(item.id)}
+          >
+            <Text style={[styles.actionBtnTxt, { color: Colors.red }]}>Удалить</Text>
+          </TouchableOpacity>
+        )}
+      </View>
     </View>
   );
-
-  const formatDateTime = (iso: string) => {
-    const d = new Date(iso);
-    const date = d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-    return `${date} в ${time}`;
-  };
 
   const renderVacancy = ({ item }: { item: AdminVacancy }) => (
     <View style={styles.card}>
       <View style={styles.cardRow}>
-        <Text style={styles.cardLabel}>Вакансия:</Text>
-        <Text style={[styles.cardVal, { flex: 1 }]}>{item.title}</Text>
+        <Text style={styles.cardLabel}>⚡</Text>
+        <Text style={[styles.cardVal, { flex: 1, fontWeight: '700' }]}>{item.title}</Text>
+        <View style={[styles.statusDot, { backgroundColor: item.status === 'open' ? Colors.green : Colors.textMuted }]} />
+        <Text style={[styles.cardVal, { color: item.status === 'open' ? Colors.green : Colors.textMuted, fontSize: 12 }]}>
+          {item.status === 'open' ? 'Открыта' : 'Закрыта'}
+        </Text>
       </View>
       <View style={styles.cardRow}>
         <Text style={styles.cardLabel}>Компания:</Text>
         <Text style={styles.cardVal}>{item.company}</Text>
       </View>
-      <View style={styles.cardRow}>
-        <Text style={styles.cardLabel}>Статус:</Text>
-        <Text style={[styles.cardVal, { color: item.status === 'open' ? Colors.green : Colors.textMuted }]}>
-          {item.status === 'open' ? '● Открыта' : '○ Закрыта'}
-        </Text>
-      </View>
-      <View style={styles.cardRow}>
-        <Text style={styles.cardLabel}>Опубл.:</Text>
-        <Text style={[styles.cardVal, { color: Colors.textMuted, fontSize: 12 }]}>{formatDateTime(item.created_at)}</Text>
-      </View>
+      {item.date ? (
+        <View style={styles.cardRow}>
+          <Text style={styles.cardLabel}>Дата:</Text>
+          <Text style={styles.cardVal}>{item.date}</Text>
+        </View>
+      ) : null}
+      <Text style={styles.cardDate}>{formatDT(item.created_at)}</Text>
       {item.status === 'open' ? (
-        <TouchableOpacity style={[styles.actionBtn, styles.blockBtn]} onPress={() => deleteVacancy(item.id)}>
+        <TouchableOpacity style={[styles.actionBtn, styles.blockBtn]} onPress={() => closeVacancy(item.id)}>
           <Text style={[styles.actionBtnTxt, { color: Colors.red }]}>Закрыть вакансию</Text>
         </TouchableOpacity>
       ) : null}
     </View>
   );
 
-  const tabData = tab === 'worker-complaints' ? workerComplaints
-    : tab === 'employer-complaints' ? employerComplaints
-    : [];
+  const renderPermVacancy = ({ item }: { item: AdminPermVacancy }) => (
+    <View style={[styles.card, { borderLeftWidth: 3, borderLeftColor: '#7C3AED' }]}>
+      <View style={styles.cardRow}>
+        <Text style={styles.cardLabel}>💼</Text>
+        <Text style={[styles.cardVal, { flex: 1, fontWeight: '700' }]}>{item.title}</Text>
+        <View style={[styles.statusDot, { backgroundColor: item.status === 'open' ? Colors.green : Colors.textMuted }]} />
+        <Text style={[styles.cardVal, { color: item.status === 'open' ? Colors.green : Colors.textMuted, fontSize: 12 }]}>
+          {item.status === 'open' ? 'Открыта' : 'Закрыта'}
+        </Text>
+      </View>
+      <View style={styles.cardRow}>
+        <Text style={styles.cardLabel}>Компания:</Text>
+        <Text style={styles.cardVal}>{item.company}</Text>
+      </View>
+      <View style={styles.cardRow}>
+        <Text style={styles.cardLabel}>Зарплата:</Text>
+        <Text style={[styles.cardVal, { color: Colors.green, fontWeight: '700' }]}>
+          {item.salary.toLocaleString('ru-RU')} ₽/мес
+        </Text>
+      </View>
+      <View style={styles.cardRow}>
+        <Text style={styles.cardLabel}>График:</Text>
+        <Text style={styles.cardVal}>{item.schedule}</Text>
+      </View>
+      {item.metro_station ? (
+        <View style={styles.cardRow}>
+          <Text style={styles.cardLabel}>Метро:</Text>
+          <Text style={styles.cardVal}>🚇 {item.metro_station}</Text>
+        </View>
+      ) : null}
+      <Text style={styles.cardDate}>{formatDT(item.created_at)}</Text>
+      <View style={styles.btnRow}>
+        {item.status === 'open' ? (
+          <TouchableOpacity style={[styles.actionBtn, styles.blockBtn, { flex: 1 }]} onPress={() => closePermVacancy(item.id)}>
+            <Text style={[styles.actionBtnTxt, { color: Colors.red }]}>Закрыть</Text>
+          </TouchableOpacity>
+        ) : null}
+        <TouchableOpacity style={[styles.actionBtn, styles.deleteBtn, { flex: 1 }]} onPress={() => deletePermVacancy(item.id)}>
+          <Text style={[styles.actionBtnTxt, { color: Colors.red }]}>Удалить</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  const TABS: { key: Tab; label: string; count: number }[] = [
+    { key: 'worker-complaints',   label: '👷 Жалобы на работников',     count: workerComplaints.length },
+    { key: 'employer-complaints', label: '🏢 Жалобы на работодателей',   count: employerComplaints.length },
+    { key: 'users',               label: '👥 Пользователи',              count: users.length },
+    { key: 'vacancies',           label: '⚡ Смены',                     count: vacancies.length },
+    { key: 'perm-vacancies',      label: '💼 Постоянные',                count: permVacancies.length },
+  ];
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -233,23 +364,48 @@ export default function AdminScreen() {
           <Text style={styles.backTxt}>← Назад</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Администрирование</Text>
-        <View style={{ width: 60 }} />
+        <TouchableOpacity onPress={loadAll} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+          <Text style={styles.refreshBtn}>↻</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Stats bar */}
+      <View style={styles.statsBar}>
+        <View style={styles.statItem}>
+          <Text style={styles.statNum}>{users.length}</Text>
+          <Text style={styles.statLbl}>Польз.</Text>
+        </View>
+        <View style={styles.statItem}>
+          <Text style={styles.statNum}>{vacancies.filter(v => v.status === 'open').length}</Text>
+          <Text style={styles.statLbl}>Смены</Text>
+        </View>
+        <View style={styles.statItem}>
+          <Text style={styles.statNum}>{permVacancies.filter(v => v.status === 'open').length}</Text>
+          <Text style={styles.statLbl}>Пост. вак.</Text>
+        </View>
+        <View style={styles.statItem}>
+          <Text style={[styles.statNum, complaints.length > 0 && { color: Colors.red }]}>{complaints.length}</Text>
+          <Text style={styles.statLbl}>Жалобы</Text>
+        </View>
       </View>
 
       {/* Tabs */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabBar} contentContainerStyle={styles.tabBarContent}>
-        {([
-          { key: 'worker-complaints', label: `Жалобы работников (${workerComplaints.length})` },
-          { key: 'employer-complaints', label: `Жалобы работодателей (${employerComplaints.length})` },
-          { key: 'users', label: `Пользователи (${users.length})` },
-          { key: 'vacancies', label: `Вакансии (${vacancies.length})` },
-        ] as { key: Tab; label: string }[]).map(t => (
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.tabBar}
+        contentContainerStyle={styles.tabBarContent}
+      >
+        {TABS.map(t => (
           <TouchableOpacity
             key={t.key}
             style={[styles.tabBtn, tab === t.key && styles.tabBtnActive]}
             onPress={() => setTab(t.key)}
           >
-            <Text style={[styles.tabBtnTxt, tab === t.key && styles.tabBtnTxtActive]}>{t.label}</Text>
+            <Text style={[styles.tabBtnTxt, tab === t.key && styles.tabBtnTxtActive]}>
+              {t.label}
+              {t.count > 0 ? ` (${t.count})` : ''}
+            </Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
@@ -258,16 +414,7 @@ export default function AdminScreen() {
         <View style={styles.center}><ActivityIndicator size="large" color={Colors.primary} /></View>
       ) : (
         <>
-          {(tab === 'worker-complaints' || tab === 'employer-complaints') ? (
-            <FlatList
-              data={tabData}
-              keyExtractor={i => i.id}
-              contentContainerStyle={styles.list}
-              showsVerticalScrollIndicator={false}
-              renderItem={renderComplaint}
-              ListEmptyComponent={<View style={styles.center}><Text style={styles.emptyTxt}>Жалоб нет</Text></View>}
-            />
-          ) : tab === 'users' ? (
+          {tab === 'users' ? (
             <>
               <View style={styles.bulkActions}>
                 <TouchableOpacity style={styles.bulkBtn} onPress={deleteAllUsersExceptAdmin}>
@@ -282,13 +429,32 @@ export default function AdminScreen() {
                 renderItem={renderUser}
               />
             </>
-          ) : (
+          ) : tab === 'vacancies' ? (
             <FlatList
               data={vacancies}
               keyExtractor={v => v.id}
               contentContainerStyle={styles.list}
               showsVerticalScrollIndicator={false}
               renderItem={renderVacancy}
+              ListEmptyComponent={<View style={styles.center}><Text style={styles.emptyTxt}>Нет смен</Text></View>}
+            />
+          ) : tab === 'perm-vacancies' ? (
+            <FlatList
+              data={permVacancies}
+              keyExtractor={v => v.id}
+              contentContainerStyle={styles.list}
+              showsVerticalScrollIndicator={false}
+              renderItem={renderPermVacancy}
+              ListEmptyComponent={<View style={styles.center}><Text style={styles.emptyTxt}>Нет постоянных вакансий</Text></View>}
+            />
+          ) : (
+            <FlatList
+              data={tab === 'worker-complaints' ? workerComplaints : employerComplaints}
+              keyExtractor={i => i.id}
+              contentContainerStyle={styles.list}
+              showsVerticalScrollIndicator={false}
+              renderItem={renderComplaint}
+              ListEmptyComponent={<View style={styles.center}><Text style={styles.emptyTxt}>Жалоб нет</Text></View>}
             />
           )}
         </>
@@ -306,6 +472,17 @@ const styles = StyleSheet.create({
   },
   backTxt: { fontSize: 15, color: Colors.textSecondary, fontWeight: '500', width: 60 },
   headerTitle: { fontSize: 16, fontWeight: '800', color: Colors.textPrimary },
+  refreshBtn: { fontSize: 22, color: Colors.primary, fontWeight: '700', width: 40, textAlign: 'right' },
+
+  statsBar: {
+    flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 12,
+    backgroundColor: Colors.surface, gap: 0,
+    borderBottomWidth: 1, borderBottomColor: Colors.divider,
+  },
+  statItem: { flex: 1, alignItems: 'center', gap: 2 },
+  statNum: { fontSize: 20, fontWeight: '800', color: Colors.textPrimary },
+  statLbl: { fontSize: 10, color: Colors.textMuted, textTransform: 'uppercase', fontWeight: '600' },
+
   tabBar: { borderBottomWidth: 1, borderBottomColor: Colors.divider, flexGrow: 0 },
   tabBarContent: { paddingHorizontal: 12, paddingVertical: 8, gap: 8 },
   tabBtn: {
@@ -315,26 +492,35 @@ const styles = StyleSheet.create({
   tabBtnActive: { backgroundColor: Colors.primary },
   tabBtnTxt: { fontSize: 13, color: Colors.textMuted, fontWeight: '500' },
   tabBtnTxtActive: { color: '#fff', fontWeight: '700' },
+
   list: { padding: 16, gap: 10, paddingBottom: 100 },
   card: { backgroundColor: Colors.bg, borderRadius: Radius.lg, padding: 14, ...Shadow.card, gap: 8 },
   blockedCard: { borderWidth: 1.5, borderColor: Colors.red, opacity: 0.8 },
-  cardRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  cardRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   cardLabel: { fontSize: 12, color: Colors.textMuted, fontWeight: '500', minWidth: 60 },
   cardVal: { fontSize: 13, color: Colors.textPrimary, fontWeight: '500' },
-  cardDate: { fontSize: 11, color: Colors.textMuted, marginTop: 4 },
+  cardDate: { fontSize: 11, color: Colors.textMuted },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
+
   blockedBadge: { backgroundColor: '#FEE2E2', borderRadius: 100, paddingHorizontal: 8, paddingVertical: 2 },
   blockedBadgeTxt: { fontSize: 11, color: Colors.red, fontWeight: '600' },
+  roleBadge: { borderRadius: 100, paddingHorizontal: 8, paddingVertical: 2 },
+  roleBadgeTxt: { fontSize: 11, fontWeight: '600' },
+
+  btnRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
   actionBtn: {
-    marginTop: 6, borderWidth: 1.5, borderRadius: 100,
+    borderWidth: 1.5, borderRadius: 100,
     paddingVertical: 8, alignItems: 'center',
   },
   blockBtn: { borderColor: Colors.red },
   unblockBtn: { borderColor: Colors.green },
-  deleteBtn: { borderColor: Colors.red, marginTop: 8 },
+  deleteBtn: { borderColor: Colors.red },
   actionBtnTxt: { fontSize: 13, fontWeight: '600' },
+
   bulkActions: { padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.divider },
-  bulkBtn: { backgroundColor: Colors.red, paddingHorizontal: 16, paddingVertical: 10, borderRadius: Radius.md },
+  bulkBtn: { backgroundColor: Colors.red, paddingHorizontal: 16, paddingVertical: 10, borderRadius: Radius.md, alignItems: 'center' },
   bulkBtnTxt: { color: 'white', fontSize: 14, fontWeight: '600' },
+
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
   emptyTxt: { fontSize: 15, color: Colors.textMuted, textAlign: 'center' },
 });

@@ -865,7 +865,11 @@ function WorkerPermMode() {
     const statusInfo = appStatus ? STATUS_MAP[appStatus] : null;
 
     return (
-      <View style={pS.card}>
+      <TouchableOpacity
+        style={pS.card}
+        onPress={() => router.push({ pathname: '/perm-vacancy-detail', params: { vacancyId: v.id } })}
+        activeOpacity={0.92}
+      >
         {statusInfo ? (
           <View style={[pS.statusBadge, { backgroundColor: statusInfo.bg }]}>
             <Text style={[pS.statusTxt, { color: statusInfo.color }]}>{statusInfo.label}</Text>
@@ -907,7 +911,7 @@ function WorkerPermMode() {
 
         <TouchableOpacity
           style={[pS.applyBtn, isApplied && pS.applyBtnDone, isApplying && { opacity: 0.6 }]}
-          onPress={() => applyTo(v)}
+          onPress={(e) => { e.stopPropagation?.(); applyTo(v); }}
           disabled={isApplied || isApplying}
           activeOpacity={0.8}
         >
@@ -915,7 +919,7 @@ function WorkerPermMode() {
             {isApplied ? '✓ Отклик отправлен' : 'Откликнуться'}
           </Text>
         </TouchableOpacity>
-      </View>
+      </TouchableOpacity>
     );
   };
 

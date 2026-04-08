@@ -53,6 +53,7 @@ export default function RootLayout() {
             <Stack.Screen name="user-profile" />
             <Stack.Screen name="create-perm-vacancy" />
             <Stack.Screen name="perm-applications" />
+            <Stack.Screen name="perm-vacancy-detail" />
           </Stack>
           <ToastLayer />
         </AppProvider>
