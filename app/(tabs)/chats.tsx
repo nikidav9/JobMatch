@@ -1,8 +1,9 @@
 import React, { useRef, useState } from 'react';
 import {
-  View, Text, StyleSheet, SafeAreaView, FlatList, TouchableOpacity,
+  View, Text, StyleSheet, FlatList, TouchableOpacity,
   TextInput, Animated, PanResponder, Dimensions, Alert, RefreshControl,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Colors, Radius, Shadow } from '@/constants/theme';

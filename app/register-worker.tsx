@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  SafeAreaView, KeyboardAvoidingView, Platform, ActivityIndicator, Linking,
+  KeyboardAvoidingView, Platform, ActivityIndicator, Linking,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Colors, Radius } from '@/constants/theme';

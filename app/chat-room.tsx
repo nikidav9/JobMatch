@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import {
-  View, Text, StyleSheet, SafeAreaView, TextInput,
+  View, Text, StyleSheet, TextInput,
   TouchableOpacity, FlatList, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { Image } from 'expo-image';
