@@ -1442,7 +1442,7 @@ const pS = StyleSheet.create({
   filterBtnActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryLight },
   filterBtnTxt: { fontSize: 18 },
   // Salary chips
-  salaryChipsScroll: { flexGrow: 0 },
+  salaryChipsScroll: { flexGrow: 0, flexShrink: 0, alignSelf: 'stretch' },
   salaryChipsRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingBottom: 10 },
   salaryChip: {
     borderRadius: 100, paddingHorizontal: 14, paddingVertical: 7,
@@ -1453,17 +1453,17 @@ const pS = StyleSheet.create({
   salaryChipTxt: { fontSize: 13, fontWeight: '600', color: Colors.textMuted },
   salaryChipTxtActive: { color: Colors.green },
   // Status filter chips
-  statusChipsScroll: { flexGrow: 0, borderBottomWidth: 1, borderBottomColor: Colors.divider },
+  statusChipsScroll: { flexGrow: 0, flexShrink: 0, alignSelf: 'stretch', borderBottomWidth: 1, borderBottomColor: Colors.divider },
   statusChipsRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 10 },
   statusChip: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
     borderRadius: 100, paddingHorizontal: 12, paddingVertical: 8,
     borderWidth: 1.5, borderColor: Colors.inputBorder,
     backgroundColor: Colors.bg,
-    flexShrink: 0,
+    flexShrink: 0, flexGrow: 0,
   },
-  statusChipIcon: { fontSize: 13, flexShrink: 0 },
-  statusChipLabel: { fontSize: 13, fontWeight: '500', color: Colors.textSecondary, flexShrink: 0 },
+  statusChipIcon: { fontSize: 13, flexShrink: 0, flexGrow: 0 },
+  statusChipLabel: { fontSize: 13, fontWeight: '500', color: Colors.textSecondary, flexShrink: 0, flexGrow: 0 },
   statusChipBadge: {
     minWidth: 18, height: 18, borderRadius: 9,
     alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4,
