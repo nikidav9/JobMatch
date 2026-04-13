@@ -14,7 +14,6 @@ import { useApp } from '@/hooks/useApp';
 import { getInitials, nameColorFromString } from '@/services/storage';
 import { dbUpsertUser } from '@/services/db';
 import { getSupabaseClient } from '@/template';
-import { getSupabaseClient } from '@/template';
 import { AppInput } from '@/components/ui/AppInput';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { MetroPicker } from '@/components/feature/MetroPicker';
