@@ -15,7 +15,8 @@ function AuthGuard() {
   const publicPaths = new Set(['/', '/login', '/register-worker', '/register-employer', '/legal']);
 
   useEffect(() => {
-    if (!ctx || ctx.loading) return;
+    if (!ctx) return;
+    if (ctx.loading) return;
     const isProtected = !publicPaths.has(pathname);
     if (!ctx.currentUser && isProtected) {
       router.replace('/');

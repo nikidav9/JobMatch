@@ -1405,7 +1405,8 @@ function WorkerHome() {
 // Root export
 // ─────────────────────────────────────────────────
 export default function HomeScreen() {
-  const { currentUser } = useApp();
+  const app = useApp();
+  const currentUser = app?.currentUser ?? null;
   if (!currentUser) return null;
   return currentUser.role === 'worker' ? <WorkerHome /> : <EmployerHome />;
 }

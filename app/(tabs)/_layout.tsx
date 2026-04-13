@@ -48,7 +48,11 @@ function TabIcon({
 
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
-  const { currentUser, unreadCount, likes, vacancies } = useApp();
+  const app = useApp();
+  const currentUser = app?.currentUser ?? null;
+  const unreadCount = app?.unreadCount ?? 0;
+  const likes = app?.likes ?? [];
+  const vacancies = app?.vacancies ?? [];
   const isWorker = currentUser?.role === 'worker';
 
   const matchBadge = (() => {
