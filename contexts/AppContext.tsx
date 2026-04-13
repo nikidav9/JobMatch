@@ -1,5 +1,4 @@
 import React, { createContext, useState, useEffect, useRef, ReactNode } from 'react';
-import { useRouter } from 'expo-router';
 import { getSupabaseClient } from '@/template';
 import { User, Vacancy, Like, Chat, PermVacancy, PermApplication } from '@/constants/types';
 import { getSessionUser, saveSessionUser, clearSessionUser } from '@/services/storage';
@@ -56,7 +55,6 @@ interface AppContextType {
 export const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const router = useRouter();
   const [currentUser, _setCurrentUser] = useState<User | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [vacancies, setVacancies] = useState<Vacancy[]>([]);
