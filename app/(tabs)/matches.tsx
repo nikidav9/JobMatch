@@ -303,15 +303,17 @@ function EmployerMatches() {
       await dbUpsertLike(like.vacancyId, like.workerId, currentUser.id, { employerLiked: true });
       const result = await dbCheckAndCreateMatch(like.vacancyId, like.workerId);
       await refreshAll();
-      if (result.matched) {
-        const vac = getVacancy(like.vacancyId);
-        const worker = getWorker(like.workerId);
-        const workerName = worker ? `${worker.firstName} ${worker.lastName}` : 'Работник';
-        await notifyEmployerGotMatch(workerName, vac?.title ?? '');
-        showToast(`🎉 Мэтч с ${workerName}!`, 'match');
-        if (result.chatId) router.push({ pathname: '/chat-room', params: { chatId: result.chatId } });
+      const vac = getVacancy(like.vacancyId);
+      const worker = getWorker(like.workerId);
+      const workerName = worker ? `${worker.firstName} ${worker.lastName}` : 'Работник';
+      await notifyEmployerGotMatch(workerName, vac?.title ?? '');
+      showToast(`🎉 Мэтч с ${workerName}!`, 'match');
+      // Always open chat immediately — worker already confirmed by liking
+      const chatId = result.chatId ?? like.id;
+      if (result.chatId) {
+        router.push({ pathname: '/chat-room', params: { chatId: result.chatId } });
       } else {
-        showToast('Предложение отправлено работнику', 'success');
+        router.push({ pathname: '/(tabs)/chats' });
       }
     } catch {
       showToast('Ошибка', 'error');
@@ -458,31 +460,25 @@ function EmployerMatches() {
 
         <Text style={s.vacLabel}>{vac.title} · {formatDate(vac.date)}</Text>
 
-        {/* Only show accept/reject if employer hasn't approved yet */}
-        {like.employerLiked !== true ? (
-          <View style={s.actionRow}>
-            <TouchableOpacity
-              style={[s.rejectBtn, isDLoading && { opacity: 0.5 }]}
-              onPress={() => dismiss(like)}
-              disabled={!!actionLoading}
-              activeOpacity={0.8}
-            >
-              {isDLoading ? <ActivityIndicator size="small" color={Colors.red} /> : <Text style={s.rejectBtnTxt}>✕ Не подходит</Text>}
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[s.acceptBtn, isLoading && { opacity: 0.5 }]}
-              onPress={() => approve(like)}
-              disabled={!!actionLoading}
-              activeOpacity={0.8}
-            >
-              {isLoading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={s.acceptBtnTxt}>✅ Подходит!</Text>}
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <View style={[s.statusBadge2, { backgroundColor: '#FFF7ED' }]}>
-            <Text style={[s.statusTxt2, { color: '#92400E' }]}>⏳ Предложение отправлено — ждём работника</Text>
-          </View>
-        )}
+        {/* Employer decision buttons */}
+        <View style={s.actionRow}>
+          <TouchableOpacity
+            style={[s.rejectBtn, isDLoading && { opacity: 0.5 }]}
+            onPress={() => dismiss(like)}
+            disabled={!!actionLoading}
+            activeOpacity={0.8}
+          >
+            {isDLoading ? <ActivityIndicator size="small" color={Colors.red} /> : <Text style={s.rejectBtnTxt}>✕ Не подходит</Text>}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[s.acceptBtn, isLoading && { opacity: 0.5 }]}
+            onPress={() => approve(like)}
+            disabled={!!actionLoading}
+            activeOpacity={0.8}
+          >
+            {isLoading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={s.acceptBtnTxt}>✅ Подходит!</Text>}
+          </TouchableOpacity>
+        </View>
       </View>
     );
   };

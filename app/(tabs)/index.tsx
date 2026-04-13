@@ -120,18 +120,14 @@ function WorkerListModal({
       await dbUpsertLike(vacancyId, like.workerId, currentUser.id, { employerLiked: true });
       const result = await dbCheckAndCreateMatch(vacancyId, like.workerId);
       await refreshAll();
-      if (result.matched) {
-        const worker = getWorker(like.workerId);
-        await notifyEmployerGotMatch(worker ? `${worker.firstName} ${worker.lastName}` : 'Работник', vacancy.title);
-        showToast('🎉 Мэтч! Чат открыт', 'match');
-        onClose();
-        if (result.chatId) {
-          router.push({ pathname: '/chat-room', params: { chatId: result.chatId } });
-        } else {
-          router.push({ pathname: '/(tabs)/chats' });
-        }
+      const worker = getWorker(like.workerId);
+      await notifyEmployerGotMatch(worker ? `${worker.firstName} ${worker.lastName}` : 'Работник', vacancy.title);
+      showToast('🎉 Мэтч! Чат открыт', 'match');
+      onClose();
+      if (result.chatId) {
+        router.push({ pathname: '/chat-room', params: { chatId: result.chatId } });
       } else {
-        showToast('Принято. Ждём подтверждения работника.', 'success');
+        router.push({ pathname: '/(tabs)/chats' });
       }
     } catch {
       showToast('Ошибка', 'error');
@@ -635,11 +631,13 @@ function WorkerFeed() {
                         <Image source={{ uri: currentEmployer.avatarUrl }} style={styles.avatarImg} contentFit="cover" transition={150} />
                       ) : (
                         <View style={[styles.avatar, { backgroundColor: nameColorFromString(currentCard.employerId) }]}>
-                          <Text style={styles.avatarText}>{(currentCard.company[0] ?? '?').toUpperCase()}</Text>
+                          <Text style={styles.avatarText}>{getInitials(currentEmployer ? `${currentEmployer.firstName} ${currentEmployer.lastName}` : currentCard.company)}</Text>
                         </View>
                       )}
                       <View style={{ flex: 1 }}>
-                        <Text style={styles.companyName} numberOfLines={1}>{currentCard.company}</Text>
+                        <Text style={styles.companyName} numberOfLines={1}>
+                          {currentEmployer ? `${currentEmployer.firstName} ${currentEmployer.lastName}` : currentCard.company}
+                        </Text>
                         <Text style={styles.metroHint}>🚇 {currentCard.metroStation}</Text>
                       </View>
                       {currentCard.isUrgent ? (

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -213,6 +214,18 @@ export default function ChatRoom() {
             isMatch && styles.systemTextMatch,
             isReject && styles.systemTextReject,
           ]}>{item.text}</Text>
+        </View>
+      );
+    }
+    // Safety advisory message (from system_safety sender)
+    if (item.senderId === 'system_safety') {
+      return (
+        <View style={styles.safetyMsg}>
+          <View style={styles.safetyHeader}>
+            <Text style={styles.safetyIcon}>🔒</Text>
+            <Text style={styles.safetyTitle}>Безопасность</Text>
+          </View>
+          <Text style={styles.safetyText}>{item.text}</Text>
         </View>
       );
     }
@@ -449,7 +462,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 10,
     borderTopWidth: 1, borderTopColor: Colors.divider, backgroundColor: Colors.bg,
   },
-  vacancyBar: {
+  safetyMsg: {
+    marginHorizontal: 12, marginVertical: 10,
+    backgroundColor: '#FFFBEB',
+    borderRadius: 14, padding: 14,
+    borderWidth: 1, borderColor: '#FDE68A',
+    gap: 6,
+  },
+  safetyHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  safetyIcon: { fontSize: 15 },
+  safetyTitle: { fontSize: 13, fontWeight: '700', color: '#92400E' },
+  safetyText: { fontSize: 12, color: '#78350F', lineHeight: 17 },
+  vacancyBar: { // Corrected: Added 'vacancyBar' to align with the missing style error
     flexDirection: 'row', flexWrap: 'wrap', gap: 6,
     paddingHorizontal: 14, paddingVertical: 10,
     backgroundColor: Colors.surface,
