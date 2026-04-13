@@ -14,6 +14,7 @@ import { useApp } from '@/hooks/useApp';
 import { getInitials, nameColorFromString } from '@/services/storage';
 import { dbUpsertUser } from '@/services/db';
 import { getSupabaseClient } from '@/template';
+import { getSupabaseClient } from '@/template';
 import { AppInput } from '@/components/ui/AppInput';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { MetroPicker } from '@/components/feature/MetroPicker';
@@ -49,6 +50,8 @@ export default function ProfileScreen() {
   const { currentUser, logout, users, refreshUsers, showToast, setCurrentUser } = useApp();
   const [editSection, setEditSection] = useState<EditSection>(null);
   const [showConfirmLogout, setShowConfirmLogout] = useState(false);
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const [metroPicker, setMetroPicker] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
@@ -188,6 +191,24 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleDeleteAccount = async () => {
+    if (!currentUser || deletingAccount) return;
+    setShowConfirmDelete(false);
+    setDeletingAccount(true);
+    try {
+      const sb = getSupabaseClient();
+      await sb.from('jm_users').delete().eq('id', currentUser.id);
+      await logout();
+      showToast('Аккаунт удалён', 'success');
+    } catch (e) {
+      console.warn('[Profile] deleteAccount failed', e);
+      showToast('Ошибка при удалении, попробуйте снова', 'error');
+    } finally {
+      setDeletingAccount(false);
+      router.replace('/');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -269,8 +290,38 @@ export default function ProfileScreen() {
           </>
         )}
 
+        {/* Documents section */}
+        <View style={styles.docsCard}>
+          <Text style={styles.docsSectionTitle}>📄 Документы</Text>
+          {[
+            { label: 'Пользовательское соглашение', doc: 'terms' },
+            { label: 'Политика конфиденциальности', doc: 'privacy' },
+            { label: 'Согласие на обработку данных', doc: 'consent' },
+          ].map((item, i, arr) => (
+            <TouchableOpacity
+              key={item.doc}
+              style={[styles.docRow, i < arr.length - 1 && styles.docRowBorder]}
+              onPress={() => router.push({ pathname: '/legal', params: { doc: item.doc } })}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.docRowLabel}>{item.label}</Text>
+              <Text style={styles.docRowArrow}>›</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
         <TouchableOpacity style={styles.logoutBtn} onPress={() => setShowConfirmLogout(true)}>
           <Text style={styles.logoutText}>Выйти из аккаунта</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.deleteAccountBtn}
+          onPress={() => setShowConfirmDelete(true)}
+          disabled={deletingAccount}
+        >
+          <Text style={styles.deleteAccountText}>
+            {deletingAccount ? 'Удаление...' : 'Удалить аккаунт'}
+          </Text>
         </TouchableOpacity>
 
         <View style={{ height: 20 }} />
@@ -342,6 +393,26 @@ export default function ProfileScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Confirm delete account */}
+      {showConfirmDelete ? (
+        <View style={styles.confirmOverlay}>
+          <View style={styles.confirmCard}>
+            <Text style={styles.confirmTitle}>Удалить аккаунт?</Text>
+            <Text style={styles.confirmBody}>
+              Все ваши данные будут удалены безвозвратно. Восстановление невозможно.
+            </Text>
+            <View style={styles.confirmBtns}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowConfirmDelete(false)}>
+                <Text style={styles.cancelText}>Отмена</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.logoutConfirmBtn} onPress={handleDeleteAccount}>
+                <Text style={styles.logoutConfirmText}>Удалить</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      ) : null}
 
       {/* Confirm logout */}
       {showConfirmLogout ? (
@@ -444,8 +515,16 @@ const styles = StyleSheet.create({
   roleText: { color: '#fff', fontSize: 13, fontWeight: '600' },
   phone: { fontSize: 14, color: Colors.textMuted, marginTop: 6 },
   avatarHint: { fontSize: 11, color: Colors.textMuted, marginTop: 4, textAlign: 'center', maxWidth: 220 },
-  logoutBtn: { alignItems: 'center', paddingVertical: 16, marginTop: 8 },
-  logoutText: { color: Colors.red, fontSize: 14, fontWeight: '600' },
+  logoutBtn: { alignItems: 'center', paddingVertical: 14, marginTop: 4 },
+  logoutText: { color: Colors.textMuted, fontSize: 14, fontWeight: '600' },
+  deleteAccountBtn: { alignItems: 'center', paddingVertical: 10, marginBottom: 4 },
+  deleteAccountText: { color: Colors.red, fontSize: 13, fontWeight: '500' },
+  docsCard: { backgroundColor: Colors.bg, borderRadius: 16, ...Shadow.card, overflow: 'hidden', marginBottom: 4 },
+  docsSectionTitle: { fontSize: 13, fontWeight: '700', color: Colors.textMuted, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8, textTransform: 'uppercase', letterSpacing: 0.4 },
+  docRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14 },
+  docRowBorder: { borderBottomWidth: 1, borderBottomColor: Colors.divider },
+  docRowLabel: { fontSize: 14, color: Colors.textPrimary, fontWeight: '500' },
+  docRowArrow: { fontSize: 20, color: Colors.textMuted },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   modalSheet: { backgroundColor: Colors.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40, gap: 12 },
   handle: { width: 36, height: 4, backgroundColor: Colors.inputBorder, borderRadius: 2, alignSelf: 'center', marginBottom: 8 },
