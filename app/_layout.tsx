@@ -37,7 +37,7 @@ export default function RootLayout() {
         <AppProvider>
           <StatusBar style="dark" />
           <AuthGuard />
-          <Stack screenOptions={{ headerShown: false }}>
+          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#FFFFFF' } }}>
             <Stack.Screen name="index" />
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="register-worker" />
