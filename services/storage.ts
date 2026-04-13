@@ -51,11 +51,11 @@ export function formatDate(isoDate: string): string {
 
 /**
  * Returns the "virtual start date" for the date strip.
- * After 22:00, today is considered closed — the strip starts from tomorrow.
+ * After 21:00, today is considered closed — the strip starts from tomorrow.
  */
 export function getVirtualStartDate(): Date {
   const now = new Date();
-  if (now.getHours() >= 22) {
+  if (now.getHours() >= 21) {
     const tomorrow = new Date(now);
     tomorrow.setDate(tomorrow.getDate() + 1);
     tomorrow.setHours(0, 0, 0, 0);
@@ -67,18 +67,34 @@ export function getVirtualStartDate(): Date {
 }
 
 /**
- * Returns ISO date strings for the upcoming window.
- * Before 22:00: today + next (count-1) days.
- * After  22:00: tomorrow + next (count-1) days (today is hidden).
+ * Returns ISO date strings from the virtual start date to the end of that month.
+ * Before 21:00: today → last day of current month.
+ * After  21:00: tomorrow → last day of that month (or next month if it's already the last day).
  */
-export function getTodayDates(count = 7): string[] {
+export function getTodayDates(): string[] {
   const start = getVirtualStartDate();
   const dates: string[] = [];
-  for (let i = 0; i < count; i++) {
-    const d = new Date(start);
-    d.setDate(start.getDate() + i);
-    dates.push(d.toISOString().slice(0, 10));
+
+  // Extend to end of the start's month
+  const endOfMonth = new Date(start.getFullYear(), start.getMonth() + 1, 0);
+
+  const cur = new Date(start);
+  while (cur <= endOfMonth) {
+    dates.push(cur.toISOString().slice(0, 10));
+    cur.setDate(cur.getDate() + 1);
   }
+
+  // If we're near the end of the month (< 7 days remaining), also include start of next month
+  if (dates.length < 7) {
+    const nextMonthStart = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+    const nextMonthEnd = new Date(start.getFullYear(), start.getMonth() + 2, 0);
+    const nc = new Date(nextMonthStart);
+    while (nc <= nextMonthEnd && dates.length < 14) {
+      dates.push(nc.toISOString().slice(0, 10));
+      nc.setDate(nc.getDate() + 1);
+    }
+  }
+
   return dates;
 }
 

@@ -1,7 +1,7 @@
 import React, { createContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { getSupabaseClient } from '@/template';
 import { User, Vacancy, Like, Chat, PermVacancy, PermApplication } from '@/constants/types';
-import { getSessionUser, saveSessionUser, clearSessionUser, getVirtualStartDate } from '@/services/storage';
+import { getSessionUser, saveSessionUser, clearSessionUser, getVirtualStartDate, getTodayDates } from '@/services/storage';
 import {
   dbGetUsers, dbUpsertUser,
   dbGetVacancies,
@@ -252,8 +252,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
    */
   const archivePastDayVacancies = async () => {
     try {
-      const virtualStart = getVirtualStartDate();
-      const cutoff = virtualStart.toISOString().slice(0, 10); // first visible date
+      // dates() now returns full month; cutoff = first visible date
+      const visibleDates = getTodayDates();
+      const cutoff = visibleDates[0]; // first visible date (today or tomorrow after 21:00)
       const { data } = await getSupabaseClient()
         .from('jm_vacancies')
         .select('id, date')

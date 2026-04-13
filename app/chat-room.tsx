@@ -1,9 +1,8 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   View, Text, StyleSheet, TextInput,
-  TouchableOpacity, FlatList, KeyboardAvoidingView, Platform,
+  TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -11,17 +10,16 @@ import { Colors, Radius, Shadow } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
 import { Message } from '@/constants/types';
 import { nameColorFromString, getInitials, formatDate } from '@/services/storage';
-import { dbGetMessages, dbInsertMessage, dbMarkRead, dbIncrementUnread } from '@/services/db';
-import { notifyNewMessage } from '@/services/notifications';
+import { dbGetMessages, dbInsertMessage, dbMarkRead, dbIncrementUnread, dbGetLikes, dbUpsertLike, dbCheckAndCreateMatch } from '@/services/db';
+import { notifyNewMessage, notifyEmployerGotMatch } from '@/services/notifications';
 
 const POLL_INTERVAL = 4000;
 
 export default function ChatRoom() {
   const router = useRouter();
   const { chatId } = useLocalSearchParams<{ chatId: string }>();
-  const { currentUser, users, chats, vacancies, refreshChats } = useApp();
+  const { currentUser, users, chats, vacancies, refreshChats, likes } = useApp();
 
-  // Use ref to keep chat data stable even if chats array momentarily changes
   const chatRef = useRef(chats.find(c => c.id === chatId));
   const foundChat = chats.find(c => c.id === chatId);
   if (foundChat) chatRef.current = foundChat;
@@ -30,8 +28,13 @@ export default function ChatRoom() {
   const [messages, setMessages] = useState<Message[]>(chat?.messages ?? []);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [decidingLike, setDecidingLike] = useState(false);
+  // 'pending' | 'approved' | 'rejected' | null
+  const [likeStatus, setLikeStatus] = useState<'pending' | 'approved' | 'rejected' | null>(null);
   const listRef = useRef<FlatList<Message>>(null);
   const lastCountRef = useRef(messages.length);
+
+  const isEmployer = currentUser?.role === 'employer';
 
   const otherId = chat
     ? (currentUser?.role === 'worker' ? chat.employerId : chat.workerId)
@@ -43,6 +46,18 @@ export default function ChatRoom() {
     : (chat?.companyName ?? '');
   const otherColor = nameColorFromString(otherName);
   const otherAvatarUrl = other?.avatarUrl;
+
+  // Fetch like status (for employer decision bar)
+  useEffect(() => {
+    if (!chat || !currentUser) return;
+    dbGetLikes().then(allLikes => {
+      const like = allLikes.find(l => l.vacancyId === chat.vacancyId && l.workerId === chat.workerId);
+      if (!like) { setLikeStatus('pending'); return; }
+      if (like.isMatch || like.employerLiked === true) setLikeStatus('approved');
+      else if (like.employerLiked === false) setLikeStatus('rejected');
+      else setLikeStatus('pending');
+    }).catch(() => {});
+  }, [chat?.id, currentUser?.id]);
 
   // Mark as read on mount
   useEffect(() => {
@@ -73,6 +88,16 @@ export default function ChatRoom() {
           lastCountRef.current = msgs.length;
           setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
         }
+        // Also refresh like status periodically
+        if (currentUser.role === 'employer') {
+          const allLikes = await dbGetLikes();
+          const like = allLikes.find(l => l.vacancyId === chat.vacancyId && l.workerId === chat.workerId);
+          if (like) {
+            if (like.isMatch || like.employerLiked === true) setLikeStatus('approved');
+            else if (like.employerLiked === false) setLikeStatus('rejected');
+            else setLikeStatus('pending');
+          }
+        }
       } catch (e) {
         console.warn('[ChatRoom] poll error', e);
       }
@@ -90,9 +115,49 @@ export default function ChatRoom() {
     }
   }, [messages.length]);
 
+  // Employer: approve / reject candidate directly from chat
+  const handleEmployerDecision = async (accept: boolean) => {
+    if (!chat || !currentUser || !isEmployer) return;
+    setDecidingLike(true);
+    try {
+      const workerId = chat.workerId;
+      const vacId = chat.vacancyId;
+      if (accept) {
+        await dbUpsertLike(vacId, workerId, currentUser.id, { employerLiked: true });
+        const result = await dbCheckAndCreateMatch(vacId, workerId);
+        const worker = users.find(u => u.id === workerId);
+        const workerName = worker ? `${worker.firstName} ${worker.lastName}` : 'Работник';
+        setLikeStatus('approved');
+        if (result.matched) {
+          const matchMsg = '🎉 Поздравляем, у вас мэтч! Вы подошли друг другу.';
+          await dbInsertMessage(chat.id, 'system', matchMsg);
+          await dbIncrementUnread(chat.id, 'worker');
+          await notifyEmployerGotMatch(workerName, chat.vacTitle);
+        }
+      } else {
+        await dbUpsertLike(vacId, workerId, currentUser.id, { employerLiked: false });
+        const rejectMsg = 'К сожалению, вы не подошли по данной вакансии. Чат закрыт.';
+        await dbInsertMessage(chat.id, 'system', rejectMsg);
+        await dbIncrementUnread(chat.id, 'worker');
+        setLikeStatus('rejected');
+      }
+      const newMsgs = await dbGetMessages(chat.id);
+      setMessages(newMsgs);
+      lastCountRef.current = newMsgs.length;
+      await refreshChats();
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
+    } catch (e) {
+      console.error('[ChatRoom] handleEmployerDecision error', e);
+    } finally {
+      setDecidingLike(false);
+    }
+  };
+
+  const isChatBlocked = likeStatus === 'rejected' && !isEmployer;
+
   const sendMessage = async () => {
     const text = input.trim();
-    if (!text || sending || !chat || !currentUser) return;
+    if (!text || sending || !chat || !currentUser || isChatBlocked) return;
     setSending(true);
     setInput('');
     try {
@@ -101,20 +166,18 @@ export default function ChatRoom() {
       lastCountRef.current += 1;
       const forRole = currentUser.role === 'worker' ? 'employer' : 'worker';
       await dbIncrementUnread(chat.id, forRole);
-      // Push notification to the other party (local, fires on their next poll)
-      // Notify the SENDER's own device as a sent-confirmation
       await notifyNewMessage(otherName, text);
       await refreshChats();
       setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
     } catch (e) {
       console.error('[ChatRoom] sendMessage error', e);
-      setInput(text); // Restore input on error
+      setInput(text);
     } finally {
       setSending(false);
     }
   };
 
-  // All hooks are declared above — safe to return early here
+  // All hooks declared above — safe to return early here
   if (!currentUser || !chat) {
     return (
       <SafeAreaView style={styles.safe}>
@@ -137,9 +200,19 @@ export default function ChatRoom() {
 
   const renderMessage = ({ item }: { item: Message }) => {
     if (item.senderId === 'system') {
+      const isMatch = item.text.includes('мэтч') || item.text.includes('Мэтч');
+      const isReject = item.text.includes('не подошли') || item.text.includes('закрыт');
       return (
-        <View style={styles.systemMsg}>
-          <Text style={styles.systemText}>{item.text}</Text>
+        <View style={[
+          styles.systemMsg,
+          isMatch && styles.systemMsgMatch,
+          isReject && styles.systemMsgReject,
+        ]}>
+          <Text style={[
+            styles.systemText,
+            isMatch && styles.systemTextMatch,
+            isReject && styles.systemTextReject,
+          ]}>{item.text}</Text>
         </View>
       );
     }
@@ -170,6 +243,44 @@ export default function ChatRoom() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      {/* Employer decision bar — shown at the top */}
+      {isEmployer && likeStatus === 'pending' ? (
+        <View style={styles.decisionBar}>
+          <Text style={styles.decisionBarLabel}>Решение по кандидату:</Text>
+          <TouchableOpacity
+            style={[styles.decisionBtn, styles.decisionBtnReject, decidingLike && { opacity: 0.5 }]}
+            onPress={() => handleEmployerDecision(false)}
+            disabled={decidingLike}
+            activeOpacity={0.8}
+          >
+            {decidingLike ? <ActivityIndicator size="small" color={Colors.red} /> : <Text style={styles.decisionBtnRejectTxt}>✕ Не подходит</Text>}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.decisionBtn, styles.decisionBtnAccept, decidingLike && { opacity: 0.5 }]}
+            onPress={() => handleEmployerDecision(true)}
+            disabled={decidingLike}
+            activeOpacity={0.8}
+          >
+            {decidingLike ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.decisionBtnAcceptTxt}>✅ Подходит</Text>}
+          </TouchableOpacity>
+        </View>
+      ) : isEmployer && likeStatus === 'approved' ? (
+        <View style={[styles.decisionBar, { backgroundColor: '#D1FAE5' }]}>
+          <Text style={[styles.decisionBarLabel, { color: Colors.green, textAlign: 'center', flex: 1 }]}>🎉 Мэтч создан!</Text>
+        </View>
+      ) : isEmployer && likeStatus === 'rejected' ? (
+        <View style={[styles.decisionBar, { backgroundColor: '#FEE2E2' }]}>
+          <Text style={[styles.decisionBarLabel, { color: Colors.red, textAlign: 'center', flex: 1 }]}>✕ Кандидат отклонён</Text>
+        </View>
+      ) : null}
+
+      {/* Blocked notice for worker */}
+      {isChatBlocked ? (
+        <View style={styles.blockedBar}>
+          <Text style={styles.blockedBarTxt}>❌ Чат закрыт — работодатель принял решение</Text>
+        </View>
+      ) : null}
+
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
@@ -244,19 +355,20 @@ export default function ChatRoom() {
         {/* Input bar */}
         <View style={styles.inputBar}>
           <TextInput
-            style={styles.textInput}
+            style={[styles.textInput, isChatBlocked && { opacity: 0.4 }]}
             value={input}
-            onChangeText={setInput}
-            placeholder="Написать сообщение..."
+            onChangeText={isChatBlocked ? undefined : setInput}
+            placeholder={isChatBlocked ? 'Чат закрыт' : 'Написать сообщение...'}
             placeholderTextColor={Colors.textMuted}
             multiline
             maxLength={1000}
             blurOnSubmit={false}
+            editable={!isChatBlocked}
           />
           <TouchableOpacity
-            style={[styles.sendBtn, (!input.trim() || sending) && styles.sendBtnDisabled]}
+            style={[styles.sendBtn, (!input.trim() || sending || isChatBlocked) && styles.sendBtnDisabled]}
             onPress={sendMessage}
-            disabled={!input.trim() || sending}
+            disabled={!input.trim() || sending || isChatBlocked}
             activeOpacity={0.8}
           >
             <Text style={styles.sendIcon}>➤</Text>
@@ -269,6 +381,25 @@ export default function ChatRoom() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.bg },
+  // Decision bar (employer top bar)
+  decisionBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 14, paddingVertical: 10,
+    backgroundColor: '#F0F9FF',
+    borderBottomWidth: 1, borderBottomColor: Colors.divider,
+  },
+  decisionBarLabel: { fontSize: 13, fontWeight: '600', color: Colors.textSecondary },
+  decisionBtn: { borderRadius: 100, paddingHorizontal: 14, paddingVertical: 8 },
+  decisionBtnReject: { backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FECACA' },
+  decisionBtnRejectTxt: { fontSize: 13, fontWeight: '700', color: Colors.red },
+  decisionBtnAccept: { backgroundColor: Colors.primary },
+  decisionBtnAcceptTxt: { fontSize: 13, fontWeight: '700', color: '#fff' },
+  // Blocked bar (worker)
+  blockedBar: {
+    backgroundColor: '#FEE2E2', paddingHorizontal: 16, paddingVertical: 10,
+    borderBottomWidth: 1, borderBottomColor: '#FECACA',
+  },
+  blockedBarTxt: { fontSize: 13, fontWeight: '600', color: Colors.red, textAlign: 'center' },
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingVertical: 12,
@@ -286,7 +417,11 @@ const styles = StyleSheet.create({
     alignSelf: 'center', backgroundColor: Colors.primaryLight,
     borderRadius: 100, paddingHorizontal: 14, paddingVertical: 6, marginVertical: 8,
   },
+  systemMsgMatch: { backgroundColor: '#D1FAE5', borderRadius: 12 },
+  systemMsgReject: { backgroundColor: '#FEE2E2', borderRadius: 12 },
   systemText: { fontSize: 13, color: Colors.primary, fontWeight: '600', textAlign: 'center' },
+  systemTextMatch: { color: Colors.green },
+  systemTextReject: { color: Colors.red },
   msgRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginVertical: 2 },
   msgRowMe: { justifyContent: 'flex-end' },
   msgRowThem: { justifyContent: 'flex-start' },

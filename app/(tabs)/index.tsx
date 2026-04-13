@@ -15,7 +15,6 @@ import {
   dbUpsertLike,
   dbCheckAndCreateMatch,
   dbRemoveLike,
-  dbAddSaved,
   dbUpdateVacancy,
   dbCreateChat,
   dbInsertMessage,
@@ -25,7 +24,7 @@ import {
   dbRemovePermSaved,
   dbClosePermVacancy,
 } from '@/services/db';
-import { notifyWorkerSentApplication, notifyWorkerGotMatch, notifyEmployerGotMatch } from '@/services/notifications';
+import { notifyWorkerSentApplication, notifyWorkerGotMatch } from '@/services/notifications';
 import { Image } from 'expo-image';
 import { Chip } from '@/components/ui/Chip';
 import { VacancyDetailModal } from '@/components/feature/VacancyDetailModal';
@@ -344,9 +343,8 @@ const wS = StyleSheet.create({
 function WorkerFeed() {
   const router = useRouter();
   const {
-    currentUser, users, vacancies, likes,
-    savedIds, optimisticAddSaved,
-    refreshAll, refreshLikes, refreshSaved,
+    currentUser, users, vacancies, likes, chats,
+    refreshAll, refreshLikes,
     showToast,
   } = useApp();
   const [refreshing, setRefreshing] = useState(false);
@@ -358,8 +356,8 @@ function WorkerFeed() {
     setRefreshing(false);
   };
 
-  const [dates, setDates] = useState(() => getTodayDates(7));
-  const [selectedDate, setSelectedDate] = useState(() => getTodayDates(7)[0]);
+  const [dates, setDates] = useState(() => getTodayDates());
+  const [selectedDate, setSelectedDate] = useState(() => getTodayDates()[0]);
   const [cards, setCards] = useState<Vacancy[]>([]);
   const [history, setHistory] = useState<Record<string, Vacancy[]>>({});
   const [swiping, setSwiping] = useState(false);
@@ -376,16 +374,15 @@ function WorkerFeed() {
   // Refresh date strip when virtual start changes (e.g. after 22:00)
   useEffect(() => {
     const interval = setInterval(() => {
-      const fresh = getTodayDates(7);
+      const fresh = getTodayDates();
       setDates(prev => {
-        // Only update if the date window shifted
         if (prev[0] !== fresh[0]) {
           setSelectedDate(fresh[0]);
           return fresh;
         }
         return prev;
       });
-    }, 30_000); // check every 30s
+    }, 30_000);
     return () => clearInterval(interval);
   }, []);
 
@@ -485,25 +482,42 @@ function WorkerFeed() {
     Animated.spring(pan, { toValue: { x: 0, y: 0 }, tension: 200, friction: 20, useNativeDriver: false }).start();
   }, [dateHistory, selectedDate, currentUser, swiping, refreshLikes, pan]);
 
-  const doSave = useCallback(async () => {
+  const doMessage = useCallback(async () => {
     if (!currentCard || !currentUser) return;
-    if (savedIds.includes(currentCard.id)) {
-      showToast('Уже в избранном', 'success');
+    // Find or create a chat with the employer for this vacancy
+    const existingChat = chats.find(
+      c => c.vacancyId === currentCard.id && c.workerId === currentUser.id
+    );
+    if (existingChat) {
+      router.push({ pathname: '/chat-room', params: { chatId: existingChat.id } });
       return;
     }
-    optimisticAddSaved(currentCard.id);
-    dbAddSaved(currentUser.id, currentCard.id).then(() => {
-      refreshSaved().catch(() => {});
-    });
-    showToast('Сохранено в избранное ❤️', 'success');
-  }, [currentCard, currentUser, savedIds, showToast, optimisticAddSaved, refreshSaved]);
+    try {
+      const chatId = await dbCreateChat(
+        currentUser.id,
+        currentCard.employerId,
+        currentCard.id,
+        currentCard.title,
+        currentCard.company,
+        `Здравствуйте! Меня заинтересовала ваша вакансия «${currentCard.title}».`,
+        0,
+        1,
+      );
+      await refreshAll();
+      router.push({ pathname: '/chat-room', params: { chatId } });
+    } catch (e) {
+      showToast('Ошибка при открытии чата', 'error');
+    }
+  }, [currentCard, currentUser, chats, refreshAll, router, showToast]);
 
   const swipeCbRef = useRef<((dir: 'want' | 'skip', vx: number) => void) | null>(null);
   const snapBackRef = useRef<(() => void) | null>(null);
+  const doMessageRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     swipeCbRef.current = (dir, vx) => { if (dir === 'want') doWant(vx); else doSkip(vx); };
     snapBackRef.current = snapBack;
+    doMessageRef.current = doMessage;
   });
 
   const panResponder = useRef(
@@ -542,6 +556,9 @@ function WorkerFeed() {
     }).length;
   };
 
+  // Only show dates that have vacancies OR are within the next 7 days (for usability)
+  const visibleDates = dates;
+
   const activeFilterLine = METRO_LINES.find(l => l.id === filterLineId);
 
   const getRuDay = (iso: string) => {
@@ -560,7 +577,7 @@ function WorkerFeed() {
             contentContainerStyle={styles.dateRow}
             style={{ flex: 1 }}
           >
-            {dates.map(d => {
+            {visibleDates.map(d => {
               const active = d === selectedDate;
               const cnt = getDateCount(d);
               return (
@@ -703,12 +720,10 @@ function WorkerFeed() {
 
               <TouchableOpacity
                 style={[styles.actionBtn, styles.actionSave]}
-                onPress={doSave}
+                onPress={() => doMessageRef.current?.()}
                 activeOpacity={0.7}
               >
-                <Text style={styles.actionSaveIcon}>
-                  {savedIds.includes(currentCard.id) ? '❤️' : '🤍'}
-                </Text>
+                <Text style={styles.actionSaveIcon}>💬</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
