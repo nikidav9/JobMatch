@@ -67,8 +67,8 @@ function ConfirmBanner({ onConfirm, loading }: { onConfirm: () => void; loading:
 // ─────────────────────────────────────────────────
 function WorkerMatches() {
   const router = useRouter();
-  const { currentUser, loading, likes, vacancies, users, refreshAll, showToast } = useApp();
-  const [loading, setLoading] = useState<string | null>(null);
+  const { currentUser, likes, vacancies, users, refreshAll, showToast } = useApp();
+  const [actionLoading, setLoading] = useState<string | null>(null);
   const [detailVacancy, setDetailVacancy] = useState<Vacancy | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [tab, setTab] = useState<'active' | 'rejected' | 'completed'>('active');
@@ -139,7 +139,7 @@ function WorkerMatches() {
 
         {/* Confirm banner */}
         {isMatch && !isCompleted && !like.workerConfirmed ? (
-          <ConfirmBanner onConfirm={() => confirmShift(like)} loading={loading === shiftKey} />
+          <ConfirmBanner onConfirm={() => confirmShift(like)} loading={actionLoading === shiftKey} />
         ) : null}
 
         <TouchableOpacity activeOpacity={0.8} onPress={() => setDetailVacancy(vac)}>
@@ -184,12 +184,12 @@ function WorkerMatches() {
             </TouchableOpacity>
             {!like.workerConfirmed ? (
               <TouchableOpacity
-                style={[s.confirmBtn, loading === shiftKey && { opacity: 0.5 }]}
+                style={[s.confirmBtn, actionLoading === shiftKey && { opacity: 0.5 }]}
                 onPress={() => confirmShift(like)}
-                disabled={loading === shiftKey}
+                disabled={actionLoading === shiftKey}
                 activeOpacity={0.8}
               >
-                {loading === shiftKey ? <ActivityIndicator size="small" color="#fff" /> : <Text style={s.confirmBtnTxt}>✔ Подтверждаю выход</Text>}
+                {actionLoading === shiftKey ? <ActivityIndicator size="small" color="#fff" /> : <Text style={s.confirmBtnTxt}>✔ Подтверждаю выход</Text>}
               </TouchableOpacity>
             ) : (
               <View style={s.waitBtn}><Text style={s.waitBtnTxt}>⏳ Ждём работодателя</Text></View>
@@ -265,8 +265,8 @@ function WorkerMatches() {
 // ─────────────────────────────────────────────────
 function EmployerMatches() {
   const router = useRouter();
-  const { currentUser, loading, likes, vacancies, users, refreshAll, showToast } = useApp();
-  const [loading, setLoading] = useState<string | null>(null);
+  const { currentUser, likes, vacancies, users, refreshAll, showToast } = useApp();
+  const [actionLoading, setLoading] = useState<string | null>(null);
   const [tab, setTab] = useState<'pending' | 'matched'>('pending');
   const [refreshing, setRefreshing] = useState(false);
 
@@ -369,9 +369,9 @@ function EmployerMatches() {
     if (!vac || !worker) return null;
     const workerName = `${worker.firstName} ${worker.lastName}`;
     const workerColor = nameColorFromString(worker.id);
-    const isLoading = loading === like.id;
-    const isDLoading = loading === like.id + '_d';
-    const isShiftLoading = loading === like.id + '_shift';
+    const isLoading = actionLoading === like.id;
+    const isDLoading = actionLoading === like.id + '_d';
+    const isShiftLoading = actionLoading === like.id + '_shift';
 
     if (like.isMatch) {
       return (
@@ -464,7 +464,7 @@ function EmployerMatches() {
             <TouchableOpacity
               style={[s.rejectBtn, isDLoading && { opacity: 0.5 }]}
               onPress={() => dismiss(like)}
-              disabled={!!loading}
+              disabled={!!actionLoading}
               activeOpacity={0.8}
             >
               {isDLoading ? <ActivityIndicator size="small" color={Colors.red} /> : <Text style={s.rejectBtnTxt}>✕ Не подходит</Text>}
@@ -472,7 +472,7 @@ function EmployerMatches() {
             <TouchableOpacity
               style={[s.acceptBtn, isLoading && { opacity: 0.5 }]}
               onPress={() => approve(like)}
-              disabled={!!loading}
+              disabled={!!actionLoading}
               activeOpacity={0.8}
             >
               {isLoading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={s.acceptBtnTxt}>✅ Подходит!</Text>}
