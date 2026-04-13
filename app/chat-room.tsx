@@ -182,8 +182,8 @@ export default function ChatRoom() {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <Text style={styles.backText}>← Назад</Text>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backIconBtn} activeOpacity={0.7}>
+            <Text style={styles.backIconTxt}>‹</Text>
           </TouchableOpacity>
         </View>
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
@@ -246,31 +246,33 @@ export default function ChatRoom() {
       {/* Employer decision bar — shown at the top */}
       {isEmployer && likeStatus === 'pending' ? (
         <View style={styles.decisionBar}>
-          <Text style={styles.decisionBarLabel}>Решение по кандидату:</Text>
-          <TouchableOpacity
-            style={[styles.decisionBtn, styles.decisionBtnReject, decidingLike && { opacity: 0.5 }]}
-            onPress={() => handleEmployerDecision(false)}
-            disabled={decidingLike}
-            activeOpacity={0.8}
-          >
-            {decidingLike ? <ActivityIndicator size="small" color={Colors.red} /> : <Text style={styles.decisionBtnRejectTxt}>✕ Не подходит</Text>}
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.decisionBtn, styles.decisionBtnAccept, decidingLike && { opacity: 0.5 }]}
-            onPress={() => handleEmployerDecision(true)}
-            disabled={decidingLike}
-            activeOpacity={0.8}
-          >
-            {decidingLike ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.decisionBtnAcceptTxt}>✅ Подходит</Text>}
-          </TouchableOpacity>
+          <Text style={styles.decisionBarLabel}>Принять решение:</Text>
+          <View style={styles.decisionBtnsRow}>
+            <TouchableOpacity
+              style={[styles.decisionBtn, styles.decisionBtnReject, decidingLike && { opacity: 0.5 }]}
+              onPress={() => handleEmployerDecision(false)}
+              disabled={decidingLike}
+              activeOpacity={0.8}
+            >
+              {decidingLike ? <ActivityIndicator size="small" color={Colors.red} /> : <Text style={styles.decisionBtnRejectTxt}>✕ Не подходит</Text>}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.decisionBtn, styles.decisionBtnAccept, decidingLike && { opacity: 0.5 }]}
+              onPress={() => handleEmployerDecision(true)}
+              disabled={decidingLike}
+              activeOpacity={0.8}
+            >
+              {decidingLike ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.decisionBtnAcceptTxt}>✅ Подходит</Text>}
+            </TouchableOpacity>
+          </View>
         </View>
       ) : isEmployer && likeStatus === 'approved' ? (
         <View style={[styles.decisionBar, { backgroundColor: '#D1FAE5' }]}>
-          <Text style={[styles.decisionBarLabel, { color: Colors.green, textAlign: 'center', flex: 1 }]}>🎉 Мэтч создан!</Text>
+          <Text style={[styles.decisionBarLabel, { color: Colors.green, textAlign: 'center' }]}>🎉 Мэтч создан!</Text>
         </View>
       ) : isEmployer && likeStatus === 'rejected' ? (
         <View style={[styles.decisionBar, { backgroundColor: '#FEE2E2' }]}>
-          <Text style={[styles.decisionBarLabel, { color: Colors.red, textAlign: 'center', flex: 1 }]}>✕ Кандидат отклонён</Text>
+          <Text style={[styles.decisionBarLabel, { color: Colors.red, textAlign: 'center' }]}>✕ Кандидат отклонён</Text>
         </View>
       ) : null}
 
@@ -283,8 +285,8 @@ export default function ChatRoom() {
 
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Text style={styles.backText}>← Назад</Text>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backIconBtn} activeOpacity={0.7}>
+          <Text style={styles.backIconTxt}>‹</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.headerCenter}
@@ -383,17 +385,26 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.bg },
   // Decision bar (employer top bar)
   decisionBar: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
     paddingHorizontal: 14, paddingVertical: 10,
     backgroundColor: '#F0F9FF',
     borderBottomWidth: 1, borderBottomColor: Colors.divider,
+    gap: 8,
   },
-  decisionBarLabel: { fontSize: 13, fontWeight: '600', color: Colors.textSecondary },
-  decisionBtn: { borderRadius: 100, paddingHorizontal: 14, paddingVertical: 8 },
+  decisionBarLabel: { fontSize: 12, fontWeight: '600', color: Colors.textSecondary },
+  decisionBtnsRow: { flexDirection: 'row', gap: 8 },
+  decisionBtn: { flex: 1, borderRadius: 100, paddingVertical: 9, alignItems: 'center', justifyContent: 'center' },
   decisionBtnReject: { backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FECACA' },
   decisionBtnRejectTxt: { fontSize: 13, fontWeight: '700', color: Colors.red },
   decisionBtnAccept: { backgroundColor: Colors.primary },
   decisionBtnAcceptTxt: { fontSize: 13, fontWeight: '700', color: '#fff' },
+  // Compact back icon button
+  backIconBtn: {
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: Colors.surface,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: Colors.divider,
+  },
+  backIconTxt: { fontSize: 22, color: Colors.textPrimary, lineHeight: 26, fontWeight: '400', marginTop: -1 },
   // Blocked bar (worker)
   blockedBar: {
     backgroundColor: '#FEE2E2', paddingHorizontal: 16, paddingVertical: 10,
@@ -406,7 +417,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: Colors.divider,
   },
   backBtn: {},
-  backText: { fontSize: 15, color: Colors.textSecondary, fontWeight: '500' },
   headerCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, justifyContent: 'center' },
   headerAvatar: { width: 34, height: 34, borderRadius: 17 },
   headerAvatarText: { color: '#fff', fontSize: 13, fontWeight: '700' },
