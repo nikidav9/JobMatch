@@ -1459,9 +1459,10 @@ const pS = StyleSheet.create({
     borderRadius: 100, paddingHorizontal: 12, paddingVertical: 8,
     borderWidth: 1.5, borderColor: Colors.inputBorder,
     backgroundColor: Colors.bg,
+    flexShrink: 0,
   },
-  statusChipIcon: { fontSize: 13 },
-  statusChipLabel: { fontSize: 13, fontWeight: '500', color: Colors.textSecondary },
+  statusChipIcon: { fontSize: 13, flexShrink: 0 },
+  statusChipLabel: { fontSize: 13, fontWeight: '500', color: Colors.textSecondary, flexShrink: 0 },
   statusChipBadge: {
     minWidth: 18, height: 18, borderRadius: 9,
     alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4,
