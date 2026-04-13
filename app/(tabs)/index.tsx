@@ -774,23 +774,31 @@ function WorkerFeed() {
 // ─────────────────────────────────────────────────
 // Worker Permanent mode
 // ─────────────────────────────────────────────────
-type PermTab = 'all' | 'applied' | 'saved';
+type PermTab = 'open' | 'applied' | 'rejected' | 'saved';
+
+const SALARY_CHIPS = [
+  { label: 'Любая', value: 0 },
+  { label: '30 000+', value: 30000 },
+  { label: '50 000+', value: 50000 },
+  { label: '80 000+', value: 80000 },
+  { label: '100 000+', value: 100000 },
+];
 
 function WorkerPermMode() {
   const router = useRouter();
   const {
-    currentUser, users, permVacancies, permApplications,
+    currentUser, permVacancies, permApplications,
     permSavedIds, optimisticAddPermSaved, optimisticRemovePermSaved,
     refreshPermVacancies, refreshPermApplications, refreshPermSaved,
     showToast,
   } = useApp();
 
-  const [tab, setTab] = useState<PermTab>('all');
+  const [tab, setTab] = useState<PermTab>('open');
   const [refreshing, setRefreshing] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [filterLineId, setFilterLineId] = useState<string | null>(null);
   const [filterPicker, setFilterPicker] = useState(false);
-  const [minSalary, setMinSalary] = useState('');
+  const [minSalary, setMinSalary] = useState(0);
   const [applying, setApplying] = useState<string | null>(null);
 
   const onRefresh = async () => {
@@ -803,26 +811,34 @@ function WorkerPermMode() {
 
   const myApps = permApplications.filter(a => a.workerId === currentUser.id);
   const myAppVacIds = new Set(myApps.map(a => a.vacancyId));
+  const getAppStatus = (vacId: string) => myApps.find(a => a.vacancyId === vacId)?.status ?? null;
 
-  const allOpen = permVacancies.filter(v => {
-    if (searchText && !v.title.toLowerCase().includes(searchText.toLowerCase()) && !(v.company.toLowerCase().includes(searchText.toLowerCase()))) return false;
+  const matchesSearch = (v: PermVacancy) => {
+    if (!searchText) return true;
+    const q = searchText.toLowerCase();
+    return v.title.toLowerCase().includes(q) || v.company.toLowerCase().includes(q);
+  };
+  const matchesFilters = (v: PermVacancy) => {
     if (filterLineId && v.metroLineId !== filterLineId) return false;
-    const minS = parseInt(minSalary, 10);
-    if (!isNaN(minS) && v.salary < minS) return false;
+    if (minSalary > 0 && v.salary < minSalary) return false;
     return true;
-  });
+  };
 
-  const appliedVacancies = permVacancies.filter(v => myAppVacIds.has(v.id));
-  const savedVacancies = permVacancies.filter(v => permSavedIds.includes(v.id));
+  // Tab buckets
+  const openVacancies     = permVacancies.filter(v => v.status === 'open' && !myAppVacIds.has(v.id) && matchesSearch(v) && matchesFilters(v));
+  const appliedVacancies  = permVacancies.filter(v => myAppVacIds.has(v.id) && getAppStatus(v.id) !== 'rejected' && matchesSearch(v) && matchesFilters(v));
+  const rejectedVacancies = permVacancies.filter(v => myAppVacIds.has(v.id) && getAppStatus(v.id) === 'rejected' && matchesSearch(v) && matchesFilters(v));
+  const savedVacancies    = permVacancies.filter(v => permSavedIds.includes(v.id) && matchesSearch(v) && matchesFilters(v));
 
-  const shownVacancies = tab === 'all' ? allOpen : tab === 'applied' ? appliedVacancies : savedVacancies;
+  const shownVacancies =
+    tab === 'open'     ? openVacancies :
+    tab === 'applied'  ? appliedVacancies :
+    tab === 'rejected' ? rejectedVacancies :
+    savedVacancies;
 
   const applyTo = async (v: PermVacancy) => {
     if (!currentUser) return;
-    if (myAppVacIds.has(v.id)) {
-      showToast('Уже откликнулись', 'success');
-      return;
-    }
+    if (myAppVacIds.has(v.id)) { showToast('Уже откликнулись', 'success'); return; }
     setApplying(v.id);
     try {
       await dbApplyPermVacancy(v.id, currentUser.id, v.employerId);
@@ -848,8 +864,6 @@ function WorkerPermMode() {
     }
   };
 
-  const getAppStatus = (vacId: string) => myApps.find(a => a.vacancyId === vacId)?.status ?? null;
-
   const STATUS_MAP: Record<string, { label: string; color: string; bg: string }> = {
     pending:  { label: '⏳ На рассмотрении', color: '#92400E', bg: '#FFF7ED' },
     approved: { label: '✅ Приглашён',        color: Colors.green, bg: '#D1FAE5' },
@@ -857,6 +871,13 @@ function WorkerPermMode() {
   };
 
   const activeFilterLine = METRO_LINES.find(l => l.id === filterLineId);
+
+  const TAB_CONFIG: { key: PermTab; icon: string; label: string; count: number; activeColor: string; activeBg: string }[] = [
+    { key: 'open',     icon: '📋', label: 'Открытые',    count: openVacancies.length,     activeColor: '#1D4ED8', activeBg: '#EFF6FF' },
+    { key: 'applied',  icon: '📨', label: 'Откликнулся', count: appliedVacancies.length,  activeColor: '#7C3AED', activeBg: '#EDE9FE' },
+    { key: 'rejected', icon: '✕',  label: 'Отказали',    count: rejectedVacancies.length, activeColor: Colors.red, activeBg: '#FEE2E2' },
+    { key: 'saved',    icon: '❤️', label: 'Избранное',   count: savedVacancies.length,    activeColor: Colors.primary, activeBg: Colors.primaryLight },
+  ];
 
   const renderPerm = ({ item: v }: { item: PermVacancy }) => {
     const isApplied = myAppVacIds.has(v.id);
@@ -910,23 +931,37 @@ function WorkerPermMode() {
           <Text style={pS.desc} numberOfLines={2}>{v.description}</Text>
         ) : null}
 
-        <TouchableOpacity
-          style={[pS.applyBtn, isApplied && pS.applyBtnDone, isApplying && { opacity: 0.6 }]}
-          onPress={(e) => { e.stopPropagation?.(); applyTo(v); }}
-          disabled={isApplied || isApplying}
-          activeOpacity={0.8}
-        >
-          <Text style={[pS.applyBtnTxt, isApplied && { color: Colors.green }]}>
-            {isApplied ? '✓ Отклик отправлен' : 'Откликнуться'}
-          </Text>
-        </TouchableOpacity>
+        {tab !== 'rejected' ? (
+          <TouchableOpacity
+            style={[pS.applyBtn, isApplied && pS.applyBtnDone, isApplying && { opacity: 0.6 }]}
+            onPress={(e) => { e.stopPropagation?.(); applyTo(v); }}
+            disabled={isApplied || isApplying}
+            activeOpacity={0.8}
+          >
+            <Text style={[pS.applyBtnTxt, isApplied && { color: Colors.green }]}>
+              {isApplied ? '✓ Отклик отправлен' : 'Откликнуться'}
+            </Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={pS.rejectedInfo}>
+            <Text style={pS.rejectedInfoTxt}>Работодатель отказал по этой вакансии</Text>
+          </View>
+        )}
       </TouchableOpacity>
     );
   };
 
+  const currentTabCfg = TAB_CONFIG.find(t => t.key === tab)!;
+  const emptyMessages: Record<PermTab, { icon: string; title: string; sub: string }> = {
+    open:     { icon: '🔍', title: 'Нет открытых вакансий', sub: 'Попробуйте изменить фильтры' },
+    applied:  { icon: '📨', title: 'Нет откликов', sub: 'Откликайтесь на вакансии во вкладке «Открытые»' },
+    rejected: { icon: '😔', title: 'Отказов нет', sub: 'Это хорошо! Продолжайте откликаться' },
+    saved:    { icon: '❤️', title: 'Нет избранного', sub: 'Сохраняйте понравившиеся вакансии' },
+  };
+
   return (
     <View style={{ flex: 1 }}>
-      {/* Search + filter */}
+      {/* Search + metro filter */}
       <View style={pS.searchRow}>
         <View style={pS.searchBox}>
           <Text style={pS.searchIcon}>🔍</Text>
@@ -948,54 +983,75 @@ function WorkerPermMode() {
           onPress={() => setFilterPicker(true)}
           activeOpacity={0.8}
         >
-          <Text style={[pS.filterBtnTxt, filterLineId ? { color: Colors.primary } : null]}>🚇</Text>
+          {filterLineId && activeFilterLine ? (
+            <View style={[pS.filterLineDot, { backgroundColor: activeFilterLine.color, width: 14, height: 14, borderRadius: 7 }]} />
+          ) : (
+            <Text style={pS.filterBtnTxt}>🚇</Text>
+          )}
         </TouchableOpacity>
       </View>
 
-      {/* Salary filter */}
-      <View style={pS.salaryFilterRow}>
-        <Text style={pS.salaryFilterLabel}>Зарплата от</Text>
-        <TextInput
-          style={pS.salaryFilterInput}
-          value={minSalary}
-          onChangeText={setMinSalary}
-          placeholder="0"
-          placeholderTextColor={Colors.textMuted}
-          keyboardType="numeric"
-        />
-        <Text style={pS.salaryFilterLabel}>₽</Text>
-        {filterLineId && activeFilterLine ? (
-          <TouchableOpacity style={pS.activeLineChip} onPress={() => setFilterLineId(null)}>
-            <View style={[pS.filterLineDot, { backgroundColor: activeFilterLine.color }]} />
-            <Text style={pS.activeLineChipTxt}>{activeFilterLine.name} ✕</Text>
-          </TouchableOpacity>
-        ) : null}
-      </View>
-
-      {/* Tabs */}
-      <View style={pS.tabs}>
-        {([
-          { key: 'all',     label: `Все (${allOpen.length})` },
-          { key: 'applied', label: `Отклики (${appliedVacancies.length})` },
-          { key: 'saved',   label: `Избранное (${savedVacancies.length})` },
-        ] as { key: PermTab; label: string }[]).map(t => (
-          <TouchableOpacity key={t.key} style={pS.tabItem} onPress={() => setTab(t.key)} activeOpacity={0.8}>
-            <Text style={[pS.tabLabel, tab === t.key && pS.tabLabelActive]}>{t.label}</Text>
-            {tab === t.key ? <View style={pS.tabUnderline} /> : null}
+      {/* Salary chips */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={pS.salaryChipsRow}
+        style={pS.salaryChipsScroll}
+      >
+        {SALARY_CHIPS.map(chip => (
+          <TouchableOpacity
+            key={chip.value}
+            style={[pS.salaryChip, minSalary === chip.value && pS.salaryChipActive]}
+            onPress={() => setMinSalary(chip.value)}
+            activeOpacity={0.75}
+          >
+            <Text style={[pS.salaryChipTxt, minSalary === chip.value && pS.salaryChipTxtActive]}>
+              {chip.label}
+            </Text>
           </TouchableOpacity>
         ))}
-      </View>
+      </ScrollView>
+
+      {/* Status filter chips */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={pS.statusChipsRow}
+        style={pS.statusChipsScroll}
+      >
+        {TAB_CONFIG.map(t => {
+          const isActive = tab === t.key;
+          return (
+            <TouchableOpacity
+              key={t.key}
+              style={[
+                pS.statusChip,
+                isActive && { backgroundColor: t.activeBg, borderColor: t.activeColor },
+              ]}
+              onPress={() => setTab(t.key)}
+              activeOpacity={0.8}
+            >
+              <Text style={pS.statusChipIcon}>{t.icon}</Text>
+              <Text style={[pS.statusChipLabel, isActive && { color: t.activeColor, fontWeight: '700' }]}>
+                {t.label}
+              </Text>
+              <View style={[
+                pS.statusChipBadge,
+                isActive ? { backgroundColor: t.activeColor } : { backgroundColor: Colors.textMuted },
+              ]}>
+                <Text style={pS.statusChipBadgeTxt}>{t.count}</Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
 
       {/* List */}
       {shownVacancies.length === 0 ? (
         <View style={styles.emptyState}>
-          <Text style={{ fontSize: 48 }}>{tab === 'all' ? '🔍' : tab === 'applied' ? '📥' : '❤️'}</Text>
-          <Text style={styles.emptyTitle}>
-            {tab === 'all' ? 'Нет вакансий' : tab === 'applied' ? 'Нет откликов' : 'Нет избранного'}
-          </Text>
-          <Text style={styles.emptySubtitle}>
-            {tab === 'all' ? 'Попробуйте изменить фильтры' : tab === 'applied' ? 'Откликайтесь на вакансии' : 'Сохраняйте понравившиеся вакансии'}
-          </Text>
+          <Text style={{ fontSize: 48 }}>{emptyMessages[tab].icon}</Text>
+          <Text style={styles.emptyTitle}>{emptyMessages[tab].title}</Text>
+          <Text style={styles.emptySubtitle}>{emptyMessages[tab].sub}</Text>
         </View>
       ) : (
         <FlatList
@@ -1384,24 +1440,39 @@ const pS = StyleSheet.create({
   },
   filterBtnActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryLight },
   filterBtnTxt: { fontSize: 18 },
-  salaryFilterRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingBottom: 10 },
-  salaryFilterLabel: { fontSize: 13, color: Colors.textMuted },
-  salaryFilterInput: {
-    borderWidth: 1.5, borderColor: Colors.inputBorder, borderRadius: 8,
-    paddingHorizontal: 10, paddingVertical: 6,
-    fontSize: 14, color: Colors.textPrimary, width: 80, textAlign: 'center',
+  // Salary chips
+  salaryChipsScroll: { flexGrow: 0 },
+  salaryChipsRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingBottom: 10 },
+  salaryChip: {
+    borderRadius: 100, paddingHorizontal: 14, paddingVertical: 7,
+    borderWidth: 1.5, borderColor: Colors.inputBorder,
+    backgroundColor: Colors.bg,
   },
-  activeLineChip: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: Colors.primaryLight, borderRadius: 100, paddingHorizontal: 10, paddingVertical: 5,
-    marginLeft: 'auto' as any,
+  salaryChipActive: { borderColor: Colors.green, backgroundColor: '#D1FAE5' },
+  salaryChipTxt: { fontSize: 13, fontWeight: '600', color: Colors.textMuted },
+  salaryChipTxtActive: { color: Colors.green },
+  // Status filter chips
+  statusChipsScroll: { flexGrow: 0, borderBottomWidth: 1, borderBottomColor: Colors.divider },
+  statusChipsRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 10 },
+  statusChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    borderRadius: 100, paddingHorizontal: 12, paddingVertical: 8,
+    borderWidth: 1.5, borderColor: Colors.inputBorder,
+    backgroundColor: Colors.bg,
   },
-  activeLineChipTxt: { fontSize: 12, color: Colors.primary, fontWeight: '600' },
-  tabs: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: Colors.divider },
-  tabItem: { flex: 1, alignItems: 'center', paddingVertical: 10 },
-  tabLabel: { fontSize: 12, fontWeight: '500', color: Colors.textMuted },
-  tabLabelActive: { fontWeight: '700', color: Colors.textPrimary },
-  tabUnderline: { position: 'absolute', bottom: 0, left: '15%', right: '15%', height: 2, backgroundColor: '#7C3AED', borderRadius: 1 },
+  statusChipIcon: { fontSize: 13 },
+  statusChipLabel: { fontSize: 13, fontWeight: '500', color: Colors.textSecondary },
+  statusChipBadge: {
+    minWidth: 18, height: 18, borderRadius: 9,
+    alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4,
+  },
+  statusChipBadgeTxt: { fontSize: 10, fontWeight: '800', color: '#fff' },
+  // Rejected info
+  rejectedInfo: {
+    backgroundColor: '#FEE2E2', borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 10,
+  },
+  rejectedInfoTxt: { fontSize: 13, color: Colors.red, fontWeight: '500', textAlign: 'center' },
   // Vacancy card
   card: { backgroundColor: Colors.bg, borderRadius: Radius.lg, padding: 16, ...Shadow.card, gap: 10 },
   cardHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
