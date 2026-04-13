@@ -358,8 +358,8 @@ function WorkerFeed() {
     setRefreshing(false);
   };
 
-  const [dates] = useState(getTodayDates(7));
-  const [selectedDate, setSelectedDate] = useState(getTodayDates(7)[0]);
+  const [dates, setDates] = useState(() => getTodayDates(7));
+  const [selectedDate, setSelectedDate] = useState(() => getTodayDates(7)[0]);
   const [cards, setCards] = useState<Vacancy[]>([]);
   const [history, setHistory] = useState<Record<string, Vacancy[]>>({});
   const [swiping, setSwiping] = useState(false);
@@ -373,9 +373,23 @@ function WorkerFeed() {
   const skipOpacity = pan.x.interpolate({ inputRange: [-SWIPE_THRESHOLD, 0], outputRange: [1, 0], extrapolate: 'clamp' });
   const rotate = pan.x.interpolate({ inputRange: [-SW / 2, 0, SW / 2], outputRange: ['-8deg', '0deg', '8deg'], extrapolate: 'clamp' });
 
+  // Refresh date strip when virtual start changes (e.g. after 22:00)
   useEffect(() => {
-    if (!currentUser) return;
-    const filtered = vacancies
+    const interval = setInterval(() => {
+      const fresh = getTodayDates(7);
+      setDates(prev => {
+        // Only update if the date window shifted
+        if (prev[0] !== fresh[0]) {
+          setSelectedDate(fresh[0]);
+          return fresh;
+        }
+        return prev;
+      });
+    }, 30_000); // check every 30s
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
       .filter(v => {
         if (v.status !== 'open') return false;
         if (v.date !== selectedDate) return false;

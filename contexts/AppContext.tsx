@@ -1,7 +1,7 @@
 import React, { createContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { getSupabaseClient } from '@/template';
 import { User, Vacancy, Like, Chat, PermVacancy, PermApplication } from '@/constants/types';
-import { getSessionUser, saveSessionUser, clearSessionUser } from '@/services/storage';
+import { getSessionUser, saveSessionUser, clearSessionUser, getVirtualStartDate } from '@/services/storage';
 import {
   dbGetUsers, dbUpsertUser,
   dbGetVacancies,
@@ -243,6 +243,38 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Navigation handled by AuthGuard in _layout.tsx — no redirect here
 
+  // ── Auto day-switch at 22:00 ──────────────────────────────────────────────
+
+  /**
+   * Archives all open shift vacancies that belong to dates BEFORE today's virtual
+   * start date (i.e. dates that are no longer visible in the date strip).
+   * Runs at boot and every 15 s so the transition happens within one poll cycle.
+   */
+  const archivePastDayVacancies = async () => {
+    try {
+      const virtualStart = getVirtualStartDate();
+      const cutoff = virtualStart.toISOString().slice(0, 10); // first visible date
+      const { data } = await getSupabaseClient()
+        .from('jm_vacancies')
+        .select('id, date')
+        .eq('status', 'open');
+      if (!data) return;
+
+      const toArchive = data.filter((v: any) => v.date < cutoff).map((v: any) => v.id);
+      if (toArchive.length === 0) return;
+
+      await getSupabaseClient()
+        .from('jm_vacancies')
+        .update({ status: 'closed' })
+        .in('id', toArchive);
+
+      console.log(`[AppContext] archived ${toArchive.length} past-day vacancies (cutoff ${cutoff})`);
+      await refreshVacancies();
+    } catch (e) {
+      console.warn('[AppContext] archivePastDayVacancies error', e);
+    }
+  };
+
   // ── Auto-cleanup stale vacancies ──────────────────────────────────────────
 
   const cleanupStaleVacancies = async () => {
@@ -291,15 +323,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!currentUser) return;
+    // Run archive + cleanup on first mount for this user
+    archivePastDayVacancies();
     cleanupStaleVacancies();
+
     const interval = setInterval(() => {
+      archivePastDayVacancies(); // archives dates hidden after 22:00
+      cleanupStaleVacancies();   // deletes vacancies that start very soon with no applicants
       refreshVacancies();
       refreshLikes();
       refreshChats(currentUser);
       refreshSaved(currentUser);
       refreshPermVacancies(currentUser);
       refreshPermApplications(currentUser);
-      cleanupStaleVacancies();
     }, 15_000);
     return () => clearInterval(interval);
   }, [currentUser?.id]);

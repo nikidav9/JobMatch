@@ -101,6 +101,9 @@ export default function ChatRoom() {
       lastCountRef.current += 1;
       const forRole = currentUser.role === 'worker' ? 'employer' : 'worker';
       await dbIncrementUnread(chat.id, forRole);
+      // Push notification to the other party (local, fires on their next poll)
+      // Notify the SENDER's own device as a sent-confirmation
+      await notifyNewMessage(otherName, text);
       await refreshChats();
       setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
     } catch (e) {

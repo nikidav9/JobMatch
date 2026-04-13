@@ -49,12 +49,34 @@ export function formatDate(isoDate: string): string {
   return `${days[d.getDay()]} ${d.getDate().toString().padStart(2, '0')}.${(d.getMonth() + 1).toString().padStart(2, '0')}`;
 }
 
-export function getTodayDates(count = 7): string[] {
-  const dates: string[] = [];
+/**
+ * Returns the "virtual start date" for the date strip.
+ * After 22:00, today is considered closed — the strip starts from tomorrow.
+ */
+export function getVirtualStartDate(): Date {
   const now = new Date();
+  if (now.getHours() >= 22) {
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(0, 0, 0, 0);
+    return tomorrow;
+  }
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  return today;
+}
+
+/**
+ * Returns ISO date strings for the upcoming window.
+ * Before 22:00: today + next (count-1) days.
+ * After  22:00: tomorrow + next (count-1) days (today is hidden).
+ */
+export function getTodayDates(count = 7): string[] {
+  const start = getVirtualStartDate();
+  const dates: string[] = [];
   for (let i = 0; i < count; i++) {
-    const d = new Date(now);
-    d.setDate(now.getDate() + i);
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
     dates.push(d.toISOString().slice(0, 10));
   }
   return dates;
