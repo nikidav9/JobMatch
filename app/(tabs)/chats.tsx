@@ -142,7 +142,7 @@ export default function ChatsScreen() {
     setRefreshing(false);
   };
 
-  if (!currentUser) return null;
+  if (!currentUser) return <View style={{ flex: 1, backgroundColor: '#FFFFFF' }} />;
 
   const myChats = chats.filter(c =>
     currentUser.role === 'worker' ? c.workerId === currentUser.id : c.employerId === currentUser.id

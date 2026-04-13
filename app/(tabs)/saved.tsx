@@ -22,7 +22,7 @@ export default function SavedScreen() {
   };
   const [detailVacancy, setDetailVacancy] = useState<Vacancy | null>(null);
 
-  if (!currentUser) return null;
+  if (!currentUser) return <View style={{ flex: 1, backgroundColor: '#FFFFFF' }} />;
 
   const savedVacancies = vacancies.filter(v => savedIds.includes(v.id));
 

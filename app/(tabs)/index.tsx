@@ -838,7 +838,7 @@ function WorkerPermMode() {
     setRefreshing(false);
   };
 
-  if (!currentUser) return null;
+  if (!currentUser) return <View style={{ flex: 1, backgroundColor: '#FFFFFF' }} />;
 
   const myApps = permApplications.filter(a => a.workerId === currentUser.id);
   const myAppVacIds = new Set(myApps.map(a => a.vacancyId));
@@ -1414,7 +1414,7 @@ function WorkerHome() {
   const [mode, setMode] = useState<AppMode>('shift');
   const { currentUser } = useApp();
 
-  if (!currentUser) return null;
+  if (!currentUser) return <View style={{ flex: 1, backgroundColor: '#FFFFFF' }} />;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -1438,7 +1438,11 @@ function WorkerHome() {
 export default function HomeScreen() {
   const app = useApp();
   const currentUser = app?.currentUser ?? null;
-  if (!currentUser) return null;
+  const loading = app?.loading ?? true;
+  if (!currentUser) {
+    // Show white screen while loading — never return null (causes black screen)
+    return <View style={{ flex: 1, backgroundColor: '#FFFFFF' }} />;
+  }
   return currentUser.role === 'worker' ? <WorkerHome /> : <EmployerHome />;
 }
 

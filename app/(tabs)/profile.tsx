@@ -55,14 +55,6 @@ export default function ProfileScreen() {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
 
-  // CRITICAL: useLayoutEffect runs BEFORE first render, preventing white screen
-  React.useLayoutEffect(() => {
-    if (!currentUser) {
-      console.log('Profile useLayoutEffect redirecting to /');
-      router.replace('/');
-    }
-  }, [currentUser, router]);
-
   const [editPhone, setEditPhone] = useState('');
   const [editLast, setEditLast] = useState('');
   const [editFirst, setEditFirst] = useState('');
@@ -73,7 +65,7 @@ export default function ProfileScreen() {
   const [editCompany, setEditCompany] = useState('');
   const [editBio, setEditBio] = useState('');
 
-  if (!currentUser) return null;
+  if (!currentUser) return <View style={{ flex: 1, backgroundColor: '#FFFFFF' }} />;
 
   const initials = getInitials(`${currentUser.firstName} ${currentUser.lastName}`);
   const avatarColor = nameColorFromString(currentUser.id);

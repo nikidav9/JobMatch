@@ -67,7 +67,7 @@ function ConfirmBanner({ onConfirm, loading }: { onConfirm: () => void; loading:
 // ─────────────────────────────────────────────────
 function WorkerMatches() {
   const router = useRouter();
-  const { currentUser, likes, vacancies, users, refreshAll, showToast } = useApp();
+  const { currentUser, loading, likes, vacancies, users, refreshAll, showToast } = useApp();
   const [loading, setLoading] = useState<string | null>(null);
   const [detailVacancy, setDetailVacancy] = useState<Vacancy | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -79,7 +79,7 @@ function WorkerMatches() {
     setRefreshing(false);
   };
 
-  if (!currentUser) return null;
+  if (!currentUser) return <View style={{ flex: 1, backgroundColor: '#FFFFFF' }} />;
 
   const myLikes = likes.filter(l => l.workerId === currentUser.id && l.workerLiked);
 
@@ -265,7 +265,7 @@ function WorkerMatches() {
 // ─────────────────────────────────────────────────
 function EmployerMatches() {
   const router = useRouter();
-  const { currentUser, likes, vacancies, users, refreshAll, showToast } = useApp();
+  const { currentUser, loading, likes, vacancies, users, refreshAll, showToast } = useApp();
   const [loading, setLoading] = useState<string | null>(null);
   const [tab, setTab] = useState<'pending' | 'matched'>('pending');
   const [refreshing, setRefreshing] = useState(false);
@@ -276,7 +276,7 @@ function EmployerMatches() {
     setRefreshing(false);
   };
 
-  if (!currentUser) return null;
+  if (!currentUser) return <View style={{ flex: 1, backgroundColor: '#FFFFFF' }} />;
 
   const myVacIds = vacancies.filter(v => v.employerId === currentUser.id).map(v => v.id);
   const allLikes = likes.filter(l => myVacIds.includes(l.vacancyId) && l.workerLiked);
@@ -534,7 +534,7 @@ function EmployerMatches() {
 
 export default function MatchesScreen() {
   const { currentUser } = useApp();
-  if (!currentUser) return null;
+  if (!currentUser) return <View style={{ flex: 1, backgroundColor: '#FFFFFF' }} />;
   return currentUser.role === 'worker' ? <WorkerMatches /> : <EmployerMatches />;
 }
 
