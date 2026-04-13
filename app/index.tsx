@@ -15,7 +15,7 @@ export default function Onboarding() {
     if (!loading && currentUser) {
       router.replace('/(tabs)');
     }
-  }, [currentUser?.id, loading]);
+  }, [currentUser, loading]);
 
   if (loading) {
     return (

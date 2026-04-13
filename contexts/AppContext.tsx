@@ -243,11 +243,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  useEffect(() => {
-    if (!loading && !currentUser) {
-      router.replace('/');
-    }
-  }, [currentUser, loading, router]);
+  // Navigation handled by AuthGuard in _layout.tsx — no redirect here
 
   // ── Auto-cleanup stale vacancies ──────────────────────────────────────────
 

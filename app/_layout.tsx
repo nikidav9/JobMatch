@@ -12,16 +12,15 @@ function AuthGuard() {
   const pathname = usePathname();
   const ctx = React.useContext(AppContext);
 
-  const publicPaths = new Set(['/','/login','/register-worker','/register-employer','/legal']);
-  const isProtected = !publicPaths.has(pathname);
+  const publicPaths = new Set(['/', '/login', '/register-worker', '/register-employer', '/legal']);
 
   useEffect(() => {
     if (!ctx || ctx.loading) return;
+    const isProtected = !publicPaths.has(pathname);
     if (!ctx.currentUser && isProtected) {
-      console.log('AuthGuard redirecting to /');
       router.replace('/');
     }
-  }, [ctx?.currentUser, ctx?.loading, pathname]);
+  }, [ctx?.currentUser?.id, ctx?.loading, pathname]);
 
   return null;
 }
