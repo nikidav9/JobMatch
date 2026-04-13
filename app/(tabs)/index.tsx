@@ -24,7 +24,7 @@ import {
   dbRemovePermSaved,
   dbClosePermVacancy,
 } from '@/services/db';
-import { notifyWorkerSentApplication, notifyWorkerGotMatch } from '@/services/notifications';
+import { notifyWorkerSentApplication, notifyWorkerGotMatch, notifyEmployerGotMatch } from '@/services/notifications';
 import { Image } from 'expo-image';
 import { Chip } from '@/components/ui/Chip';
 import { VacancyDetailModal } from '@/components/feature/VacancyDetailModal';
