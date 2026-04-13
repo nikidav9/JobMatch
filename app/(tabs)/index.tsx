@@ -390,6 +390,8 @@ function WorkerFeed() {
   }, []);
 
   useEffect(() => {
+    if (!currentUser) return;
+    const filtered = vacancies
       .filter(v => {
         if (v.status !== 'open') return false;
         if (v.date !== selectedDate) return false;
