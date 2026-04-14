@@ -492,6 +492,11 @@ function WorkerFeed() {
       return;
     }
     try {
+      // IMPORTANT: create like with worker_liked=true so employer's "Подходит" can create a match
+      await dbUpsertLike(currentCard.id, currentUser.id, currentCard.employerId, {
+        workerLiked: true,
+        workerSkipped: false,
+      });
       const chatId = await dbCreateChat(
         currentUser.id,
         currentCard.employerId,

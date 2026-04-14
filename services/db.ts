@@ -426,7 +426,18 @@ export async function dbCheckAndCreateMatch(
     .maybeSingle();
 
   if (!likeRow) return { matched: false };
-  if (!likeRow.worker_liked || !likeRow.employer_liked || likeRow.is_match) return { matched: false };
+  // If already matched, skip but return existing chat id
+  if (likeRow.is_match) {
+    const { data: existingChat } = await sb()
+      .from('jm_chats')
+      .select('id')
+      .eq('vacancy_id', vacancyId)
+      .eq('worker_id', workerId)
+      .maybeSingle();
+    return { matched: false, chatId: existingChat?.id };
+  }
+  // worker must have liked; employer_liked may have just been set by dbUpsertLike caller
+  if (!likeRow.worker_liked) return { matched: false };
 
   await sb()
     .from('jm_likes')
