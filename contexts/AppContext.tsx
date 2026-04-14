@@ -117,6 +117,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const refreshUsers = async () => {
     const data = await dbGetUsers();
     setUsers(data);
+    // Sync currentUser with fresh server data (rating, avatar, etc.)
+    _setCurrentUser(prev => {
+      if (!prev) return prev;
+      const fresh = data.find(u => u.id === prev.id);
+      return fresh ?? prev;
+    });
   };
 
   const refreshVacancies = async () => {
