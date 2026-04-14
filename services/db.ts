@@ -436,7 +436,7 @@ export async function dbCheckAndCreateMatch(
 
   const { data: vac } = await sb().from('jm_vacancies').select('*').eq('id', vacancyId).maybeSingle();
 
-  const matchMsg = '🎉 Мэтч! Вы подошли друг другу. Познакомьтесь и обсудите детали!';
+  const matchMsg = '🎉 У вас мэтч! Вы подошли друг другу. Познакомьтесь и обсудите детали!';
   const safetyMsg = '🔒 Рекомендуем не переводить общение в сторонние мессенджеры или почту, а продолжить его в чате JobToo: так у мошенников будет меньше шансов вас обмануть.\n\nГде бы вы ни общались — не сообщайте свой CVV-код, код из SMS и не вводите данные карты по ссылке.';
 
   const chatId = await dbCreateChat(

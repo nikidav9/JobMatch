@@ -30,6 +30,7 @@ export default function ChatRoom() {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [decidingLike, setDecidingLike] = useState(false);
+  const [showRejectConfirm, setShowRejectConfirm] = useState(false);
   // 'pending' | 'approved' | 'rejected' | null
   const [likeStatus, setLikeStatus] = useState<'pending' | 'approved' | 'rejected' | null>(null);
   const listRef = useRef<FlatList<Message>>(null);
@@ -116,31 +117,20 @@ export default function ChatRoom() {
     }
   }, [messages.length]);
 
-  // Employer: approve / reject candidate directly from chat
-  const handleEmployerDecision = async (accept: boolean) => {
+  // Employer: approve candidate
+  const handleApprove = async () => {
     if (!chat || !currentUser || !isEmployer) return;
     setDecidingLike(true);
     try {
       const workerId = chat.workerId;
       const vacId = chat.vacancyId;
-      if (accept) {
-        await dbUpsertLike(vacId, workerId, currentUser.id, { employerLiked: true });
-        const result = await dbCheckAndCreateMatch(vacId, workerId);
-        const worker = users.find(u => u.id === workerId);
-        const workerName = worker ? `${worker.firstName} ${worker.lastName}` : 'Работник';
-        setLikeStatus('approved');
-        if (result.matched) {
-          const matchMsg = '🎉 Поздравляем, у вас мэтч! Вы подошли друг другу.';
-          await dbInsertMessage(chat.id, 'system', matchMsg);
-          await dbIncrementUnread(chat.id, 'worker');
-          await notifyEmployerGotMatch(workerName, chat.vacTitle);
-        }
-      } else {
-        await dbUpsertLike(vacId, workerId, currentUser.id, { employerLiked: false });
-        const rejectMsg = 'К сожалению, вы не подошли по данной вакансии. Чат закрыт.';
-        await dbInsertMessage(chat.id, 'system', rejectMsg);
-        await dbIncrementUnread(chat.id, 'worker');
-        setLikeStatus('rejected');
+      await dbUpsertLike(vacId, workerId, currentUser.id, { employerLiked: true });
+      const result = await dbCheckAndCreateMatch(vacId, workerId);
+      const worker = users.find(u => u.id === workerId);
+      const workerName = worker ? `${worker.firstName} ${worker.lastName}` : 'Работник';
+      setLikeStatus('approved');
+      if (result.matched) {
+        await notifyEmployerGotMatch(workerName, chat.vacTitle);
       }
       const newMsgs = await dbGetMessages(chat.id);
       setMessages(newMsgs);
@@ -148,13 +138,39 @@ export default function ChatRoom() {
       await refreshChats();
       setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
     } catch (e) {
-      console.error('[ChatRoom] handleEmployerDecision error', e);
+      console.error('[ChatRoom] handleApprove error', e);
     } finally {
       setDecidingLike(false);
     }
   };
 
-  const isChatBlocked = likeStatus === 'rejected' && !isEmployer;
+  // Employer: reject candidate (called after confirmation)
+  const handleRejectConfirmed = async () => {
+    if (!chat || !currentUser || !isEmployer) return;
+    setShowRejectConfirm(false);
+    setDecidingLike(true);
+    try {
+      const workerId = chat.workerId;
+      const vacId = chat.vacancyId;
+      await dbUpsertLike(vacId, workerId, currentUser.id, { employerLiked: false });
+      const rejectMsg = 'Вы не подошли по данной вакансии. Чат закрыт.';
+      await dbInsertMessage(chat.id, 'system', rejectMsg);
+      await dbIncrementUnread(chat.id, 'worker');
+      setLikeStatus('rejected');
+      const newMsgs = await dbGetMessages(chat.id);
+      setMessages(newMsgs);
+      lastCountRef.current = newMsgs.length;
+      await refreshChats();
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
+    } catch (e) {
+      console.error('[ChatRoom] handleRejectConfirmed error', e);
+    } finally {
+      setDecidingLike(false);
+    }
+  };
+
+  // Chat is blocked for BOTH parties when rejected
+  const isChatBlocked = likeStatus === 'rejected';
 
   const sendMessage = async () => {
     const text = input.trim();
@@ -256,22 +272,50 @@ export default function ChatRoom() {
 
   return (
     <SafeAreaView style={styles.safe}>
+      {/* Rejection confirmation modal */}
+      {showRejectConfirm ? (
+        <View style={styles.confirmOverlay}>
+          <View style={styles.confirmCard}>
+            <Text style={styles.confirmTitle}>Отклонить кандидата?</Text>
+            <Text style={styles.confirmBody}>
+              После этого чат будет полностью заблокирован — вы и кандидат больше не сможете писать. Действие нельзя отменить.
+            </Text>
+            <View style={styles.confirmBtns}>
+              <TouchableOpacity
+                style={styles.confirmCancelBtn}
+                onPress={() => setShowRejectConfirm(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.confirmCancelTxt}>Отмена</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.confirmRejectBtn}
+                onPress={handleRejectConfirmed}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.confirmRejectTxt}>Подтвердить отказ</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      ) : null}
+
       {/* Employer decision bar — shown at the top */}
       {isEmployer && likeStatus === 'pending' ? (
         <View style={styles.decisionBar}>
-          <Text style={styles.decisionBarLabel}>Принять решение:</Text>
+          <Text style={styles.decisionBarLabel}>Принять решение по кандидату:</Text>
           <View style={styles.decisionBtnsRow}>
             <TouchableOpacity
               style={[styles.decisionBtn, styles.decisionBtnReject, decidingLike && { opacity: 0.5 }]}
-              onPress={() => handleEmployerDecision(false)}
+              onPress={() => setShowRejectConfirm(true)}
               disabled={decidingLike}
               activeOpacity={0.8}
             >
-              {decidingLike ? <ActivityIndicator size="small" color={Colors.red} /> : <Text style={styles.decisionBtnRejectTxt}>✕ Не подходит</Text>}
+              <Text style={styles.decisionBtnRejectTxt}>✕ Не подходит</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.decisionBtn, styles.decisionBtnAccept, decidingLike && { opacity: 0.5 }]}
-              onPress={() => handleEmployerDecision(true)}
+              onPress={handleApprove}
               disabled={decidingLike}
               activeOpacity={0.8}
             >
@@ -289,10 +333,12 @@ export default function ChatRoom() {
         </View>
       ) : null}
 
-      {/* Blocked notice for worker */}
+      {/* Blocked notice for both parties */}
       {isChatBlocked ? (
         <View style={styles.blockedBar}>
-          <Text style={styles.blockedBarTxt}>❌ Чат закрыт — работодатель принял решение</Text>
+          <Text style={styles.blockedBarTxt}>
+            {isEmployer ? '🚫 Чат закрыт — кандидат отклонён' : '🚫 Чат закрыт — работодатель отклонил кандидатуру'}
+          </Text>
         </View>
       ) : null}
 
@@ -473,6 +519,25 @@ const styles = StyleSheet.create({
   safetyIcon: { fontSize: 15 },
   safetyTitle: { fontSize: 13, fontWeight: '700', color: '#92400E' },
   safetyText: { fontSize: 12, color: '#78350F', lineHeight: 17 },
+  // Rejection confirmation modal
+  confirmOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 999,
+    alignItems: 'center', justifyContent: 'center', padding: 24,
+  },
+  confirmCard: {
+    backgroundColor: Colors.bg, borderRadius: 20, padding: 24, width: '100%', gap: 14,
+  },
+  confirmTitle: { fontSize: 18, fontWeight: '800', color: Colors.textPrimary, textAlign: 'center' },
+  confirmBody: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', lineHeight: 20 },
+  confirmBtns: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  confirmCancelBtn: {
+    flex: 1, borderWidth: 1.5, borderColor: Colors.inputBorder,
+    borderRadius: 100, paddingVertical: 13, alignItems: 'center',
+  },
+  confirmCancelTxt: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary },
+  confirmRejectBtn: { flex: 1, backgroundColor: Colors.red, borderRadius: 100, paddingVertical: 13, alignItems: 'center' },
+  confirmRejectTxt: { fontSize: 14, fontWeight: '700', color: '#fff' },
   vacancyBar: { // Corrected: Added 'vacancyBar' to align with the missing style error
     flexDirection: 'row', flexWrap: 'wrap', gap: 6,
     paddingHorizontal: 14, paddingVertical: 10,

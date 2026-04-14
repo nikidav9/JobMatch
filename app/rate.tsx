@@ -18,7 +18,7 @@ export default function RateScreen() {
     vacancyId: string;
     role: 'worker' | 'employer';
   }>();
-  const { currentUser, refreshAll, showToast } = useApp();
+  const { currentUser, setCurrentUser, refreshAll, showToast } = useApp();
   const [rating, setRating] = useState(0);
   const [review, setReview] = useState('');
   const [loading, setLoading] = useState(false);
@@ -44,6 +44,7 @@ export default function RateScreen() {
         reviewText: review.trim() || undefined,
       });
 
+      // Instant optimistic update: refresh all data from server immediately
       await refreshAll();
 
       if (bothRated) {
