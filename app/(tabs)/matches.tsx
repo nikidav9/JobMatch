@@ -104,19 +104,15 @@ function WorkerMatches() {
       const { bothConfirmed } = await dbConfirmShift(like.id, 'worker');
       await refreshAll();
       const vac = getVacancy(like.vacancyId);
-      if (bothConfirmed) {
-        await notifyWorkerConfirmedShift(vac?.title ?? '', true);
-        showToast('Смена подтверждена! Оцените работодателя 🌟', 'success');
-        const employer = users.find(u => u.id === like.employerId);
-        if (employer && vac) {
-          router.push({
-            pathname: '/rate',
-            params: { likeId: like.id, toUserId: employer.id, toName: employer.company ?? `${employer.firstName} ${employer.lastName}`, vacancyId: vac.id, role: 'worker' },
-          });
-        }
-      } else {
-        await notifyWorkerConfirmedShift(vac?.title ?? '', false);
-        showToast('Выход подтверждён! Ждём работодателя', 'success');
+      const employer = users.find(u => u.id === like.employerId);
+      await notifyWorkerConfirmedShift(vac?.title ?? '', bothConfirmed);
+      showToast('Выход подтверждён! Оцените работодателя 🌟', 'success');
+      // Always open rating screen immediately — don't wait for employer confirmation
+      if (employer && vac) {
+        router.push({
+          pathname: '/rate',
+          params: { likeId: like.id, toUserId: employer.id, toName: employer.company ?? `${employer.firstName} ${employer.lastName}`, vacancyId: vac.id, role: 'worker' },
+        });
       }
     } catch {
       showToast('Ошибка', 'error');
