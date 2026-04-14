@@ -1,9 +1,9 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView,
   TouchableOpacity, Modal, KeyboardAvoidingView, Platform,
-  ActivityIndicator,
+  ActivityIndicator, FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
@@ -12,7 +12,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Colors, Radius, Shadow } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
 import { getInitials, nameColorFromString } from '@/services/storage';
-import { dbUpsertUser } from '@/services/db';
+import { dbUpsertUser, dbGetRatingsForUser, UserRating } from '@/services/db';
 import { getSupabaseClient } from '@/template';
 import { AppInput } from '@/components/ui/AppInput';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
@@ -23,8 +23,8 @@ import { METRO_LINES } from '@/constants/metro';
 
 type EditSection = 'personal' | 'metro' | 'worktypes' | 'company' | 'bio' | null;
 
-function StarRating({ rating, count }: { rating: number; count: number }) {
-  return (
+function StarRating({ rating, count, onPress }: { rating: number; count: number; onPress?: () => void }) {
+  const content = (
     <View style={rS.row}>
       {[1, 2, 3, 4, 5].map(s => (
         <Text key={s} style={[rS.star, rating >= s - 0.5 ? rS.starFilled : rS.starEmpty]}>★</Text>
@@ -32,22 +32,178 @@ function StarRating({ rating, count }: { rating: number; count: number }) {
       <Text style={rS.count}>
         {count > 0 ? `${rating.toFixed(1)} (${count} отз.)` : 'Нет оценок'}
       </Text>
+      {count > 0 && onPress ? <Text style={rS.viewAll}>Смотреть все ›</Text> : null}
     </View>
   );
+  if (onPress && count > 0) {
+    return (
+      <TouchableOpacity onPress={onPress} activeOpacity={0.7}>
+        {content}
+      </TouchableOpacity>
+    );
+  }
+  return content;
 }
 
 const rS = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 6 },
+  row: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 2, marginTop: 6, justifyContent: 'center' },
   star: { fontSize: 18 },
   starFilled: { color: '#FBBF24' },
   starEmpty: { color: '#E5E7EB' },
   count: { fontSize: 13, color: Colors.textMuted, marginLeft: 4 },
+  viewAll: { fontSize: 12, color: Colors.primary, fontWeight: '600', marginLeft: 6 },
+});
+
+// ─── Ratings Modal ────────────────────────────────────────────────────────────
+function RatingsModal({ userId, users, onClose }: { userId: string; users: any[]; onClose: () => void }) {
+  const [ratings, setRatings] = useState<UserRating[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    dbGetRatingsForUser(userId)
+      .then(setRatings)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [userId]);
+
+  const avg = ratings.length > 0
+    ? ratings.reduce((s, r) => s + r.rating, 0) / ratings.length
+    : 0;
+
+  const renderItem = ({ item }: { item: UserRating }) => {
+    const reviewer = users.find(u => u.id === item.fromUserId);
+    const name = reviewer
+      ? `${reviewer.firstName} ${reviewer.lastName}`
+      : (item.role === 'worker' ? 'Работник' : 'Работодатель');
+    const color = reviewer ? nameColorFromString(reviewer.id) : '#9CA3AF';
+    const initials = reviewer ? getInitials(name) : '?';
+    const date = new Date(item.createdAt);
+    const dateStr = `${date.getDate().toString().padStart(2,'0')}.${(date.getMonth()+1).toString().padStart(2,'0')}.${date.getFullYear()}`;
+
+    return (
+      <View style={rmS.card}>
+        <View style={rmS.cardTop}>
+          {reviewer?.avatarUrl ? (
+            <View style={[rmS.avatar, { overflow: 'hidden' }]}>
+              <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: color, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={rmS.avatarTxt}>{initials}</Text>
+              </View>
+            </View>
+          ) : (
+            <View style={[rmS.avatar, { backgroundColor: color, alignItems: 'center', justifyContent: 'center' }]}>
+              <Text style={rmS.avatarTxt}>{initials}</Text>
+            </View>
+          )}
+          <View style={{ flex: 1 }}>
+            <Text style={rmS.name}>{name}</Text>
+            <Text style={rmS.role}>{item.role === 'employer' ? 'Работодатель' : 'Работник'} · {dateStr}</Text>
+          </View>
+          <View style={rmS.starsRow}>
+            {[1,2,3,4,5].map(s => (
+              <Text key={s} style={[rmS.star, item.rating >= s ? rmS.starFilled : rmS.starEmpty]}>★</Text>
+            ))}
+          </View>
+        </View>
+        {item.reviewText ? (
+          <Text style={rmS.review}>"{item.reviewText}"</Text>
+        ) : (
+          <Text style={rmS.noReview}>Комментарий не оставлен</Text>
+        )}
+      </View>
+    );
+  };
+
+  return (
+    <Modal visible animationType="slide" transparent onRequestClose={onClose}>
+      <View style={rmS.overlay}>
+        <View style={rmS.sheet}>
+          <View style={rmS.handle} />
+          <View style={rmS.header}>
+            <Text style={rmS.title}>Мои отзывы</Text>
+            <TouchableOpacity onPress={onClose} style={rmS.closeBtn}>
+              <Text style={rmS.closeTxt}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Summary */}
+          {ratings.length > 0 ? (
+            <View style={rmS.summary}>
+              <Text style={rmS.summaryAvg}>{avg.toFixed(1)}</Text>
+              <View>
+                <View style={{ flexDirection: 'row', gap: 2 }}>
+                  {[1,2,3,4,5].map(s => (
+                    <Text key={s} style={[rmS.sumStar, avg >= s - 0.5 ? rmS.starFilled : rmS.starEmpty]}>★</Text>
+                  ))}
+                </View>
+                <Text style={rmS.summaryCount}>{ratings.length} {ratings.length === 1 ? 'отзыв' : ratings.length < 5 ? 'отзыва' : 'отзывов'}</Text>
+              </View>
+            </View>
+          ) : null}
+
+          {loading ? (
+            <View style={{ padding: 48, alignItems: 'center' }}>
+              <ActivityIndicator size="large" color={Colors.primary} />
+            </View>
+          ) : ratings.length === 0 ? (
+            <View style={rmS.empty}>
+              <Text style={{ fontSize: 44 }}>⭐</Text>
+              <Text style={rmS.emptyTitle}>Отзывов пока нет</Text>
+              <Text style={rmS.emptySub}>Оценки появятся после завершённых смен</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={ratings}
+              keyExtractor={r => r.id}
+              renderItem={renderItem}
+              contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 40 }}
+              showsVerticalScrollIndicator={false}
+            />
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const rmS = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  sheet: { backgroundColor: Colors.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '85%' },
+  handle: { width: 36, height: 4, backgroundColor: Colors.inputBorder, borderRadius: 2, alignSelf: 'center', marginTop: 12 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12 },
+  title: { fontSize: 18, fontWeight: '800', color: Colors.textPrimary },
+  closeBtn: { padding: 4 },
+  closeTxt: { fontSize: 18, color: Colors.textMuted },
+  summary: {
+    flexDirection: 'row', alignItems: 'center', gap: 16,
+    marginHorizontal: 16, marginBottom: 8,
+    backgroundColor: '#FFFBEB', borderRadius: 14,
+    padding: 14, borderWidth: 1, borderColor: '#FDE68A',
+  },
+  summaryAvg: { fontSize: 44, fontWeight: '800', color: '#92400E' },
+  sumStar: { fontSize: 20 },
+  starFilled: { color: '#FBBF24' },
+  starEmpty: { color: '#E5E7EB' },
+  summaryCount: { fontSize: 13, color: '#B45309', fontWeight: '600', marginTop: 2 },
+  empty: { alignItems: 'center', padding: 48, gap: 10 },
+  emptyTitle: { fontSize: 17, fontWeight: '700', color: Colors.textPrimary },
+  emptySub: { fontSize: 13, color: Colors.textMuted, textAlign: 'center' },
+  card: { backgroundColor: Colors.surface, borderRadius: 14, padding: 14, gap: 10 },
+  cardTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  avatar: { width: 36, height: 36, borderRadius: 18 },
+  avatarTxt: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  name: { fontSize: 14, fontWeight: '700', color: Colors.textPrimary },
+  role: { fontSize: 11, color: Colors.textMuted, marginTop: 1 },
+  starsRow: { flexDirection: 'row', gap: 1 },
+  star: { fontSize: 16 },
+  review: { fontSize: 13, color: Colors.textPrimary, lineHeight: 18, fontStyle: 'italic', paddingLeft: 4 },
+  noReview: { fontSize: 12, color: Colors.textMuted, fontStyle: 'italic', paddingLeft: 4 },
 });
 
 export default function ProfileScreen() {
   const router = useRouter();
   const { currentUser, logout, users, refreshUsers, showToast, setCurrentUser } = useApp();
   const [editSection, setEditSection] = useState<EditSection>(null);
+  const [showRatings, setShowRatings] = useState(false);
   const [showConfirmLogout, setShowConfirmLogout] = useState(false);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
@@ -240,7 +396,11 @@ export default function ProfileScreen() {
             <Text style={styles.roleText}>{currentUser.role === 'worker' ? 'Работник' : 'Работодатель'}</Text>
           </View>
           <Text style={styles.phone}>{currentUser.phone}</Text>
-          <StarRating rating={currentUser.avgRating ?? 0} count={currentUser.ratingCount ?? 0} />
+          <StarRating
+            rating={currentUser.avgRating ?? 0}
+            count={currentUser.ratingCount ?? 0}
+            onPress={() => setShowRatings(true)}
+          />
         </View>
 
         {currentUser.role === 'worker' ? (
@@ -317,6 +477,15 @@ export default function ProfileScreen() {
 
         <View style={{ height: 20 }} />
       </ScrollView>
+
+      {/* Ratings modal */}
+      {showRatings ? (
+        <RatingsModal
+          userId={currentUser.id}
+          users={users}
+          onClose={() => setShowRatings(false)}
+        />
+      ) : null}
 
       {/* Edit modal */}
       <Modal visible={!!editSection} animationType="slide" transparent>
