@@ -53,6 +53,11 @@ export function formatDate(isoDate: string): string {
  * Returns the "virtual start date" for the date strip.
  * After 21:00, today is considered closed — the strip starts from tomorrow.
  */
+/** Format a Date object to YYYY-MM-DD using LOCAL date components (not UTC). */
+export function localDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export function getVirtualStartDate(): Date {
   const now = new Date();
   if (now.getHours() >= 21) {
@@ -80,7 +85,7 @@ export function getTodayDates(): string[] {
 
   const cur = new Date(start);
   while (cur <= endOfMonth) {
-    dates.push(cur.toISOString().slice(0, 10));
+    dates.push(localDateStr(cur)); // Use local date components — avoids UTC timezone shift
     cur.setDate(cur.getDate() + 1);
   }
 
@@ -90,7 +95,7 @@ export function getTodayDates(): string[] {
     const nextMonthEnd = new Date(start.getFullYear(), start.getMonth() + 2, 0);
     const nc = new Date(nextMonthStart);
     while (nc <= nextMonthEnd && dates.length < 14) {
-      dates.push(nc.toISOString().slice(0, 10));
+      dates.push(localDateStr(nc));
       nc.setDate(nc.getDate() + 1);
     }
   }
