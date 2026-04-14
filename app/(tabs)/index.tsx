@@ -367,18 +367,21 @@ function WorkerFeed() {
   const skipOpacity = pan.x.interpolate({ inputRange: [-SWIPE_THRESHOLD, 0], outputRange: [1, 0], extrapolate: 'clamp' });
   const rotate = pan.x.interpolate({ inputRange: [-SW / 2, 0, SW / 2], outputRange: ['-8deg', '0deg', '8deg'], extrapolate: 'clamp' });
 
-  // Refresh date strip when virtual start changes (e.g. after 22:00)
+  // Refresh date strip every 60s: remove past dates and advance selectedDate if needed
   useEffect(() => {
-    const interval = setInterval(() => {
+    const sync = () => {
       const fresh = getTodayDates();
-      setDates(prev => {
-        if (prev[0] !== fresh[0]) {
-          setSelectedDate(fresh[0]);
-          return fresh;
+      setDates(fresh);
+      setSelectedDate(prev => {
+        // If the currently selected date is no longer in the fresh list, jump to the first valid date
+        if (!fresh.includes(prev)) {
+          return fresh[0];
         }
         return prev;
       });
-    }, 30_000);
+    };
+    sync(); // run immediately on mount to fix stale dates
+    const interval = setInterval(sync, 60_000);
     return () => clearInterval(interval);
   }, []);
 
