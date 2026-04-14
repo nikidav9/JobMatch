@@ -110,24 +110,8 @@ export default function TabLayout() {
         }}
       />
 
-      {/* Saved (heart) — workers only */}
-      {isWorker ? (
-        <Tabs.Screen
-          name="saved"
-          options={{
-            tabBarIcon: ({ focused }) => (
-              <TabIcon
-                iconActive="heart"
-                iconInactive="heart-outline"
-                label="Избранное"
-                focused={focused}
-              />
-            ),
-          }}
-        />
-      ) : (
-        <Tabs.Screen name="saved" options={{ href: null }} />
-      )}
+      {/* Saved — hidden from tab bar */}
+      <Tabs.Screen name="saved" options={{ href: null }} />
 
       {/* Matches */}
       <Tabs.Screen
