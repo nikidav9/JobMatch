@@ -439,18 +439,22 @@ export async function dbCheckAndCreateMatch(
   const matchMsg = '🎉 У вас мэтч! Вы подошли друг другу. Познакомьтесь и обсудите детали!';
   const safetyMsg = '🔒 Рекомендуем не переводить общение в сторонние мессенджеры или почту, а продолжить его в чате JobToo: так у мошенников будет меньше шансов вас обмануть.\n\nГде бы вы ни общались — не сообщайте свой CVV-код, код из SMS и не вводите данные карты по ссылке.';
 
+  // Create chat (or get existing) — do NOT pass matchMsg to dbCreateChat
+  // because if the chat already exists (worker pressed «написать» earlier),
+  // dbCreateChat returns immediately without inserting any message.
   const chatId = await dbCreateChat(
     workerId,
     likeRow.employer_id,
     vacancyId,
     vac?.title ?? '',
     vac?.company ?? '',
-    matchMsg,
+    undefined, // no initial message — we insert manually below
     1,
     1
   );
 
-  // Insert safety advisory as a second system message
+  // Always insert match + safety messages into the chat (new or existing)
+  await dbInsertMessage(chatId, 'system', matchMsg);
   await dbInsertMessage(chatId, 'system_safety', safetyMsg);
 
   // Update vacancy workersFound and status if limit reached

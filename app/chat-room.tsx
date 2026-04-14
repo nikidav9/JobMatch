@@ -19,7 +19,7 @@ const POLL_INTERVAL = 4000;
 export default function ChatRoom() {
   const router = useRouter();
   const { chatId } = useLocalSearchParams<{ chatId: string }>();
-  const { currentUser, users, chats, vacancies, refreshChats, likes } = useApp();
+  const { currentUser, users, chats, vacancies, refreshChats, refreshLikes, likes } = useApp();
 
   const chatRef = useRef(chats.find(c => c.id === chatId));
   const foundChat = chats.find(c => c.id === chatId);
@@ -132,6 +132,8 @@ export default function ChatRoom() {
       if (result.matched) {
         await notifyEmployerGotMatch(workerName, chat.vacTitle);
       }
+      // Refresh likes so the Matches tab updates for both parties
+      await refreshLikes();
       const newMsgs = await dbGetMessages(chat.id);
       setMessages(newMsgs);
       lastCountRef.current = newMsgs.length;
