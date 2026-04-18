@@ -631,19 +631,23 @@ export async function dbGetRatingsForUser(toUserId: string): Promise<UserRating[
 
 // ─── Shift confirmation ───────────────────────────────────────────────────────
 
+/**
+ * Employer-only shift confirmation.
+ * Calling this immediately marks the shift as completed so the worker
+ * can proceed to leave a review without a separate confirmation step.
+ */
 export async function dbConfirmShift(
   likeId: string,
-  role: 'worker' | 'employer'
+  role: 'employer'
 ): Promise<{ bothConfirmed: boolean }> {
-  const field = role === 'worker' ? 'worker_confirmed' : 'employer_confirmed';
-  await sb().from('jm_likes').update({ [field]: true }).eq('id', likeId);
+  // Employer confirmation immediately completes the shift
+  await sb().from('jm_likes').update({
+    employer_confirmed: true,
+    worker_confirmed: true,  // treat worker as auto-confirmed
+    shift_completed: true,
+  }).eq('id', likeId);
 
-  const { data } = await sb().from('jm_likes').select('worker_confirmed,employer_confirmed').eq('id', likeId).maybeSingle();
-  if (data?.worker_confirmed && data?.employer_confirmed) {
-    await sb().from('jm_likes').update({ shift_completed: true }).eq('id', likeId);
-    return { bothConfirmed: true };
-  }
-  return { bothConfirmed: false };
+  return { bothConfirmed: true };
 }
 
 // ─── Rating & match deletion ──────────────────────────────────────────────────

@@ -79,6 +79,21 @@ export async function notifyWorkerGotMatch(companyName: string, vacancyTitle: st
 }
 
 /**
+ * Called on WORKER device when employer confirms the shift.
+ * Worker is prompted to leave a review.
+ */
+export async function notifyWorkerShiftConfirmedByEmployer(
+  companyName: string,
+  vacancyTitle: string
+): Promise<void> {
+  await notify(
+    '✅ Смена подтверждена работодателем',
+    `${companyName} подтвердил смену «${vacancyTitle}». Хотите оставить отзыв?`,
+    'shift_confirmed_by_employer'
+  );
+}
+
+/**
  * Called on WORKER device when they've confirmed the shift and we're waiting for employer,
  * OR when both confirmed and shift is complete.
  */

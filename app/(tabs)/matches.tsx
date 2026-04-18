@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList,
   TouchableOpacity, ActivityIndicator, RefreshControl,
@@ -12,8 +12,7 @@ import { Like, Vacancy } from '@/constants/types';
 import { formatDate, getInitials, nameColorFromString } from '@/services/storage';
 import { dbUpsertLike, dbCheckAndCreateMatch, dbConfirmShift } from '@/services/db';
 import {
-  notifyWorkerGotMatch,
-  notifyWorkerConfirmedShift,
+  notifyWorkerShiftConfirmedByEmployer,
   notifyEmployerGotMatch,
   notifyEmployerConfirmedShift,
 } from '@/services/notifications';
@@ -27,33 +26,30 @@ function MatchStatus({ like, isWorker }: { like: Like; isWorker: boolean }) {
   }
   if (like.isMatch) {
     if (isWorker) {
-      if (like.workerConfirmed && !like.employerConfirmed)
-        return <View style={[s.statusBadge, { backgroundColor: '#FFF7ED' }]}><Text style={[s.statusTxt, { color: '#92400E' }]}>⏳ Ждём подтверждения работодателя</Text></View>;
-      if (like.employerConfirmed && !like.workerConfirmed)
-        return <View style={[s.statusBadge, { backgroundColor: '#FFF7ED' }]}><Text style={[s.statusTxt, { color: '#92400E' }]}>⏰ Подтвердите выход!</Text></View>;
+      if (like.employerConfirmed && !like.workerRated)
+        return <View style={[s.statusBadge, { backgroundColor: '#FFF7ED' }]}><Text style={[s.statusTxt, { color: '#92400E' }]}>⭐ Оставьте отзыв о работодателе!</Text></View>;
     } else {
-      if (like.employerConfirmed && !like.workerConfirmed)
-        return <View style={[s.statusBadge, { backgroundColor: '#FFF7ED' }]}><Text style={[s.statusTxt, { color: '#92400E' }]}>⏳ Ждём подтверждения работника</Text></View>;
-      if (like.workerConfirmed && !like.employerConfirmed)
-        return <View style={[s.statusBadge, { backgroundColor: '#FFF7ED' }]}><Text style={[s.statusTxt, { color: '#92400E' }]}>⏰ Подтвердите смену!</Text></View>;
+      if (!like.employerConfirmed)
+        return <View style={[s.statusBadge, { backgroundColor: Colors.primaryLight }]}><Text style={[s.statusTxt, { color: Colors.primary }]}>⏰ Подтвердите смену</Text></View>;
+      if (like.employerConfirmed && !like.employerRated)
+        return <View style={[s.statusBadge, { backgroundColor: '#FFF7ED' }]}><Text style={[s.statusTxt, { color: '#92400E' }]}>⭐ Оцените работника!</Text></View>;
     }
     return <View style={[s.statusBadge, { backgroundColor: Colors.primaryLight }]}><Text style={[s.statusTxt, { color: Colors.primary }]}>🎉 Мэтч!</Text></View>;
   }
   if (like.employerLiked === false) {
     return <View style={[s.statusBadge, { backgroundColor: '#FEE2E2' }]}><Text style={[s.statusTxt, { color: Colors.red }]}>✕ Отказ</Text></View>;
   }
-  // Intermediate status: employer has seen it (null = pending, we treat null as "на рассмотрении")
   return <View style={[s.statusBadge, { backgroundColor: Colors.surface }]}><Text style={[s.statusTxt, { color: Colors.textMuted }]}>⏳ На рассмотрении</Text></View>;
 }
 
-// ─── Confirm shift banner ─────────────────────────────────────────────────────
+// ─── Confirm shift banner (employer only) ─────────────────────────────────────
 function ConfirmBanner({ onConfirm, loading }: { onConfirm: () => void; loading: boolean }) {
   return (
     <View style={s.confirmBanner}>
       <Text style={s.confirmBannerIcon}>⏰</Text>
       <View style={{ flex: 1 }}>
-        <Text style={s.confirmBannerTitle}>Подтвердите выход на смену</Text>
-        <Text style={s.confirmBannerSub}>Нажмите кнопку ниже</Text>
+        <Text style={s.confirmBannerTitle}>Подтвердите смену</Text>
+        <Text style={s.confirmBannerSub}>Нажмите кнопку, чтобы завершить смену</Text>
       </View>
       <TouchableOpacity style={s.confirmBannerBtn} onPress={onConfirm} disabled={loading} activeOpacity={0.8}>
         {loading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={s.confirmBannerBtnTxt}>✔</Text>}
@@ -68,9 +64,8 @@ function ConfirmBanner({ onConfirm, loading }: { onConfirm: () => void; loading:
 function WorkerMatches() {
   const router = useRouter();
   const { currentUser, likes, vacancies, users, refreshAll, showToast } = useApp();
-  const [actionLoading, setLoading] = useState<string | null>(null);
-  const [detailVacancy, setDetailVacancy] = useState<Vacancy | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [detailVacancy, setDetailVacancy] = useState<Vacancy | null>(null);
   const [tab, setTab] = useState<'active' | 'rejected' | 'completed'>('active');
 
   const onRefresh = async () => {
@@ -85,7 +80,6 @@ function WorkerMatches() {
 
   const getVacancy = (id: string) => vacancies.find(v => v.id === id);
 
-  // Bucket by tab
   const activeItems = myLikes.filter(l => !l.shiftCompleted && l.employerLiked !== false);
   const rejectedItems = myLikes.filter(l => l.employerLiked === false);
   const completedItems = myLikes.filter(l => l.shiftCompleted);
@@ -95,48 +89,18 @@ function WorkerMatches() {
     tab === 'rejected' ? rejectedItems :
     completedItems;
 
-  const needsConfirm = activeItems.filter(l => l.isMatch && !l.workerConfirmed && !l.shiftCompleted).length;
-
-  const confirmShift = async (like: Like) => {
-    const key = like.id + '_shift';
-    setLoading(key);
-    try {
-      const { bothConfirmed } = await dbConfirmShift(like.id, 'worker');
-      await refreshAll();
-      const vac = getVacancy(like.vacancyId);
-      const employer = users.find(u => u.id === like.employerId);
-      await notifyWorkerConfirmedShift(vac?.title ?? '', bothConfirmed);
-      showToast('Выход подтверждён! Оцените работодателя 🌟', 'success');
-      // Always open rating screen immediately — don't wait for employer confirmation
-      if (employer && vac) {
-        router.push({
-          pathname: '/rate',
-          params: { likeId: like.id, toUserId: employer.id, toName: employer.company ?? `${employer.firstName} ${employer.lastName}`, vacancyId: vac.id, role: 'worker' },
-        });
-      }
-    } catch {
-      showToast('Ошибка', 'error');
-    } finally {
-      setLoading(null);
-    }
-  };
-
   const renderItem = ({ item: like }: { item: Like }) => {
     const vac = getVacancy(like.vacancyId);
     if (!vac) return null;
     const employer = users.find(u => u.id === like.employerId);
     const isMatch = like.isMatch;
     const isCompleted = like.shiftCompleted;
-    const shiftKey = like.id + '_shift';
+    // Worker can rate if shift is completed and employer confirmed but worker hasn't rated yet
+    const canRate = isCompleted && !like.workerRated;
 
     return (
       <View style={[s.card, isMatch && !isCompleted && s.matchedCard, isCompleted && s.completedCard]}>
         <MatchStatus like={like} isWorker={true} />
-
-        {/* Confirm banner */}
-        {isMatch && !isCompleted && !like.workerConfirmed ? (
-          <ConfirmBanner onConfirm={() => confirmShift(like)} loading={actionLoading === shiftKey} />
-        ) : null}
 
         <TouchableOpacity activeOpacity={0.8} onPress={() => setDetailVacancy(vac)}>
           <Text style={s.jobTitle}>{vac.title}</Text>
@@ -173,28 +137,28 @@ function WorkerMatches() {
         ) : null}
 
         {/* Actions */}
-        {isMatch && !isCompleted ? (
+        {isMatch ? (
           <View style={s.actionRow}>
             <TouchableOpacity style={s.chatBtn} onPress={() => router.push({ pathname: '/(tabs)/chats' })} activeOpacity={0.8}>
               <Text style={s.chatBtnTxt}>💬 Чат</Text>
             </TouchableOpacity>
-            {!like.workerConfirmed ? (
+            {canRate && employer && vac ? (
               <TouchableOpacity
-                style={[s.confirmBtn, actionLoading === shiftKey && { opacity: 0.5 }]}
-                onPress={() => confirmShift(like)}
-                disabled={actionLoading === shiftKey}
+                style={s.rateBtn}
+                onPress={() => router.push({
+                  pathname: '/rate',
+                  params: { likeId: like.id, toUserId: employer.id, toName: employer.company ?? `${employer.firstName} ${employer.lastName}`, vacancyId: vac.id, role: 'worker' },
+                })}
                 activeOpacity={0.8}
               >
-                {actionLoading === shiftKey ? <ActivityIndicator size="small" color="#fff" /> : <Text style={s.confirmBtnTxt}>✔ Подтверждаю выход</Text>}
+                <Text style={s.rateBtnTxt}>⭐ Оставить отзыв</Text>
               </TouchableOpacity>
-            ) : (
-              <View style={s.waitBtn}><Text style={s.waitBtnTxt}>⏳ Ждём работодателя</Text></View>
-            )}
+            ) : isCompleted ? (
+              <View style={s.waitBtn}><Text style={s.waitBtnTxt}>✓ Отзыв оставлен</Text></View>
+            ) : !like.shiftCompleted && like.isMatch ? (
+              <View style={s.waitBtn}><Text style={s.waitBtnTxt}>⏳ Ждём подтверждения</Text></View>
+            ) : null}
           </View>
-        ) : isCompleted ? (
-          <TouchableOpacity style={s.chatBtn} onPress={() => router.push({ pathname: '/(tabs)/chats' })} activeOpacity={0.8}>
-            <Text style={s.chatBtnTxt}>💬 Открыть чат</Text>
-          </TouchableOpacity>
         ) : null}
       </View>
     );
@@ -210,11 +174,6 @@ function WorkerMatches() {
     <SafeAreaView style={s.safe}>
       <View style={s.header}>
         <Text style={s.title}>Мои отклики</Text>
-        {needsConfirm > 0 ? (
-          <View style={s.urgentBadge}>
-            <Text style={s.urgentBadgeTxt}>⏰ {needsConfirm} ждут</Text>
-          </View>
-        ) : null}
       </View>
 
       {/* Tab strip */}
@@ -277,7 +236,6 @@ function EmployerMatches() {
   const myVacIds = vacancies.filter(v => v.employerId === currentUser.id).map(v => v.id);
   const allLikes = likes.filter(l => myVacIds.includes(l.vacancyId) && l.workerLiked);
 
-  // pending = not yet matched, not rejected
   const pending = allLikes.filter(l => !l.isMatch && l.employerLiked !== false);
   const matched = allLikes
     .filter(l => l.isMatch)
@@ -304,8 +262,6 @@ function EmployerMatches() {
       const workerName = worker ? `${worker.firstName} ${worker.lastName}` : 'Работник';
       await notifyEmployerGotMatch(workerName, vac?.title ?? '');
       showToast(`🎉 Мэтч с ${workerName}!`, 'match');
-      // Always open chat immediately — worker already confirmed by liking
-      const chatId = result.chatId ?? like.id;
       if (result.chatId) {
         router.push({ pathname: '/chat-room', params: { chatId: result.chatId } });
       } else {
@@ -332,27 +288,32 @@ function EmployerMatches() {
     }
   };
 
+  // Only employer can confirm the shift — immediately marks as completed
   const confirmShift = async (like: Like) => {
     const key = like.id + '_shift';
     setLoading(key);
     try {
-      const { bothConfirmed } = await dbConfirmShift(like.id, 'employer');
+      await dbConfirmShift(like.id, 'employer');
       await refreshAll();
       const worker = getWorker(like.workerId);
       const vac = getVacancy(like.vacancyId);
       const workerName = worker ? `${worker.firstName} ${worker.lastName}` : 'Работник';
-      if (bothConfirmed) {
-        await notifyEmployerConfirmedShift(workerName, vac?.title ?? '', true);
-        showToast('Смена подтверждена! Оцените работника 🌟', 'success');
-        if (worker && vac) {
-          router.push({
-            pathname: '/rate',
-            params: { likeId: like.id, toUserId: worker.id, toName: workerName, vacancyId: vac.id, role: 'employer' },
-          });
-        }
-      } else {
-        await notifyEmployerConfirmedShift(workerName, vac?.title ?? '', false);
-        showToast('Подтверждено! Ждём работника', 'success');
+      const company = currentUser.company ?? `${currentUser.firstName} ${currentUser.lastName}`;
+
+      // Notify worker that employer confirmed → they can now rate
+      if (worker && vac) {
+        await notifyWorkerShiftConfirmedByEmployer(company, vac.title);
+      }
+      await notifyEmployerConfirmedShift(workerName, vac?.title ?? '', true);
+
+      showToast('Смена подтверждена! Оцените работника 🌟', 'success');
+
+      // Navigate employer to rate the worker
+      if (worker && vac) {
+        router.push({
+          pathname: '/rate',
+          params: { likeId: like.id, toUserId: worker.id, toName: workerName, vacancyId: vac.id, role: 'employer' },
+        });
       }
     } catch {
       showToast('Ошибка', 'error');
@@ -376,6 +337,7 @@ function EmployerMatches() {
         <View style={[s.card, like.shiftCompleted ? s.completedCard : s.matchedCard]}>
           <MatchStatus like={like} isWorker={false} />
 
+          {/* Confirm banner — only when not yet confirmed */}
           {!like.shiftCompleted && !like.employerConfirmed ? (
             <ConfirmBanner onConfirm={() => confirmShift(like)} loading={isShiftLoading} />
           ) : null}
@@ -397,10 +359,12 @@ function EmployerMatches() {
               {worker?.metroStation ? <Text style={s.profileSub}>🚇 {worker.metroStation}</Text> : null}
               {(worker?.avgRating ?? 0) > 0 ? <Text style={s.profileSub}>⭐ {(worker?.avgRating ?? 0).toFixed(1)} ({worker?.ratingCount} отз.)</Text> : null}
             </View>
-            <View style={{ alignItems: 'flex-end', gap: 4 }}>
-              <View style={s.phoneTag}><Text style={s.phoneTxt}>{worker.phone}</Text></View>
-              <Text style={s.profileArrow}>Профиль ›</Text>
-            </View>
+            {worker?.phone ? (
+              <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                <View style={s.phoneTag}><Text style={s.phoneTxt}>{worker.phone}</Text></View>
+                <Text style={s.profileArrow}>Профиль ›</Text>
+              </View>
+            ) : null}
           </TouchableOpacity>
 
           <Text style={s.vacLabel}>{vac.title} · {formatDate(vac.date)}</Text>
@@ -416,10 +380,21 @@ function EmployerMatches() {
                 disabled={isShiftLoading}
                 activeOpacity={0.8}
               >
-                {isShiftLoading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={s.confirmBtnTxt}>✔ Подтверждаю</Text>}
+                {isShiftLoading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={s.confirmBtnTxt}>✔ Подтвердить смену</Text>}
               </TouchableOpacity>
-            ) : !like.shiftCompleted ? (
-              <View style={s.waitBtn}><Text style={s.waitBtnTxt}>⏳ Ждём работника</Text></View>
+            ) : like.shiftCompleted && !like.employerRated && worker && vac ? (
+              <TouchableOpacity
+                style={s.rateBtn}
+                onPress={() => router.push({
+                  pathname: '/rate',
+                  params: { likeId: like.id, toUserId: worker.id, toName: workerName, vacancyId: vac.id, role: 'employer' },
+                })}
+                activeOpacity={0.8}
+              >
+                <Text style={s.rateBtnTxt}>⭐ Оценить</Text>
+              </TouchableOpacity>
+            ) : like.shiftCompleted ? (
+              <View style={s.waitBtn}><Text style={s.waitBtnTxt}>✓ Оценка оставлена</Text></View>
             ) : null}
           </View>
         </View>
@@ -458,7 +433,6 @@ function EmployerMatches() {
 
         <Text style={s.vacLabel}>{vac.title} · {formatDate(vac.date)}</Text>
 
-        {/* Employer decision buttons */}
         <View style={s.actionRow}>
           <TouchableOpacity
             style={[s.rejectBtn, isDLoading && { opacity: 0.5 }]}
@@ -553,8 +527,6 @@ const s = StyleSheet.create({
   completedCard: { borderWidth: 1.5, borderColor: Colors.blue, opacity: 0.8 },
   statusBadge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, alignSelf: 'flex-start' },
   statusTxt: { fontSize: 13, fontWeight: '700' },
-  statusBadge2: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, alignSelf: 'stretch' },
-  statusTxt2: { fontSize: 12, fontWeight: '600', textAlign: 'center' },
   jobTitle: { fontSize: 17, fontWeight: '800', color: Colors.textPrimary, lineHeight: 22 },
   subText: { fontSize: 13, color: Colors.textMuted, marginTop: 2 },
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
@@ -586,6 +558,8 @@ const s = StyleSheet.create({
   chatBtnTxt: { color: '#fff', fontSize: 14, fontWeight: '700' },
   confirmBtn: { flex: 2, backgroundColor: Colors.green, borderRadius: 100, paddingVertical: 11, alignItems: 'center' },
   confirmBtnTxt: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  rateBtn: { flex: 2, backgroundColor: '#FBBF24', borderRadius: 100, paddingVertical: 11, alignItems: 'center' },
+  rateBtnTxt: { color: '#fff', fontSize: 14, fontWeight: '700' },
   waitBtn: { flex: 2, backgroundColor: Colors.surface, borderRadius: 100, paddingVertical: 11, alignItems: 'center', borderWidth: 1, borderColor: Colors.inputBorder },
   waitBtnTxt: { color: Colors.textMuted, fontSize: 13, fontWeight: '500' },
   // Confirm banner
