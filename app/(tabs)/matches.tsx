@@ -385,7 +385,7 @@ function EmployerMatches() {
             onPress={() => worker ? router.push({ pathname: '/user-profile', params: { userId: worker.id } }) : null}
             activeOpacity={0.8}
           >
-            {worker.avatarUrl ? (
+            {worker?.avatarUrl ? (
               <Image source={{ uri: worker.avatarUrl }} style={s.avatar} contentFit="cover" transition={150} />
             ) : (
               <View style={[s.avatar, { backgroundColor: workerColor, alignItems: 'center', justifyContent: 'center' }]}>
@@ -394,8 +394,8 @@ function EmployerMatches() {
             )}
             <View style={{ flex: 1 }}>
               <Text style={s.workerName}>{workerName}</Text>
-              {worker.metroStation ? <Text style={s.profileSub}>🚇 {worker.metroStation}</Text> : null}
-              {(worker.avgRating ?? 0) > 0 ? <Text style={s.profileSub}>⭐ {(worker.avgRating ?? 0).toFixed(1)} ({worker.ratingCount} отз.)</Text> : null}
+              {worker?.metroStation ? <Text style={s.profileSub}>🚇 {worker.metroStation}</Text> : null}
+              {(worker?.avgRating ?? 0) > 0 ? <Text style={s.profileSub}>⭐ {(worker?.avgRating ?? 0).toFixed(1)} ({worker?.ratingCount} отз.)</Text> : null}
             </View>
             <View style={{ alignItems: 'flex-end', gap: 4 }}>
               <View style={s.phoneTag}><Text style={s.phoneTxt}>{worker.phone}</Text></View>
