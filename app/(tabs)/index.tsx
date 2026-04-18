@@ -639,12 +639,12 @@ function WorkerFeed() {
                         <Image source={{ uri: currentEmployer.avatarUrl }} style={styles.avatarImg} contentFit="cover" transition={150} />
                       ) : (
                         <View style={[styles.avatar, { backgroundColor: nameColorFromString(currentCard.employerId) }]}>
-                          <Text style={styles.avatarText}>{getInitials(currentEmployer ? `${currentEmployer.firstName} ${currentEmployer.lastName}` : currentCard.company)}</Text>
+                          <Text style={styles.avatarText}>{getInitials(currentEmployer?.company || currentCard.company || (currentEmployer ? `${currentEmployer.firstName} ${currentEmployer.lastName}` : '?'))}</Text>
                         </View>
                       )}
                       <View style={{ flex: 1 }}>
                         <Text style={styles.companyName} numberOfLines={1}>
-                          {currentEmployer ? `${currentEmployer.firstName} ${currentEmployer.lastName}` : currentCard.company}
+                          {currentEmployer?.company || currentCard.company || (currentEmployer ? `${currentEmployer.firstName} ${currentEmployer.lastName}` : '—')}
                         </Text>
                         <Text style={styles.metroHint}>🚇 {currentCard.metroStation}</Text>
                       </View>

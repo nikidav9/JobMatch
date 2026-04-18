@@ -364,9 +364,9 @@ function EmployerMatches() {
   const renderItem = ({ item: like }: { item: Like }) => {
     const vac = getVacancy(like.vacancyId);
     const worker = getWorker(like.workerId);
-    if (!vac || !worker) return null;
-    const workerName = `${worker.firstName} ${worker.lastName}`;
-    const workerColor = nameColorFromString(worker.id);
+    if (!vac) return null;
+    const workerName = worker ? `${worker.firstName} ${worker.lastName}`.trim() || 'Работник' : 'Работник';
+    const workerColor = nameColorFromString(worker?.id ?? like.workerId);
     const isLoading = actionLoading === like.id;
     const isDLoading = actionLoading === like.id + '_d';
     const isShiftLoading = actionLoading === like.id + '_shift';
@@ -382,7 +382,7 @@ function EmployerMatches() {
 
           <TouchableOpacity
             style={s.workerRow}
-            onPress={() => router.push({ pathname: '/user-profile', params: { userId: worker.id } })}
+            onPress={() => worker ? router.push({ pathname: '/user-profile', params: { userId: worker.id } }) : null}
             activeOpacity={0.8}
           >
             {worker.avatarUrl ? (
@@ -427,30 +427,32 @@ function EmployerMatches() {
     }
 
     // Pending applicant card
+    const displayName = worker ? `${worker.firstName} ${worker.lastName}`.trim() || 'Работник' : 'Работник';
     return (
       <View style={s.card}>
         <MatchStatus like={like} isWorker={false} />
 
         <TouchableOpacity
           style={s.workerRow}
-          onPress={() => router.push({ pathname: '/user-profile', params: { userId: worker.id } })}
+          onPress={() => worker ? router.push({ pathname: '/user-profile', params: { userId: worker.id } }) : null}
           activeOpacity={0.8}
         >
-          {worker.avatarUrl ? (
+          {worker?.avatarUrl ? (
             <Image source={{ uri: worker.avatarUrl }} style={s.avatar} contentFit="cover" transition={150} />
           ) : (
             <View style={[s.avatar, { backgroundColor: workerColor, alignItems: 'center', justifyContent: 'center' }]}>
-              <Text style={s.avatarTxt}>{getInitials(workerName)}</Text>
+              <Text style={s.avatarTxt}>{getInitials(displayName)}</Text>
             </View>
           )}
           <View style={{ flex: 1 }}>
-            <Text style={s.workerName}>{workerName}</Text>
-            {worker.age ? <Text style={s.profileSub}>{worker.age} лет</Text> : null}
-            {worker.metroStation ? <Text style={s.profileSub}>🚇 {worker.metroStation}</Text> : null}
+            <Text style={s.workerName}>{displayName}</Text>
+            {worker?.age ? <Text style={s.profileSub}>{worker.age} лет</Text> : null}
+            {worker?.metroStation ? <Text style={s.profileSub}>🚇 {worker.metroStation}</Text> : null}
+            {!worker ? <Text style={s.profileSub}>Загрузка...</Text> : null}
           </View>
           <View style={{ alignItems: 'flex-end', gap: 4 }}>
             <View style={s.hiddenPhone}><Text style={s.hiddenPhoneTxt}>●●● ●●●</Text></View>
-            <Text style={s.profileArrow}>Профиль ›</Text>
+            {worker ? <Text style={s.profileArrow}>Профиль ›</Text> : null}
           </View>
         </TouchableOpacity>
 
