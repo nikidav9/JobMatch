@@ -91,6 +91,11 @@ function WorkerListModal({
 
   const vacancy = vacancies.find(v => v.id === vacancyId);
 
+  // Force-refresh users when modal opens so worker profiles are available
+  useEffect(() => {
+    refreshAll();
+  }, []);
+
   const titleMap = {
     applicants: '👥 Отклики',
     hired: '✅ Набрано',
