@@ -61,6 +61,11 @@ function userToRow(u: User) {
   };
 }
 
+export async function dbGetUserById(id: string): Promise<User | null> {
+  const { data } = await sb().from('jm_users').select('*').eq('id', id).maybeSingle();
+  return data ? rowToUser(data) : null;
+}
+
 export async function dbGetUsers(): Promise<User[]> {
   const { data, error } = await sb().from('jm_users').select('*').order('created_at', { ascending: true });
   if (error) throwOnError('dbGetUsers', error);

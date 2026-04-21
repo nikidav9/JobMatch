@@ -90,15 +90,13 @@ export default function ChatRoom() {
           lastCountRef.current = msgs.length;
           setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
         }
-        // Also refresh like status periodically
-        if (currentUser.role === 'employer') {
-          const allLikes = await dbGetLikes();
-          const like = allLikes.find(l => l.vacancyId === chat.vacancyId && l.workerId === chat.workerId);
-          if (like) {
-            if (like.isMatch || like.employerLiked === true) setLikeStatus('approved');
-            else if (like.employerLiked === false) setLikeStatus('rejected');
-            else setLikeStatus('pending');
-          }
+        // Refresh like status for both roles so worker immediately sees if rejected
+        const allLikes = await dbGetLikes();
+        const like = allLikes.find(l => l.vacancyId === chat.vacancyId && l.workerId === chat.workerId);
+        if (like) {
+          if (like.isMatch || like.employerLiked === true) setLikeStatus('approved');
+          else if (like.employerLiked === false) setLikeStatus('rejected');
+          else setLikeStatus('pending');
         }
       } catch (e) {
         console.warn('[ChatRoom] poll error', e);

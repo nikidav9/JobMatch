@@ -343,7 +343,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       refreshSaved(currentUser);
       refreshPermVacancies(currentUser);
       refreshPermApplications(currentUser);
-    }, 15_000);
+    }, 5_000);
     return () => clearInterval(interval);
   }, [currentUser?.id]);
 

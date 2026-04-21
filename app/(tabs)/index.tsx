@@ -23,6 +23,7 @@ import {
   dbAddPermSaved,
   dbRemovePermSaved,
   dbClosePermVacancy,
+  dbGetUserById,
 } from '@/services/db';
 import { notifyWorkerSentApplication, notifyWorkerGotMatch, notifyEmployerGotMatch } from '@/services/notifications';
 import { Image } from 'expo-image';
@@ -90,10 +91,22 @@ function WorkerListModal({
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   const vacancy = vacancies.find(v => v.id === vacancyId);
+  const [localWorkers, setLocalWorkers] = useState<User[]>([]);
 
-  // Force-refresh users when modal opens so worker profiles are available
+  // Force-refresh and fetch any missing workers directly from DB
   useEffect(() => {
     refreshAll();
+    const fetchMissingWorkers = async () => {
+      const allWorkerIds = likes
+        .filter(l => l.vacancyId === vacancyId)
+        .map(l => l.workerId);
+      const missingIds = allWorkerIds.filter(id => !users.find(u => u.id === id));
+      if (missingIds.length === 0) return;
+      const fetched = await Promise.all(missingIds.map(id => dbGetUserById(id)));
+      const valid = fetched.filter(Boolean) as User[];
+      setLocalWorkers(valid);
+    };
+    fetchMissingWorkers();
   }, []);
 
   const titleMap = {
@@ -114,13 +127,16 @@ function WorkerListModal({
     );
   }
 
-  const getWorker = (id: string) => users.find(u => u.id === id);
+  // Look up from both context users and locally fetched workers
+  const getWorker = (id: string) => users.find(u => u.id === id) ?? localWorkers.find(u => u.id === id);
   const getChatId = (workerId: string) =>
     chats.find(c => c.vacancyId === vacancyId && c.workerId === workerId)?.id ?? null;
 
   // Open or create a chat with a worker (no match decision required)
   const openOrCreateChat = async (like: Like) => {
-    if (!currentUser || !vacancy) return;
+    if (!currentUser) return;
+    const vacTitle = vacancy?.title ?? 'Смена';
+    const companyName = vacancy?.company ?? currentUser.company ?? '';
     setActionLoading(like.workerId);
     try {
       const existingChatId = getChatId(like.workerId);
@@ -129,16 +145,16 @@ function WorkerListModal({
         router.push({ pathname: '/chat-room', params: { chatId: existingChatId } });
         return;
       }
-      const worker = users.find(u => u.id === like.workerId);
+      const worker = getWorker(like.workerId);
       const greeting = worker
-        ? `Здравствуйте, ${worker.firstName}! Я рассматриваю вашу кандидатуру на «${vacancy.title}».`
-        : `Здравствуйте! Я рассматриваю вашу кандидатуру на «${vacancy.title}».`;
+        ? `Здравствуйте, ${worker.firstName}! Я рассматриваю вашу кандидатуру на «${vacTitle}».`
+        : `Здравствуйте! Я рассматриваю вашу кандидатуру на вакансию.`;
       const chatId = await dbCreateChat(
         like.workerId,
         currentUser.id,
         vacancyId,
-        vacancy.title,
-        vacancy.company,
+        vacTitle,
+        companyName,
         greeting,
         1,
         0,
@@ -154,14 +170,15 @@ function WorkerListModal({
   };
 
   const onAccept = async (like: Like) => {
-    if (!currentUser || !vacancy) return;
+    if (!currentUser) return;
+    const vacTitle = vacancy?.title ?? 'Смена';
     setActionLoading(like.workerId);
     try {
       await dbUpsertLike(vacancyId, like.workerId, currentUser.id, { employerLiked: true });
       const result = await dbCheckAndCreateMatch(vacancyId, like.workerId);
       await refreshAll();
       const worker = getWorker(like.workerId);
-      await notifyEmployerGotMatch(worker ? `${worker.firstName} ${worker.lastName}` : 'Работник', vacancy.title);
+      await notifyEmployerGotMatch(worker ? `${worker.firstName} ${worker.lastName}` : 'Работник', vacTitle);
       showToast('🎉 Мэтч! Чат открыт', 'match');
       onClose();
       if (result.chatId) {
@@ -177,7 +194,7 @@ function WorkerListModal({
   };
 
   const openChat = async (like: Like) => {
-    if (!currentUser || !vacancy) return;
+    if (!currentUser) return;
     const chatId = getChatId(like.workerId);
     if (chatId) {
       onClose();
@@ -187,12 +204,14 @@ function WorkerListModal({
     // Create chat if doesn't exist (e.g. hired worker without prior chat)
     setActionLoading(like.workerId);
     try {
+      const vacTitle = vacancy?.title ?? 'Смена';
+      const companyName = vacancy?.company ?? currentUser.company ?? '';
       const newChatId = await dbCreateChat(
         like.workerId,
         currentUser.id,
         vacancyId,
-        vacancy.title,
-        vacancy.company,
+        vacTitle,
+        companyName,
         undefined,
         0,
         0,
@@ -222,24 +241,35 @@ function WorkerListModal({
   };
 
   const onDiscussRejected = async (like: Like) => {
-    if (!currentUser || !vacancy) return;
+    if (!currentUser) return;
     setActionLoading(like.workerId);
     try {
-      const worker = users.find(u => u.id === like.workerId);
-      if (!worker) throw new Error('Работник не найден');
+      const worker = getWorker(like.workerId);
+      const vacTitle = vacancy?.title ?? 'Смена';
+      const companyName = vacancy?.company ?? currentUser.company ?? '';
+
+      // Check if chat already exists
+      const existingChatId = getChatId(like.workerId);
+      if (existingChatId) {
+        onClose();
+        router.push({ pathname: '/chat-room', params: { chatId: existingChatId } });
+        return;
+      }
 
       const chatId = await dbCreateChat(
         like.workerId,
         currentUser.id,
         vacancyId,
-        vacancy.title,
-        vacancy.company,
+        vacTitle,
+        companyName,
         '',
         0,
         0,
       );
 
-      const text = `Здравствуйте, ${worker.firstName}! Вы были отклонены по вакансии «${vacancy.title}». Я бы хотел обсудить причину и, возможно, найти решение.`;
+      const text = worker
+        ? `Здравствуйте, ${worker.firstName}! Вы были отклонены по вакансии «${vacTitle}». Я бы хотел обсудить причину и, возможно, найти решение.`
+        : `Здравствуйте! Я хотел бы обсудить вашу заявку на вакансию «${vacTitle}».`;
       await dbInsertMessage(chatId, currentUser.id, text);
       await dbIncrementUnread(chatId, 'worker');
       await refreshAll();
