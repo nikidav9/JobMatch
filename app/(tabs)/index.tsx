@@ -24,6 +24,7 @@ import {
   dbRemovePermSaved,
   dbClosePermVacancy,
   dbGetUserById,
+  dbGetLikes,
 } from '@/services/db';
 import { notifyWorkerSentApplication, notifyWorkerGotMatch, notifyEmployerGotMatch } from '@/services/notifications';
 import { Image } from 'expo-image';
@@ -93,21 +94,26 @@ function WorkerListModal({
   const vacancy = vacancies.find(v => v.id === vacancyId);
   const [localWorkers, setLocalWorkers] = useState<User[]>([]);
 
-  // Force-refresh and fetch any missing workers directly from DB
+  // Force-refresh and fetch all workers for this vacancy directly from DB
   useEffect(() => {
-    refreshAll();
-    const fetchMissingWorkers = async () => {
-      const allWorkerIds = likes
-        .filter(l => l.vacancyId === vacancyId)
-        .map(l => l.workerId);
-      const missingIds = allWorkerIds.filter(id => !users.find(u => u.id === id));
-      if (missingIds.length === 0) return;
-      const fetched = await Promise.all(missingIds.map(id => dbGetUserById(id)));
-      const valid = fetched.filter(Boolean) as User[];
-      setLocalWorkers(valid);
+    const init = async () => {
+      await refreshAll();
+      try {
+        // Fetch fresh likes from DB (context likes may be stale at mount)
+        const allLikes = await dbGetLikes();
+        const workerIds = allLikes
+          .filter(l => l.vacancyId === vacancyId)
+          .map(l => l.workerId);
+        if (workerIds.length === 0) return;
+        const fetched = await Promise.all(workerIds.map(id => dbGetUserById(id)));
+        const valid = fetched.filter(Boolean) as User[];
+        setLocalWorkers(valid);
+      } catch (e) {
+        console.warn('[WorkerListModal] fetchWorkers error', e);
+      }
     };
-    fetchMissingWorkers();
-  }, []);
+    init();
+  }, [vacancyId]);
 
   const titleMap = {
     applicants: '👥 Отклики',
