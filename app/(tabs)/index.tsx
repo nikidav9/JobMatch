@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
   Animated, PanResponder, Dimensions, RefreshControl, Modal, FlatList,
-  TextInput,
+  TextInput, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -88,28 +88,35 @@ function WorkerListModal({
   onClose: () => void;
 }) {
   const router = useRouter();
-  const { currentUser, users, vacancies, likes, chats, refreshAll, showToast } = useApp();
+  const { currentUser, users, vacancies, chats, showToast, refreshAll } = useApp();
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-
-  const vacancy = vacancies.find(v => v.id === vacancyId);
+  const [dataLoading, setDataLoading] = useState(true);
+  const [localLikes, setLocalLikes] = useState<Like[]>([]);
   const [localWorkers, setLocalWorkers] = useState<User[]>([]);
 
-  // Force-refresh and fetch all workers for this vacancy directly from DB
+  const vacancy = vacancies.find(v => v.id === vacancyId);
+
+  // Fetch fresh likes + all workers for this vacancy directly from DB on mount
   useEffect(() => {
     const init = async () => {
-      await refreshAll();
+      setDataLoading(true);
       try {
-        // Fetch fresh likes from DB (context likes may be stale at mount)
+        // 1. Fetch ALL likes from DB fresh (bypass stale context)
         const allLikes = await dbGetLikes();
-        const workerIds = allLikes
-          .filter(l => l.vacancyId === vacancyId)
-          .map(l => l.workerId);
-        if (workerIds.length === 0) return;
-        const fetched = await Promise.all(workerIds.map(id => dbGetUserById(id)));
-        const valid = fetched.filter(Boolean) as User[];
-        setLocalWorkers(valid);
+        const vacLikes = allLikes.filter(l => l.vacancyId === vacancyId);
+        setLocalLikes(vacLikes);
+
+        // 2. Fetch every worker referenced in those likes
+        const workerIds = [...new Set(vacLikes.map(l => l.workerId))];
+        if (workerIds.length > 0) {
+          const fetched = await Promise.all(workerIds.map(id => dbGetUserById(id)));
+          const valid = fetched.filter(Boolean) as User[];
+          setLocalWorkers(valid);
+        }
       } catch (e) {
-        console.warn('[WorkerListModal] fetchWorkers error', e);
+        console.warn('[WorkerListModal] init error', e);
+      } finally {
+        setDataLoading(false);
       }
     };
     init();
@@ -121,20 +128,22 @@ function WorkerListModal({
     rejected: '👎 Отклонённые',
   };
 
-  const vacLikes = likes.filter(l => l.vacancyId === vacancyId);
+  // Use fresh localLikes (from DB) for display — not stale context likes
   let filteredLikes: Like[] = [];
   if (type === 'applicants') {
-    filteredLikes = vacLikes.filter(l => l.workerLiked && !l.isMatch && l.employerLiked !== false);
+    filteredLikes = localLikes.filter(l => l.workerLiked && !l.isMatch && l.employerLiked !== false);
   } else if (type === 'hired') {
-    filteredLikes = vacLikes.filter(l => l.isMatch);
+    filteredLikes = localLikes.filter(l => l.isMatch);
   } else {
-    filteredLikes = vacLikes.filter(
+    filteredLikes = localLikes.filter(
       l => l.employerLiked === false || (l.workerLiked === false && l.workerSkipped === true)
     );
   }
 
-  // Look up from both context users and locally fetched workers
-  const getWorker = (id: string) => users.find(u => u.id === id) ?? localWorkers.find(u => u.id === id);
+  // Look up from locally fetched workers first, then context users as fallback
+  const getWorker = (id: string) =>
+    localWorkers.find(u => u.id === id) ?? users.find(u => u.id === id);
+
   const getChatId = (workerId: string) =>
     chats.find(c => c.vacancyId === vacancyId && c.workerId === workerId)?.id ?? null;
 
@@ -207,7 +216,6 @@ function WorkerListModal({
       router.push({ pathname: '/chat-room', params: { chatId } });
       return;
     }
-    // Create chat if doesn't exist (e.g. hired worker without prior chat)
     setActionLoading(like.workerId);
     try {
       const vacTitle = vacancy?.title ?? 'Смена';
@@ -232,20 +240,6 @@ function WorkerListModal({
     }
   };
 
-  const onReject = async (like: Like) => {
-    if (!currentUser) return;
-    setActionLoading(like.workerId);
-    try {
-      await dbUpsertLike(vacancyId, like.workerId, currentUser.id, { employerLiked: false });
-      await refreshAll();
-      showToast('Отклонено', 'success');
-    } catch {
-      showToast('Ошибка', 'error');
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
   const onDiscussRejected = async (like: Like) => {
     if (!currentUser) return;
     setActionLoading(like.workerId);
@@ -254,7 +248,6 @@ function WorkerListModal({
       const vacTitle = vacancy?.title ?? 'Смена';
       const companyName = vacancy?.company ?? currentUser.company ?? '';
 
-      // Check if chat already exists
       const existingChatId = getChatId(like.workerId);
       if (existingChatId) {
         onClose();
@@ -306,7 +299,12 @@ function WorkerListModal({
             <Text style={wS.vacSubtitle} numberOfLines={1}>📋 {vacancy.title} · 📅 {formatDate(vacancy.date)}</Text>
           ) : null}
 
-          {filteredLikes.length === 0 ? (
+          {dataLoading ? (
+            <View style={wS.empty}>
+              <ActivityIndicator size="large" color={Colors.primary} />
+              <Text style={[wS.emptyTxt, { marginTop: 12 }]}>Загрузка данных...</Text>
+            </View>
+          ) : filteredLikes.length === 0 ? (
             <View style={wS.empty}>
               <Text style={{ fontSize: 36 }}>{type === 'applicants' ? '👀' : type === 'hired' ? '🤝' : '🙅'}</Text>
               <Text style={wS.emptyTxt}>
@@ -353,7 +351,7 @@ function WorkerListModal({
                             {(worker.avgRating ?? 0) > 0 ? `  ·  ⭐ ${(worker.avgRating ?? 0).toFixed(1)}` : ''}
                           </Text>
                         ) : (
-                          <Text style={wS.meta}>Загрузка данных...</Text>
+                          <Text style={wS.meta}>Загрузка...</Text>
                         )}
                         {type === 'rejected' ? (
                           <Text style={wS.rejectionReason}>
@@ -382,7 +380,6 @@ function WorkerListModal({
                           <Text style={wS.chatBtnTxt}>💬 Написать</Text>
                         </TouchableOpacity>
                       ) : (
-                        // Applicants: write (no decision) + accept (creates match)
                         <>
                           <TouchableOpacity
                             style={[wS.chatBtn, isLoading && { opacity: 0.5 }]}
@@ -432,14 +429,10 @@ const wS = StyleSheet.create({
   profileArrow: { fontSize: 12, color: Colors.primary, fontWeight: '600' },
   btnRow: { flexDirection: 'row', gap: 8 },
   rejectionReason: { fontSize: 11, color: Colors.red, marginTop: 3, fontStyle: 'italic' },
-  rejectBtn: { flex: 1, borderWidth: 1.5, borderColor: '#FECACA', borderRadius: 100, paddingVertical: 9, alignItems: 'center', backgroundColor: '#FEF2F2' },
-  rejectBtnTxt: { fontSize: 13, color: Colors.red, fontWeight: '600' },
   acceptBtn: { backgroundColor: Colors.primary, borderRadius: 100, paddingVertical: 9, paddingHorizontal: 14, alignItems: 'center' },
   acceptBtnTxt: { fontSize: 13, color: '#fff', fontWeight: '700' },
   chatBtn: { flex: 1, borderWidth: 1.5, borderColor: Colors.primary, borderRadius: 100, paddingVertical: 9, alignItems: 'center' },
   chatBtnTxt: { fontSize: 13, color: Colors.primary, fontWeight: '600' },
-  infoBox: { flex: 1, backgroundColor: Colors.surface, borderRadius: 10, paddingVertical: 9, paddingHorizontal: 12, alignItems: 'center' },
-  infoTxt: { fontSize: 12, color: Colors.textMuted, textAlign: 'center' },
 });
 
 // ─────────────────────────────────────────────────
@@ -476,20 +469,18 @@ function WorkerFeed() {
   const skipOpacity = pan.x.interpolate({ inputRange: [-SWIPE_THRESHOLD, 0], outputRange: [1, 0], extrapolate: 'clamp' });
   const rotate = pan.x.interpolate({ inputRange: [-SW / 2, 0, SW / 2], outputRange: ['-8deg', '0deg', '8deg'], extrapolate: 'clamp' });
 
-  // Refresh date strip every 60s: remove past dates and advance selectedDate if needed
   useEffect(() => {
     const sync = () => {
       const fresh = getTodayDates();
       setDates(fresh);
       setSelectedDate(prev => {
-        // If the currently selected date is no longer in the fresh list, jump to the first valid date
         if (!fresh.includes(prev)) {
           return fresh[0];
         }
         return prev;
       });
     };
-    sync(); // run immediately on mount to fix stale dates
+    sync();
     const interval = setInterval(sync, 60_000);
     return () => clearInterval(interval);
   }, []);
@@ -592,7 +583,6 @@ function WorkerFeed() {
 
   const doMessage = useCallback(async () => {
     if (!currentCard || !currentUser) return;
-    // Find or create a chat with the employer for this vacancy
     const existingChat = chats.find(
       c => c.vacancyId === currentCard.id && c.workerId === currentUser.id
     );
@@ -601,7 +591,6 @@ function WorkerFeed() {
       return;
     }
     try {
-      // IMPORTANT: create like with worker_liked=true so employer's "Подходит" can create a match
       await dbUpsertLike(currentCard.id, currentUser.id, currentCard.employerId, {
         workerLiked: true,
         workerSkipped: false,
@@ -669,9 +658,7 @@ function WorkerFeed() {
     }).length;
   };
 
-  // Only show dates that have vacancies OR are within the next 7 days (for usability)
   const visibleDates = dates;
-
   const activeFilterLine = METRO_LINES.find(l => l.id === filterLineId);
 
   const getRuDay = (iso: string) => {
@@ -911,8 +898,6 @@ function WorkerFeed() {
           </View>
         }
       />
-
-
     </View>
   );
 }
@@ -970,7 +955,6 @@ function WorkerPermMode() {
     return true;
   };
 
-  // Tab buckets
   const openVacancies     = permVacancies.filter(v => v.status === 'open' && !myAppVacIds.has(v.id) && matchesSearch(v) && matchesFilters(v));
   const appliedVacancies  = permVacancies.filter(v => myAppVacIds.has(v.id) && getAppStatus(v.id) !== 'rejected' && matchesSearch(v) && matchesFilters(v));
   const rejectedVacancies = permVacancies.filter(v => myAppVacIds.has(v.id) && getAppStatus(v.id) === 'rejected' && matchesSearch(v) && matchesFilters(v));
@@ -1097,7 +1081,6 @@ function WorkerPermMode() {
     );
   };
 
-  const currentTabCfg = TAB_CONFIG.find(t => t.key === tab)!;
   const emptyMessages: Record<PermTab, { icon: string; title: string; sub: string }> = {
     open:     { icon: '🔍', title: 'Нет открытых вакансий', sub: 'Попробуйте изменить фильтры' },
     applied:  { icon: '📨', title: 'Нет откликов', sub: 'Откликайтесь на вакансии во вкладке «Открытые»' },
@@ -1107,7 +1090,6 @@ function WorkerPermMode() {
 
   return (
     <View style={{ flex: 1 }}>
-      {/* Search + metro filter */}
       <View style={pS.searchRow}>
         <View style={pS.searchBox}>
           <Text style={pS.searchIcon}>🔍</Text>
@@ -1137,7 +1119,6 @@ function WorkerPermMode() {
         </TouchableOpacity>
       </View>
 
-      {/* Salary chips */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -1158,7 +1139,6 @@ function WorkerPermMode() {
         ))}
       </ScrollView>
 
-      {/* Status filter chips */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -1192,7 +1172,6 @@ function WorkerPermMode() {
         })}
       </ScrollView>
 
-      {/* List */}
       {shownVacancies.length === 0 ? (
         <View style={styles.emptyState}>
           <Text style={{ fontSize: 48 }}>{emptyMessages[tab].icon}</Text>
@@ -1210,7 +1189,6 @@ function WorkerPermMode() {
         />
       )}
 
-      {/* Metro filter overlay */}
       {filterPicker ? (
         <View style={styles.filterOverlay}>
           <View style={styles.filterSheet}>
@@ -1343,7 +1321,6 @@ function EmployerHome() {
         </TouchableOpacity>
       </View>
 
-      {/* Mode switcher */}
       <View style={{ paddingHorizontal: 16, paddingVertical: 10 }}>
         <ModeSwitcher mode={mode} onChange={setMode} />
       </View>
@@ -1364,7 +1341,6 @@ function EmployerHome() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} colors={[Colors.primary]} />
         }
       >
-        {/* Shift mode */}
         {mode === 'shift' ? (
           shown.length === 0 ? (
             <View style={styles.emptyState}>
@@ -1431,7 +1407,6 @@ function EmployerHome() {
             ))
           )
         ) : (
-          /* Permanent mode */
           shownPerm.length === 0 ? (
             <View style={styles.emptyState}>
               <Text style={{ fontSize: 52 }}>💼</Text>
@@ -1480,8 +1455,6 @@ function EmployerHome() {
                     <Text style={pS.permScheduleTxt}>🗓 {v.schedule}</Text>
                   </View>
                 </View>
-
-                {/* Applications stat */}
                 <TouchableOpacity
                   style={pS.appStatBtn}
                   onPress={() => router.push({ pathname: '/perm-applications', params: { vacancyId: v.id } })}
@@ -1497,7 +1470,6 @@ function EmployerHome() {
         )}
       </ScrollView>
 
-      {/* Worker list modal */}
       {workerListModal ? (
         <WorkerListModal
           vacancyId={workerListModal.vacId}
@@ -1553,9 +1525,7 @@ function WorkerHome() {
 export default function HomeScreen() {
   const app = useApp();
   const currentUser = app?.currentUser ?? null;
-  const loading = app?.loading ?? true;
   if (!currentUser) {
-    // Show white screen while loading — never return null (causes black screen)
     return <View style={{ flex: 1, backgroundColor: '#FFFFFF' }} />;
   }
   return currentUser.role === 'worker' ? <WorkerHome /> : <EmployerHome />;
@@ -1574,7 +1544,6 @@ const pS = StyleSheet.create({
   },
   inlineFilterActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryLight },
   inlineFilterIcon: { fontSize: 20 },
-  // Worker perm list
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 },
   searchBox: {
     flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8,
@@ -1591,7 +1560,6 @@ const pS = StyleSheet.create({
   },
   filterBtnActive: { borderColor: Colors.primary, backgroundColor: Colors.primaryLight },
   filterBtnTxt: { fontSize: 18 },
-  // Salary chips
   salaryChipsScroll: { flexGrow: 0, flexShrink: 0, alignSelf: 'stretch' },
   salaryChipsRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingBottom: 10 },
   salaryChip: {
@@ -1602,7 +1570,6 @@ const pS = StyleSheet.create({
   salaryChipActive: { borderColor: Colors.green, backgroundColor: '#D1FAE5' },
   salaryChipTxt: { fontSize: 13, fontWeight: '600', color: Colors.textMuted },
   salaryChipTxtActive: { color: Colors.green },
-  // Status filter chips
   statusChipsScroll: { flexGrow: 0, flexShrink: 0, alignSelf: 'stretch', borderBottomWidth: 1, borderBottomColor: Colors.divider },
   statusChipsRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 10 },
   statusChip: {
@@ -1619,13 +1586,11 @@ const pS = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4,
   },
   statusChipBadgeTxt: { fontSize: 10, fontWeight: '800', color: '#fff' },
-  // Rejected info
   rejectedInfo: {
     backgroundColor: '#FEE2E2', borderRadius: 10,
     paddingHorizontal: 12, paddingVertical: 10,
   },
   rejectedInfoTxt: { fontSize: 13, color: Colors.red, fontWeight: '500', textAlign: 'center' },
-  // Vacancy card
   card: { backgroundColor: Colors.bg, borderRadius: Radius.lg, padding: 16, ...Shadow.card, gap: 10 },
   cardHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   jobTitle: { fontSize: 17, fontWeight: '800', color: Colors.textPrimary, lineHeight: 22 },
@@ -1640,15 +1605,11 @@ const pS = StyleSheet.create({
   scheduleTag: { backgroundColor: Colors.surface, borderRadius: 100, paddingHorizontal: 12, paddingVertical: 5 },
   scheduleTxt: { fontSize: 13, color: Colors.textSecondary, fontWeight: '500' },
   desc: { fontSize: 13, color: Colors.textMuted, lineHeight: 18 },
-  applyBtn: {
-    backgroundColor: '#7C3AED', borderRadius: 100,
-    paddingVertical: 12, alignItems: 'center',
-  },
+  applyBtn: { backgroundColor: '#7C3AED', borderRadius: 100, paddingVertical: 12, alignItems: 'center' },
   applyBtnDone: { backgroundColor: '#D1FAE5' },
   applyBtnTxt: { color: '#fff', fontSize: 14, fontWeight: '700' },
   statusBadge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, alignSelf: 'flex-start' },
   statusTxt: { fontSize: 12, fontWeight: '700' },
-  // Employer perm vacancy card
   permVacCard: { borderLeftWidth: 3, borderLeftColor: '#7C3AED' },
   permCompany: { fontSize: 12, color: Colors.textMuted, marginTop: 2 },
   permMetaRow: { gap: 2 },
@@ -1681,7 +1642,6 @@ const styles = StyleSheet.create({
   logoO: { fontWeight: '800', color: Colors.primary },
   addBtn: { backgroundColor: Colors.primary, borderRadius: 100, paddingHorizontal: 16, paddingVertical: 8 },
   addBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-
   dateStrip: { borderBottomWidth: 1, borderBottomColor: Colors.divider, backgroundColor: Colors.bg },
   dateStripInner: { flexDirection: 'row', alignItems: 'center' },
   dateRow: { paddingHorizontal: 12, paddingVertical: 10, gap: 8, flexDirection: 'row' },
@@ -1694,18 +1654,15 @@ const styles = StyleSheet.create({
   dcNumActive: { color: '#fff' },
   dcCnt: { fontSize: 10, fontWeight: '700', color: Colors.primary },
   dcCntActive: { color: 'rgba(255,255,255,0.8)' },
-
   cardArea: { flex: 1, flexDirection: 'column', paddingHorizontal: 10, paddingTop: 10, paddingBottom: 8 },
   ghost1: { position: 'absolute', left: 10, right: 10, top: 10, bottom: 90, backgroundColor: Colors.bg, borderRadius: Radius.xl, transform: [{ scale: 0.97 }, { translateY: 6 }], opacity: 0.5, ...Shadow.card },
   ghost2: { position: 'absolute', left: 10, right: 10, top: 10, bottom: 90, backgroundColor: Colors.bg, borderRadius: Radius.xl, transform: [{ scale: 0.94 }, { translateY: 12 }], opacity: 0.3, ...Shadow.card },
   cardAnimated: { flex: 1, marginBottom: 8 },
   card: { flex: 1, backgroundColor: Colors.bg, borderRadius: Radius.xl, ...Shadow.strong, overflow: 'hidden' },
-
   wantOverlay: { position: 'absolute', top: 20, left: 20, zIndex: 10, backgroundColor: Colors.green, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8, transform: [{ rotate: '-10deg' }] },
   wantText: { color: '#fff', fontSize: 20, fontWeight: '800' },
   skipOverlay: { position: 'absolute', top: 20, right: 20, zIndex: 10, backgroundColor: Colors.red, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8, transform: [{ rotate: '10deg' }] },
   skipText: { color: '#fff', fontSize: 20, fontWeight: '800' },
-
   cardTapArea: { flex: 1, flexDirection: 'column' },
   cardTop: { padding: 20, paddingBottom: 16, gap: 12 },
   companyRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
@@ -1741,7 +1698,6 @@ const styles = StyleSheet.create({
   },
   detailHintText: { fontSize: 13, fontWeight: '600', color: Colors.primary },
   detailHintArrow: { fontSize: 14, color: Colors.primary },
-
   actions: {
     height: 74,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around',
@@ -1756,16 +1712,13 @@ const styles = StyleSheet.create({
   actionSaveIcon: { fontSize: 22 },
   actionWant: { width: 64, height: 64, backgroundColor: Colors.primary },
   actionWantIcon: { fontSize: 26, color: '#fff', fontWeight: '800' },
-
   detailSkipBtn: { flex: 1, borderWidth: 1.5, borderColor: Colors.red, borderRadius: 100, paddingVertical: 13, alignItems: 'center' },
   detailSkipTxt: { color: Colors.red, fontSize: 14, fontWeight: '600' },
   detailWantBtn: { flex: 1, backgroundColor: Colors.primary, borderRadius: 100, paddingVertical: 13, alignItems: 'center' },
   detailWantTxt: { color: '#fff', fontSize: 14, fontWeight: '700' },
-
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 },
   emptyTitle: { fontSize: 18, fontWeight: '700', color: Colors.textPrimary, marginTop: 12, textAlign: 'center' },
   emptySubtitle: { fontSize: 14, color: Colors.textMuted, marginTop: 6, textAlign: 'center' },
-
   filterOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 100, justifyContent: 'flex-end' },
   filterSheet: { backgroundColor: Colors.bg, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 40, maxHeight: '70%' },
   filterSheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.divider },
@@ -1777,7 +1730,6 @@ const styles = StyleSheet.create({
   lineRowActive: { backgroundColor: Colors.primaryLight },
   lineDot: { width: 12, height: 12, borderRadius: 6 },
   lineName: { flex: 1, fontSize: 15, color: Colors.textPrimary },
-
   createBtn: { marginTop: 20, borderWidth: 1.5, borderColor: Colors.primary, borderRadius: 100, paddingHorizontal: 24, paddingVertical: 10 },
   createBtnText: { color: Colors.primary, fontWeight: '600', fontSize: 15 },
   tabs: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: Colors.divider },
