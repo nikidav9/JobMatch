@@ -223,19 +223,25 @@ function WorkerListModal({
               contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 40 }}
               renderItem={({ item: like }) => {
                 const worker = getWorker(like.workerId);
-                if (!worker) return null;
-                const workerColor = nameColorFromString(worker.id);
-                const initials = getInitials(`${worker.firstName} ${worker.lastName}`);
+                const workerColor = nameColorFromString(like.workerId);
+                const workerDisplayName = worker
+                  ? `${worker.firstName} ${worker.lastName}`.trim() || 'Работник'
+                  : 'Работник';
+                const initials = worker ? getInitials(workerDisplayName) : '?';
                 const isLoading = actionLoading === like.workerId;
                 const rejectedByWorker = like.workerLiked === false && like.workerSkipped === true;
                 return (
                   <View style={wS.card}>
                     <TouchableOpacity
                       style={wS.cardTop}
-                      onPress={() => { onClose(); router.push({ pathname: '/user-profile', params: { userId: worker.id } }); }}
+                      onPress={() => {
+                        if (!worker) return;
+                        onClose();
+                        router.push({ pathname: '/user-profile', params: { userId: worker.id } });
+                      }}
                       activeOpacity={0.8}
                     >
-                      {worker.avatarUrl ? (
+                      {worker?.avatarUrl ? (
                         <Image source={{ uri: worker.avatarUrl }} style={wS.avatar} contentFit="cover" transition={150} />
                       ) : (
                         <View style={[wS.avatar, { backgroundColor: workerColor, alignItems: 'center', justifyContent: 'center' }]}>
@@ -243,18 +249,22 @@ function WorkerListModal({
                         </View>
                       )}
                       <View style={{ flex: 1 }}>
-                        <Text style={wS.name}>{worker.firstName} {worker.lastName}</Text>
-                        <Text style={wS.meta}>
-                          {like.isMatch ? `📞 ${worker.phone}` : `🚇 ${worker.metroStation ?? '—'}`}
-                          {(worker.avgRating ?? 0) > 0 ? `  ·  ⭐ ${(worker.avgRating ?? 0).toFixed(1)}` : ''}
-                        </Text>
+                        <Text style={wS.name}>{workerDisplayName}</Text>
+                        {worker ? (
+                          <Text style={wS.meta}>
+                            {like.isMatch ? `📞 ${worker.phone}` : `🚇 ${worker.metroStation ?? '—'}`}
+                            {(worker.avgRating ?? 0) > 0 ? `  ·  ⭐ ${(worker.avgRating ?? 0).toFixed(1)}` : ''}
+                          </Text>
+                        ) : (
+                          <Text style={wS.meta}>Загрузка данных...</Text>
+                        )}
                         {type === 'rejected' ? (
                           <Text style={wS.rejectionReason}>
                             {rejectedByWorker ? '← Сам отказался' : '← Вы отклонили'}
                           </Text>
                         ) : null}
                       </View>
-                      <Text style={wS.profileArrow}>Профиль ›</Text>
+                      {worker ? <Text style={wS.profileArrow}>Профиль ›</Text> : null}
                     </TouchableOpacity>
 
                     <View style={wS.btnRow}>

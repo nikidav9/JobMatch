@@ -58,16 +58,38 @@ export default function TabLayout() {
   const matchBadge = (() => {
     if (!currentUser) return 0;
     if (isWorker) {
-      const awaiting = likes.filter(l => l.workerId === currentUser.id && l.workerLiked && l.employerLiked === null && !l.isMatch).length;
-      const rejected = likes.filter(l => l.workerId === currentUser.id && l.workerLiked && l.employerLiked === false).length;
-      const matched = likes.filter(l => l.workerId === currentUser.id && l.isMatch).length;
-      return awaiting + rejected + matched;
+      // Pending (awaiting employer decision)
+      const awaiting = likes.filter(l =>
+        l.workerId === currentUser.id && l.workerLiked && l.employerLiked === null && !l.isMatch
+      ).length;
+      // Rejected by employer
+      const rejected = likes.filter(l =>
+        l.workerId === currentUser.id && l.workerLiked && l.employerLiked === false
+      ).length;
+      // Active matches (not yet completed, or completed but worker hasn't rated)
+      const matched = likes.filter(l =>
+        l.workerId === currentUser.id && l.isMatch && !l.shiftCompleted
+      ).length;
+      // Employer confirmed — worker needs to rate
+      const needsRating = likes.filter(l =>
+        l.workerId === currentUser.id && l.isMatch && l.shiftCompleted && !l.workerRated
+      ).length;
+      return awaiting + rejected + matched + needsRating;
     }
     const myVacIds = vacancies.filter(v => v.employerId === currentUser.id).map(v => v.id);
-    const pending = likes.filter(l => myVacIds.includes(l.vacancyId) && l.workerLiked && l.employerLiked === null).length;
-    const rejected = likes.filter(l => myVacIds.includes(l.vacancyId) && l.workerLiked && l.employerLiked === false).length;
-    const matched = likes.filter(l => myVacIds.includes(l.vacancyId) && l.isMatch).length;
-    return pending + rejected + matched;
+    // Pending applications awaiting employer decision
+    const pending = likes.filter(l =>
+      myVacIds.includes(l.vacancyId) && l.workerLiked && l.employerLiked === null && !l.isMatch
+    ).length;
+    // Active matches (not yet completed)
+    const matched = likes.filter(l =>
+      myVacIds.includes(l.vacancyId) && l.isMatch && !l.shiftCompleted
+    ).length;
+    // Shift completed but employer hasn't rated yet
+    const needsRating = likes.filter(l =>
+      myVacIds.includes(l.vacancyId) && l.isMatch && l.shiftCompleted && !l.employerRated
+    ).length;
+    return pending + matched + needsRating;
   })();
 
   const tabBarHeight = Platform.select({

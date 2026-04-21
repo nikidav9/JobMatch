@@ -373,16 +373,7 @@ function EmployerMatches() {
             <TouchableOpacity style={s.chatBtn} onPress={() => router.push({ pathname: '/(tabs)/chats' })} activeOpacity={0.8}>
               <Text style={s.chatBtnTxt}>💬 Чат</Text>
             </TouchableOpacity>
-            {!like.shiftCompleted && !like.employerConfirmed ? (
-              <TouchableOpacity
-                style={[s.confirmBtn, isShiftLoading && { opacity: 0.5 }]}
-                onPress={() => confirmShift(like)}
-                disabled={isShiftLoading}
-                activeOpacity={0.8}
-              >
-                {isShiftLoading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={s.confirmBtnTxt}>✔ Подтвердить смену</Text>}
-              </TouchableOpacity>
-            ) : like.shiftCompleted && !like.employerRated && worker && vac ? (
+            {like.shiftCompleted && !like.employerRated && worker && vac ? (
               <TouchableOpacity
                 style={s.rateBtn}
                 onPress={() => router.push({
