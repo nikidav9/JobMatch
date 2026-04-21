@@ -436,8 +436,8 @@ export async function dbCheckAndCreateMatch(
       .maybeSingle();
     return { matched: false, chatId: existingChat?.id };
   }
-  // worker must have liked; employer_liked may have just been set by dbUpsertLike caller
-  if (!likeRow.worker_liked) return { matched: false };
+  // Both worker AND employer must have liked before a match is created
+  if (!likeRow.worker_liked || likeRow.employer_liked !== true) return { matched: false };
 
   await sb()
     .from('jm_likes')
