@@ -72,34 +72,19 @@ export function getVirtualStartDate(): Date {
 }
 
 /**
- * Returns ISO date strings from the virtual start date to the end of that month.
- * Before 21:00: today → last day of current month.
- * After  21:00: tomorrow → last day of that month (or next month if it's already the last day).
+ * Returns ISO date strings for the next 14 days starting from the virtual start date.
+ * Before 21:00: today + 13 more days.
+ * After  21:00: tomorrow + 13 more days.
+ * Always exactly 14 days — auto-updates daily.
  */
 export function getTodayDates(): string[] {
   const start = getVirtualStartDate();
   const dates: string[] = [];
-
-  // Extend to end of the start's month
-  const endOfMonth = new Date(start.getFullYear(), start.getMonth() + 1, 0);
-
   const cur = new Date(start);
-  while (cur <= endOfMonth) {
-    dates.push(localDateStr(cur)); // Use local date components — avoids UTC timezone shift
+  for (let i = 0; i < 14; i++) {
+    dates.push(localDateStr(cur));
     cur.setDate(cur.getDate() + 1);
   }
-
-  // If we're near the end of the month (< 7 days remaining), also include start of next month
-  if (dates.length < 7) {
-    const nextMonthStart = new Date(start.getFullYear(), start.getMonth() + 1, 1);
-    const nextMonthEnd = new Date(start.getFullYear(), start.getMonth() + 2, 0);
-    const nc = new Date(nextMonthStart);
-    while (nc <= nextMonthEnd && dates.length < 14) {
-      dates.push(localDateStr(nc));
-      nc.setDate(nc.getDate() + 1);
-    }
-  }
-
   return dates;
 }
 

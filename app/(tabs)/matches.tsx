@@ -26,7 +26,7 @@ function MatchStatus({ like, isWorker }: { like: Like; isWorker: boolean }) {
   }
   if (like.isMatch) {
     if (isWorker) {
-      if (like.employerConfirmed && !like.workerRated)
+      if (like.shiftCompleted && !like.workerRated)
         return <View style={[s.statusBadge, { backgroundColor: '#FFF7ED' }]}><Text style={[s.statusTxt, { color: '#92400E' }]}>⭐ Оставьте отзыв о работодателе!</Text></View>;
     } else {
       if (!like.employerConfirmed)
@@ -42,19 +42,59 @@ function MatchStatus({ like, isWorker }: { like: Like; isWorker: boolean }) {
   return <View style={[s.statusBadge, { backgroundColor: Colors.surface }]}><Text style={[s.statusTxt, { color: Colors.textMuted }]}>⏳ На рассмотрении</Text></View>;
 }
 
-// ─── Confirm shift banner (employer only) ─────────────────────────────────────
+// ─── Confirm shift banner (employer only) with confirmation dialog ─────────────
 function ConfirmBanner({ onConfirm, loading }: { onConfirm: () => void; loading: boolean }) {
+  const [showDialog, setShowDialog] = useState(false);
+
   return (
-    <View style={s.confirmBanner}>
-      <Text style={s.confirmBannerIcon}>⏰</Text>
-      <View style={{ flex: 1 }}>
-        <Text style={s.confirmBannerTitle}>Подтвердите смену</Text>
-        <Text style={s.confirmBannerSub}>Нажмите кнопку, чтобы завершить смену</Text>
+    <>
+      <View style={s.confirmBanner}>
+        <Text style={s.confirmBannerIcon}>⏰</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={s.confirmBannerTitle}>Подтвердите смену</Text>
+          <Text style={s.confirmBannerSub}>Нажмите кнопку, чтобы завершить смену</Text>
+        </View>
+        <TouchableOpacity
+          style={s.confirmBannerBtn}
+          onPress={() => setShowDialog(true)}
+          disabled={loading}
+          activeOpacity={0.8}
+        >
+          {loading
+            ? <ActivityIndicator size="small" color="#fff" />
+            : <Text style={s.confirmBannerBtnTxt}>✔</Text>
+          }
+        </TouchableOpacity>
       </View>
-      <TouchableOpacity style={s.confirmBannerBtn} onPress={onConfirm} disabled={loading} activeOpacity={0.8}>
-        {loading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={s.confirmBannerBtnTxt}>✔</Text>}
-      </TouchableOpacity>
-    </View>
+
+      {/* Confirmation dialog */}
+      {showDialog ? (
+        <View style={s.dialogOverlay}>
+          <View style={s.dialogCard}>
+            <Text style={s.dialogTitle}>Подтвердить завершение смены?</Text>
+            <Text style={s.dialogBody}>
+              Смена будет отмечена как завершённая. Вам предложат оценить работника.
+            </Text>
+            <View style={s.dialogBtns}>
+              <TouchableOpacity
+                style={s.dialogCancelBtn}
+                onPress={() => setShowDialog(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={s.dialogCancelTxt}>Отмена</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={s.dialogConfirmBtn}
+                onPress={() => { setShowDialog(false); onConfirm(); }}
+                activeOpacity={0.8}
+              >
+                <Text style={s.dialogConfirmTxt}>Подтвердить</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      ) : null}
+    </>
   );
 }
 
@@ -95,7 +135,7 @@ function WorkerMatches() {
     const employer = users.find(u => u.id === like.employerId);
     const isMatch = like.isMatch;
     const isCompleted = like.shiftCompleted;
-    // Worker can rate if shift is completed and employer confirmed but worker hasn't rated yet
+    // Worker can rate if shift is completed and they haven't rated yet
     const canRate = isCompleted && !like.workerRated;
 
     return (
@@ -139,7 +179,11 @@ function WorkerMatches() {
         {/* Actions */}
         {isMatch ? (
           <View style={s.actionRow}>
-            <TouchableOpacity style={s.chatBtn} onPress={() => router.push({ pathname: '/(tabs)/chats' })} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={s.chatBtn}
+              onPress={() => router.push({ pathname: '/(tabs)/chats' })}
+              activeOpacity={0.8}
+            >
               <Text style={s.chatBtnTxt}>💬 Чат</Text>
             </TouchableOpacity>
             {canRate && employer && vac ? (
@@ -147,15 +191,21 @@ function WorkerMatches() {
                 style={s.rateBtn}
                 onPress={() => router.push({
                   pathname: '/rate',
-                  params: { likeId: like.id, toUserId: employer.id, toName: employer.company ?? `${employer.firstName} ${employer.lastName}`, vacancyId: vac.id, role: 'worker' },
+                  params: {
+                    likeId: like.id,
+                    toUserId: employer.id,
+                    toName: employer.company ?? `${employer.firstName} ${employer.lastName}`,
+                    vacancyId: vac.id,
+                    role: 'worker',
+                  },
                 })}
                 activeOpacity={0.8}
               >
                 <Text style={s.rateBtnTxt}>⭐ Оставить отзыв</Text>
               </TouchableOpacity>
-            ) : isCompleted ? (
+            ) : isCompleted && like.workerRated ? (
               <View style={s.waitBtn}><Text style={s.waitBtnTxt}>✓ Отзыв оставлен</Text></View>
-            ) : !like.shiftCompleted && like.isMatch ? (
+            ) : !isCompleted ? (
               <View style={s.waitBtn}><Text style={s.waitBtnTxt}>⏳ Ждём подтверждения</Text></View>
             ) : null}
           </View>
@@ -166,8 +216,8 @@ function WorkerMatches() {
 
   const TABS = [
     { key: 'active',    label: 'Активные',  count: activeItems.length },
-    { key: 'rejected',  label: 'Отказ',      count: rejectedItems.length },
-    { key: 'completed', label: 'Завершено',  count: completedItems.length },
+    { key: 'rejected',  label: 'Отказ',     count: rejectedItems.length },
+    { key: 'completed', label: 'Завершено', count: completedItems.length },
   ] as const;
 
   return (
@@ -181,8 +231,7 @@ function WorkerMatches() {
         {TABS.map(t => (
           <TouchableOpacity key={t.key} style={s.tabItem} onPress={() => setTab(t.key)} activeOpacity={0.8}>
             <Text style={[s.tabLabel, tab === t.key && s.tabLabelActive]}>
-              {t.label}
-              {t.count > 0 ? ` (${t.count})` : ''}
+              {t.label}{t.count > 0 ? ` (${t.count})` : ''}
             </Text>
             {tab === t.key ? <View style={s.tabUnderline} /> : null}
           </TouchableOpacity>
@@ -191,12 +240,18 @@ function WorkerMatches() {
 
       {shownItems.length === 0 ? (
         <View style={s.empty}>
-          <Text style={{ fontSize: 48 }}>{tab === 'active' ? '📋' : tab === 'rejected' ? '😔' : '🏁'}</Text>
+          <Text style={{ fontSize: 48 }}>
+            {tab === 'active' ? '📋' : tab === 'rejected' ? '😔' : '🏁'}
+          </Text>
           <Text style={s.emptyTitle}>
             {tab === 'active' ? 'Нет активных заявок' : tab === 'rejected' ? 'Нет отказов' : 'Нет завершённых смен'}
           </Text>
           <Text style={s.emptySub}>
-            {tab === 'active' ? 'Откликайтесь на вакансии — они появятся здесь' : tab === 'rejected' ? 'Это хорошо! Продолжайте откликаться' : 'Завершённые смены появятся здесь'}
+            {tab === 'active'
+              ? 'Откликайтесь на вакансии — они появятся здесь'
+              : tab === 'rejected'
+              ? 'Это хорошо! Продолжайте откликаться'
+              : 'Завершённые смены появятся здесь'}
           </Text>
         </View>
       ) : (
@@ -205,12 +260,23 @@ function WorkerMatches() {
           keyExtractor={l => l.id}
           contentContainerStyle={s.list}
           showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} colors={[Colors.primary]} />}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={Colors.primary}
+              colors={[Colors.primary]}
+            />
+          }
           renderItem={renderItem}
         />
       )}
 
-      <VacancyDetailModal vacancy={detailVacancy} visible={!!detailVacancy} onClose={() => setDetailVacancy(null)} />
+      <VacancyDetailModal
+        vacancy={detailVacancy}
+        visible={!!detailVacancy}
+        onClose={() => setDetailVacancy(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -288,7 +354,7 @@ function EmployerMatches() {
     }
   };
 
-  // Only employer can confirm the shift — immediately marks as completed
+  // Only employer can confirm the shift — marks as completed and navigates to rate screen
   const confirmShift = async (like: Like) => {
     const key = like.id + '_shift';
     setLoading(key);
@@ -308,11 +374,17 @@ function EmployerMatches() {
 
       showToast('Смена подтверждена! Оцените работника 🌟', 'success');
 
-      // Navigate employer to rate the worker
+      // Navigate employer to rate the worker — rating starts at 0 (no auto-stars)
       if (worker && vac) {
         router.push({
           pathname: '/rate',
-          params: { likeId: like.id, toUserId: worker.id, toName: workerName, vacancyId: vac.id, role: 'employer' },
+          params: {
+            likeId: like.id,
+            toUserId: worker.id,
+            toName: workerName,
+            vacancyId: vac.id,
+            role: 'employer',
+          },
         });
       }
     } catch {
@@ -326,7 +398,9 @@ function EmployerMatches() {
     const vac = getVacancy(like.vacancyId);
     const worker = getWorker(like.workerId);
     if (!vac) return null;
-    const workerName = worker ? `${worker.firstName} ${worker.lastName}`.trim() || 'Работник' : 'Работник';
+    const workerName = worker
+      ? `${worker.firstName} ${worker.lastName}`.trim() || 'Работник'
+      : 'Работник';
     const workerColor = nameColorFromString(worker?.id ?? like.workerId);
     const isLoading = actionLoading === like.id;
     const isDLoading = actionLoading === like.id + '_d';
@@ -337,14 +411,16 @@ function EmployerMatches() {
         <View style={[s.card, like.shiftCompleted ? s.completedCard : s.matchedCard]}>
           <MatchStatus like={like} isWorker={false} />
 
-          {/* Confirm banner — only when not yet confirmed */}
+          {/* Confirm banner — only when shift not yet completed */}
           {!like.shiftCompleted && !like.employerConfirmed ? (
             <ConfirmBanner onConfirm={() => confirmShift(like)} loading={isShiftLoading} />
           ) : null}
 
           <TouchableOpacity
             style={s.workerRow}
-            onPress={() => worker ? router.push({ pathname: '/user-profile', params: { userId: worker.id } }) : null}
+            onPress={() => worker
+              ? router.push({ pathname: '/user-profile', params: { userId: worker.id } })
+              : null}
             activeOpacity={0.8}
           >
             {worker?.avatarUrl ? (
@@ -356,8 +432,14 @@ function EmployerMatches() {
             )}
             <View style={{ flex: 1 }}>
               <Text style={s.workerName}>{workerName}</Text>
-              {worker?.metroStation ? <Text style={s.profileSub}>🚇 {worker.metroStation}</Text> : null}
-              {(worker?.avgRating ?? 0) > 0 ? <Text style={s.profileSub}>⭐ {(worker?.avgRating ?? 0).toFixed(1)} ({worker?.ratingCount} отз.)</Text> : null}
+              {worker?.metroStation ? (
+                <Text style={s.profileSub}>🚇 {worker.metroStation}</Text>
+              ) : null}
+              {(worker?.avgRating ?? 0) > 0 ? (
+                <Text style={s.profileSub}>
+                  ⭐ {(worker?.avgRating ?? 0).toFixed(1)} ({worker?.ratingCount} отз.)
+                </Text>
+              ) : null}
             </View>
             {worker?.phone ? (
               <View style={{ alignItems: 'flex-end', gap: 4 }}>
@@ -370,7 +452,11 @@ function EmployerMatches() {
           <Text style={s.vacLabel}>{vac.title} · {formatDate(vac.date)}</Text>
 
           <View style={s.actionRow}>
-            <TouchableOpacity style={s.chatBtn} onPress={() => router.push({ pathname: '/(tabs)/chats' })} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={s.chatBtn}
+              onPress={() => router.push({ pathname: '/(tabs)/chats' })}
+              activeOpacity={0.8}
+            >
               <Text style={s.chatBtnTxt}>💬 Чат</Text>
             </TouchableOpacity>
             {like.shiftCompleted && !like.employerRated && worker && vac ? (
@@ -378,13 +464,19 @@ function EmployerMatches() {
                 style={s.rateBtn}
                 onPress={() => router.push({
                   pathname: '/rate',
-                  params: { likeId: like.id, toUserId: worker.id, toName: workerName, vacancyId: vac.id, role: 'employer' },
+                  params: {
+                    likeId: like.id,
+                    toUserId: worker.id,
+                    toName: workerName,
+                    vacancyId: vac.id,
+                    role: 'employer',
+                  },
                 })}
                 activeOpacity={0.8}
               >
                 <Text style={s.rateBtnTxt}>⭐ Оценить</Text>
               </TouchableOpacity>
-            ) : like.shiftCompleted ? (
+            ) : like.shiftCompleted && like.employerRated ? (
               <View style={s.waitBtn}><Text style={s.waitBtnTxt}>✓ Оценка оставлена</Text></View>
             ) : null}
           </View>
@@ -393,14 +485,18 @@ function EmployerMatches() {
     }
 
     // Pending applicant card
-    const displayName = worker ? `${worker.firstName} ${worker.lastName}`.trim() || 'Работник' : 'Работник';
+    const displayName = worker
+      ? `${worker.firstName} ${worker.lastName}`.trim() || 'Работник'
+      : 'Работник';
     return (
       <View style={s.card}>
         <MatchStatus like={like} isWorker={false} />
 
         <TouchableOpacity
           style={s.workerRow}
-          onPress={() => worker ? router.push({ pathname: '/user-profile', params: { userId: worker.id } }) : null}
+          onPress={() => worker
+            ? router.push({ pathname: '/user-profile', params: { userId: worker.id } })
+            : null}
           activeOpacity={0.8}
         >
           {worker?.avatarUrl ? (
@@ -431,7 +527,9 @@ function EmployerMatches() {
             disabled={!!actionLoading}
             activeOpacity={0.8}
           >
-            {isDLoading ? <ActivityIndicator size="small" color={Colors.red} /> : <Text style={s.rejectBtnTxt}>✕ Не подходит</Text>}
+            {isDLoading
+              ? <ActivityIndicator size="small" color={Colors.red} />
+              : <Text style={s.rejectBtnTxt}>✕ Не подходит</Text>}
           </TouchableOpacity>
           <TouchableOpacity
             style={[s.acceptBtn, isLoading && { opacity: 0.5 }]}
@@ -439,7 +537,9 @@ function EmployerMatches() {
             disabled={!!actionLoading}
             activeOpacity={0.8}
           >
-            {isLoading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={s.acceptBtnTxt}>✅ Подходит!</Text>}
+            {isLoading
+              ? <ActivityIndicator size="small" color="#fff" />
+              : <Text style={s.acceptBtnTxt}>✅ Подходит!</Text>}
           </TouchableOpacity>
         </View>
       </View>
@@ -462,7 +562,12 @@ function EmployerMatches() {
           { key: 'pending', label: 'Отклики', count: pending.length },
           { key: 'matched', label: 'Мэтчи',   count: matched.length },
         ] as const).map(t => (
-          <TouchableOpacity key={t.key} style={s.tabItem} onPress={() => setTab(t.key)} activeOpacity={0.8}>
+          <TouchableOpacity
+            key={t.key}
+            style={s.tabItem}
+            onPress={() => setTab(t.key)}
+            activeOpacity={0.8}
+          >
             <Text style={[s.tabLabel, tab === t.key && s.tabLabelActive]}>
               {t.label}{t.count > 0 ? ` (${t.count})` : ''}
             </Text>
@@ -474,8 +579,14 @@ function EmployerMatches() {
       {shown.length === 0 ? (
         <View style={s.empty}>
           <Text style={{ fontSize: 48 }}>{tab === 'pending' ? '📥' : '🤝'}</Text>
-          <Text style={s.emptyTitle}>{tab === 'pending' ? 'Нет откликов' : 'Нет мэтчей'}</Text>
-          <Text style={s.emptySub}>{tab === 'pending' ? 'Когда работники откликнутся — они появятся здесь' : 'Мэтчи появятся после взаимного подтверждения'}</Text>
+          <Text style={s.emptyTitle}>
+            {tab === 'pending' ? 'Нет откликов' : 'Нет мэтчей'}
+          </Text>
+          <Text style={s.emptySub}>
+            {tab === 'pending'
+              ? 'Когда работники откликнутся — они появятся здесь'
+              : 'Мэтчи появятся после взаимного подтверждения'}
+          </Text>
         </View>
       ) : (
         <FlatList
@@ -483,7 +594,14 @@ function EmployerMatches() {
           keyExtractor={l => l.id}
           contentContainerStyle={s.list}
           showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} colors={[Colors.primary]} />}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={Colors.primary}
+              colors={[Colors.primary]}
+            />
+          }
           renderItem={renderItem}
         />
       )}
@@ -505,13 +623,20 @@ const s = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: Colors.divider,
   },
   title: { fontSize: 22, fontWeight: '800', color: Colors.textPrimary, flex: 1 },
-  urgentBadge: { backgroundColor: '#FEF3C7', borderRadius: 100, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: '#F59E0B' },
+  urgentBadge: {
+    backgroundColor: '#FEF3C7', borderRadius: 100,
+    paddingHorizontal: 10, paddingVertical: 4,
+    borderWidth: 1, borderColor: '#F59E0B',
+  },
   urgentBadgeTxt: { color: '#92400E', fontSize: 12, fontWeight: '700' },
   tabStrip: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: Colors.divider },
   tabItem: { flex: 1, alignItems: 'center', paddingVertical: 12 },
   tabLabel: { fontSize: 14, fontWeight: '500', color: Colors.textMuted },
   tabLabelActive: { fontWeight: '700', color: Colors.textPrimary },
-  tabUnderline: { position: 'absolute', bottom: 0, left: '20%', right: '20%', height: 2, backgroundColor: Colors.primary, borderRadius: 1 },
+  tabUnderline: {
+    position: 'absolute', bottom: 0, left: '20%', right: '20%',
+    height: 2, backgroundColor: Colors.primary, borderRadius: 1,
+  },
   list: { padding: 16, gap: 12, paddingBottom: 100 },
   card: { backgroundColor: Colors.bg, borderRadius: Radius.lg, padding: 16, ...Shadow.card, gap: 10 },
   matchedCard: { borderWidth: 1.5, borderColor: Colors.green },
@@ -522,7 +647,10 @@ const s = StyleSheet.create({
   subText: { fontSize: 13, color: Colors.textMuted, marginTop: 2 },
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   // Profile row (worker sees employer)
-  profileRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: Colors.surface, borderRadius: 12, padding: 10 },
+  profileRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: Colors.surface, borderRadius: 12, padding: 10,
+  },
   profileAvatar: { width: 36, height: 36, borderRadius: 18 },
   profileAvatarFallback: { alignItems: 'center', justifyContent: 'center' },
   profileAvatarInitials: { color: '#fff', fontSize: 13, fontWeight: '700' },
@@ -534,24 +662,49 @@ const s = StyleSheet.create({
   avatar: { width: 44, height: 44, borderRadius: 22 },
   avatarTxt: { color: '#fff', fontSize: 16, fontWeight: '700' },
   workerName: { fontSize: 15, fontWeight: '700', color: Colors.textPrimary },
-  phoneTag: { backgroundColor: Colors.primaryLight, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
+  phoneTag: {
+    backgroundColor: Colors.primaryLight, borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 6,
+  },
   phoneTxt: { color: Colors.primary, fontSize: 12, fontWeight: '700' },
-  hiddenPhone: { backgroundColor: Colors.surface, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
+  hiddenPhone: {
+    backgroundColor: Colors.surface, borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 6,
+  },
   hiddenPhoneTxt: { color: Colors.textMuted, fontSize: 13 },
   vacLabel: { fontSize: 13, color: Colors.textMuted },
   // Action row
   actionRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
-  rejectBtn: { flex: 1, borderWidth: 1.5, borderColor: Colors.red, borderRadius: 100, paddingVertical: 11, alignItems: 'center' },
+  rejectBtn: {
+    flex: 1, borderWidth: 1.5, borderColor: Colors.red,
+    borderRadius: 100, paddingVertical: 11, alignItems: 'center',
+  },
   rejectBtnTxt: { color: Colors.red, fontSize: 14, fontWeight: '600' },
-  acceptBtn: { flex: 1, backgroundColor: Colors.primary, borderRadius: 100, paddingVertical: 11, alignItems: 'center' },
+  acceptBtn: {
+    flex: 1, backgroundColor: Colors.primary,
+    borderRadius: 100, paddingVertical: 11, alignItems: 'center',
+  },
   acceptBtnTxt: { color: '#fff', fontSize: 14, fontWeight: '700' },
-  chatBtn: { flex: 1, backgroundColor: Colors.blue, borderRadius: 100, paddingVertical: 11, alignItems: 'center' },
+  chatBtn: {
+    flex: 1, backgroundColor: Colors.blue,
+    borderRadius: 100, paddingVertical: 11, alignItems: 'center',
+  },
   chatBtnTxt: { color: '#fff', fontSize: 14, fontWeight: '700' },
-  confirmBtn: { flex: 2, backgroundColor: Colors.green, borderRadius: 100, paddingVertical: 11, alignItems: 'center' },
+  confirmBtn: {
+    flex: 2, backgroundColor: Colors.green,
+    borderRadius: 100, paddingVertical: 11, alignItems: 'center',
+  },
   confirmBtnTxt: { color: '#fff', fontSize: 14, fontWeight: '700' },
-  rateBtn: { flex: 2, backgroundColor: '#FBBF24', borderRadius: 100, paddingVertical: 11, alignItems: 'center' },
+  rateBtn: {
+    flex: 2, backgroundColor: '#FBBF24',
+    borderRadius: 100, paddingVertical: 11, alignItems: 'center',
+  },
   rateBtnTxt: { color: '#fff', fontSize: 14, fontWeight: '700' },
-  waitBtn: { flex: 2, backgroundColor: Colors.surface, borderRadius: 100, paddingVertical: 11, alignItems: 'center', borderWidth: 1, borderColor: Colors.inputBorder },
+  waitBtn: {
+    flex: 2, backgroundColor: Colors.surface,
+    borderRadius: 100, paddingVertical: 11, alignItems: 'center',
+    borderWidth: 1, borderColor: Colors.inputBorder,
+  },
   waitBtnTxt: { color: Colors.textMuted, fontSize: 13, fontWeight: '500' },
   // Confirm banner
   confirmBanner: {
@@ -562,10 +715,39 @@ const s = StyleSheet.create({
   confirmBannerIcon: { fontSize: 22 },
   confirmBannerTitle: { fontSize: 13, fontWeight: '700', color: '#92400E' },
   confirmBannerSub: { fontSize: 11, color: '#B45309', marginTop: 2 },
-  confirmBannerBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: Colors.green, alignItems: 'center', justifyContent: 'center' },
+  confirmBannerBtn: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: Colors.green, alignItems: 'center', justifyContent: 'center',
+  },
   confirmBannerBtnTxt: { fontSize: 16, color: '#fff', fontWeight: '700' },
+  // Confirmation dialog
+  dialogOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 100,
+    alignItems: 'center', justifyContent: 'center', padding: 24,
+  },
+  dialogCard: {
+    backgroundColor: Colors.bg, borderRadius: Radius.xl,
+    padding: 24, width: '100%', gap: 12,
+  },
+  dialogTitle: { fontSize: 17, fontWeight: '800', color: Colors.textPrimary, textAlign: 'center' },
+  dialogBody: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', lineHeight: 20 },
+  dialogBtns: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  dialogCancelBtn: {
+    flex: 1, borderWidth: 1.5, borderColor: Colors.inputBorder,
+    borderRadius: 100, paddingVertical: 12, alignItems: 'center',
+  },
+  dialogCancelTxt: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary },
+  dialogConfirmBtn: {
+    flex: 1, backgroundColor: Colors.green,
+    borderRadius: 100, paddingVertical: 12, alignItems: 'center',
+  },
+  dialogConfirmTxt: { fontSize: 14, fontWeight: '700', color: '#fff' },
   // Empty
-  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, paddingBottom: 80 },
+  empty: {
+    flex: 1, alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 32, paddingBottom: 80,
+  },
   emptyTitle: { fontSize: 18, fontWeight: '700', color: Colors.textPrimary, marginTop: 12 },
   emptySub: { fontSize: 14, color: Colors.textMuted, textAlign: 'center', marginTop: 6, lineHeight: 20 },
 });

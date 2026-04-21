@@ -118,6 +118,41 @@ function WorkerListModal({
   const getChatId = (workerId: string) =>
     chats.find(c => c.vacancyId === vacancyId && c.workerId === workerId)?.id ?? null;
 
+  // Open or create a chat with a worker (no match decision required)
+  const openOrCreateChat = async (like: Like) => {
+    if (!currentUser || !vacancy) return;
+    setActionLoading(like.workerId);
+    try {
+      const existingChatId = getChatId(like.workerId);
+      if (existingChatId) {
+        onClose();
+        router.push({ pathname: '/chat-room', params: { chatId: existingChatId } });
+        return;
+      }
+      const worker = users.find(u => u.id === like.workerId);
+      const greeting = worker
+        ? `Здравствуйте, ${worker.firstName}! Я рассматриваю вашу кандидатуру на «${vacancy.title}».`
+        : `Здравствуйте! Я рассматриваю вашу кандидатуру на «${vacancy.title}».`;
+      const chatId = await dbCreateChat(
+        like.workerId,
+        currentUser.id,
+        vacancyId,
+        vacancy.title,
+        vacancy.company,
+        greeting,
+        1,
+        0,
+      );
+      await refreshAll();
+      onClose();
+      router.push({ pathname: '/chat-room', params: { chatId } });
+    } catch {
+      showToast('Ошибка при открытии чата', 'error');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const onAccept = async (like: Like) => {
     if (!currentUser || !vacancy) return;
     setActionLoading(like.workerId);
@@ -141,13 +176,34 @@ function WorkerListModal({
     }
   };
 
-  const openChat = (workerId: string) => {
-    const chatId = getChatId(workerId);
-    onClose();
+  const openChat = async (like: Like) => {
+    if (!currentUser || !vacancy) return;
+    const chatId = getChatId(like.workerId);
     if (chatId) {
+      onClose();
       router.push({ pathname: '/chat-room', params: { chatId } });
-    } else {
-      router.push({ pathname: '/(tabs)/chats' });
+      return;
+    }
+    // Create chat if doesn't exist (e.g. hired worker without prior chat)
+    setActionLoading(like.workerId);
+    try {
+      const newChatId = await dbCreateChat(
+        like.workerId,
+        currentUser.id,
+        vacancyId,
+        vacancy.title,
+        vacancy.company,
+        undefined,
+        0,
+        0,
+      );
+      await refreshAll();
+      onClose();
+      router.push({ pathname: '/chat-room', params: { chatId: newChatId } });
+    } catch {
+      showToast('Ошибка при открытии чата', 'error');
+    } finally {
+      setActionLoading(null);
     }
   };
 
@@ -275,8 +331,9 @@ function WorkerListModal({
                     <View style={wS.btnRow}>
                       {type === 'hired' ? (
                         <TouchableOpacity
-                          style={wS.chatBtn}
-                          onPress={() => openChat(like.workerId)}
+                          style={[wS.chatBtn, isLoading && { opacity: 0.5 }]}
+                          disabled={isLoading}
+                          onPress={() => openChat(like)}
                         >
                           <Text style={wS.chatBtnTxt}>💬 Написать</Text>
                         </TouchableOpacity>
@@ -289,20 +346,21 @@ function WorkerListModal({
                           <Text style={wS.chatBtnTxt}>💬 Написать</Text>
                         </TouchableOpacity>
                       ) : (
+                        // Applicants: write (no decision) + accept (creates match)
                         <>
                           <TouchableOpacity
-                            style={[wS.rejectBtn, isLoading && { opacity: 0.5 }]}
+                            style={[wS.chatBtn, isLoading && { opacity: 0.5 }]}
                             disabled={isLoading}
-                            onPress={() => onReject(like)}
+                            onPress={() => openOrCreateChat(like)}
                           >
-                            <Text style={wS.rejectBtnTxt}>✕ Не подходит</Text>
+                            <Text style={wS.chatBtnTxt}>💬 Написать</Text>
                           </TouchableOpacity>
                           <TouchableOpacity
-                            style={[wS.acceptBtn, { flex: 1 }, isLoading && { opacity: 0.5 }]}
+                            style={[wS.acceptBtn, isLoading && { opacity: 0.5 }]}
                             disabled={isLoading}
                             onPress={() => onAccept(like)}
                           >
-                            <Text style={wS.acceptBtnTxt}>✅ Написать</Text>
+                            <Text style={wS.acceptBtnTxt}>✅ Подходит</Text>
                           </TouchableOpacity>
                         </>
                       )}
