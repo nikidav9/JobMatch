@@ -7,6 +7,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Colors } from '@/constants/theme';
 
 const OPERATOR_NAME = 'Давыдов Никита Сергеевич';
+const OPERATOR_INN = '773423983287';
 const OPERATOR_EMAIL = 'zpouches@yandex.ru';
 
 const DOCS: Record<string, { title: string; sections: { heading?: string; body: string }[] }> = {
@@ -14,11 +15,11 @@ const DOCS: Record<string, { title: string; sections: { heading?: string; body: 
     title: 'Пользовательское соглашение',
     sections: [
       {
-        body: `Пользовательское соглашение сервиса JobToo\n\nОператор: ${OPERATOR_NAME}\nEmail: ${OPERATOR_EMAIL}`,
+        body: `Пользовательское соглашение сервиса JobToo\n\nОператор: ${OPERATOR_NAME}\nИНН: ${OPERATOR_INN}\nEmail: ${OPERATOR_EMAIL}`,
       },
       {
         heading: '1. Общие положения',
-        body: `1.1. Настоящее соглашение регулирует отношения между пользователем и оператором сервиса JobToo.\n1.2. Оператором является физическое лицо: ${OPERATOR_NAME}.\n1.3. Используя сервис, пользователь подтверждает согласие с настоящими условиями.`,
+        body: `1.1. Настоящее соглашение регулирует отношения между пользователем и оператором сервиса JobToo.\n1.2. Оператором является физическое лицо: ${OPERATOR_NAME} (ИНН: ${OPERATOR_INN}).\n1.3. Используя сервис, пользователь подтверждает согласие с настоящими условиями.`,
       },
       {
         heading: '2. Предмет соглашения',
@@ -46,7 +47,7 @@ const DOCS: Record<string, { title: string; sections: { heading?: string; body: 
     title: 'Политика конфиденциальности',
     sections: [
       {
-        body: `Политика конфиденциальности сервиса JobToo\n\nОператор: ${OPERATOR_NAME}\nEmail: ${OPERATOR_EMAIL}`,
+        body: `Политика конфиденциальности сервиса JobToo\n\nОператор: ${OPERATOR_NAME}\nИНН: ${OPERATOR_INN}\nEmail: ${OPERATOR_EMAIL}`,
       },
       {
         heading: 'Собираемые данные',
@@ -74,7 +75,7 @@ const DOCS: Record<string, { title: string; sections: { heading?: string; body: 
     title: 'Согласие на обработку персональных данных',
     sections: [
       {
-        body: `Настоящим пользователь даёт согласие оператору ${OPERATOR_NAME} на обработку своих персональных данных.`,
+        body: `Настоящим пользователь даёт согласие оператору ${OPERATOR_NAME} (ИНН: ${OPERATOR_INN}) на обработку своих персональных данных.`,
       },
       {
         heading: 'Перечень обрабатываемых данных',

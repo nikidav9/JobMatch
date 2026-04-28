@@ -288,7 +288,7 @@ function EmployerMatches() {
   const router = useRouter();
   const { currentUser, likes, vacancies, users, refreshAll, showToast } = useApp();
   const [actionLoading, setLoading] = useState<string | null>(null);
-  const [tab, setTab] = useState<'pending' | 'matched'>('pending');
+  const [tab, setTab] = useState<'pending' | 'matched' | 'completed'>('pending');
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = async () => {
@@ -303,16 +303,11 @@ function EmployerMatches() {
   const allLikes = likes.filter(l => myVacIds.includes(l.vacancyId) && l.workerLiked);
 
   const pending = allLikes.filter(l => !l.isMatch && l.employerLiked !== false);
-  const matched = allLikes
-    .filter(l => l.isMatch)
-    .sort((a, b) => {
-      if (a.shiftCompleted && !b.shiftCompleted) return 1;
-      if (!a.shiftCompleted && b.shiftCompleted) return -1;
-      return 0;
-    });
+  const matched = allLikes.filter(l => l.isMatch && !l.shiftCompleted);
+  const completed = allLikes.filter(l => l.isMatch && l.shiftCompleted);
 
-  const needsConfirm = matched.filter(l => !l.employerConfirmed && !l.shiftCompleted).length;
-  const shown = tab === 'pending' ? pending : matched;
+  const needsConfirm = matched.filter(l => !l.employerConfirmed).length;
+  const shown = tab === 'pending' ? pending : tab === 'matched' ? matched : completed;
 
   const getVacancy = (id: string) => vacancies.find(v => v.id === id);
   const getWorker = (id: string) => users.find(u => u.id === id);
@@ -322,17 +317,21 @@ function EmployerMatches() {
     try {
       await dbUpsertLike(like.vacancyId, like.workerId, currentUser.id, { employerLiked: true });
       const result = await dbCheckAndCreateMatch(like.vacancyId, like.workerId);
+      // Refresh first so UI updates immediately, then navigate
       await refreshAll();
       const vac = getVacancy(like.vacancyId);
       const worker = getWorker(like.workerId);
       const workerName = worker ? `${worker.firstName} ${worker.lastName}` : 'Работник';
       await notifyEmployerGotMatch(workerName, vac?.title ?? '');
       showToast(`🎉 Мэтч с ${workerName}!`, 'match');
-      if (result.chatId) {
-        router.push({ pathname: '/chat-room', params: { chatId: result.chatId } });
-      } else {
-        router.push({ pathname: '/(tabs)/chats' });
-      }
+      // Navigate only after state is updated
+      setTimeout(() => {
+        if (result.chatId) {
+          router.push({ pathname: '/chat-room', params: { chatId: result.chatId } });
+        } else {
+          router.push({ pathname: '/(tabs)/chats' });
+        }
+      }, 300);
     } catch {
       showToast('Ошибка', 'error');
     } finally {
@@ -559,8 +558,9 @@ function EmployerMatches() {
 
       <View style={s.tabStrip}>
         {([
-          { key: 'pending', label: 'Отклики', count: pending.length },
-          { key: 'matched', label: 'Мэтчи',   count: matched.length },
+          { key: 'pending',   label: 'Отклики',    count: pending.length },
+          { key: 'matched',   label: 'Мэтчи',      count: matched.length },
+          { key: 'completed', label: 'Завершённые', count: completed.length },
         ] as const).map(t => (
           <TouchableOpacity
             key={t.key}
@@ -578,14 +578,16 @@ function EmployerMatches() {
 
       {shown.length === 0 ? (
         <View style={s.empty}>
-          <Text style={{ fontSize: 48 }}>{tab === 'pending' ? '📥' : '🤝'}</Text>
+          <Text style={{ fontSize: 48 }}>{tab === 'pending' ? '📥' : tab === 'matched' ? '🤝' : '🏁'}</Text>
           <Text style={s.emptyTitle}>
-            {tab === 'pending' ? 'Нет откликов' : 'Нет мэтчей'}
+            {tab === 'pending' ? 'Нет откликов' : tab === 'matched' ? 'Нет активных мэтчей' : 'Нет завершённых смен'}
           </Text>
           <Text style={s.emptySub}>
             {tab === 'pending'
               ? 'Когда работники откликнутся — они появятся здесь'
-              : 'Мэтчи появятся после взаимного подтверждения'}
+              : tab === 'matched'
+              ? 'Мэтчи появятся после взаимного подтверждения'
+              : 'Здесь будет история завершённых смен'}
           </Text>
         </View>
       ) : (
