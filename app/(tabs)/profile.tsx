@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView,
   TouchableOpacity, Modal, KeyboardAvoidingView, Platform,
@@ -10,6 +10,7 @@ import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { Colors, Radius, Shadow } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
 import { getInitials, nameColorFromString } from '@/services/storage';
@@ -211,6 +212,7 @@ export default function ProfileScreen() {
   const [metroPicker, setMetroPicker] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [showPhotoSource, setShowPhotoSource] = useState(false);
 
   const [editPhone, setEditPhone] = useState('');
   const [editLast, setEditLast] = useState('');
@@ -263,66 +265,116 @@ export default function ProfileScreen() {
     }
   };
 
-  const pickAndUploadPhoto = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      showToast('Нет доступа к галерее', 'error');
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: Platform.OS === 'ios',
-      ...(Platform.OS === 'ios' ? { aspect: [1, 1] } : {}),
-      quality: 0.5,
-    });
-
-    if (result.canceled || !result.assets[0]) return;
-
+  // ── Shared upload helper ──────────────────────────────────────────────────
+  const processAndUpload = async (sourceUri: string) => {
     setUploadingPhoto(true);
     try {
-      const asset = result.assets[0];
-      const uri = asset.uri;
-      const extension = uri.split('.').pop()?.split('?')[0]?.toLowerCase() ?? 'jpg';
-      const mimeType = extension === 'png' ? 'image/png' : 'image/jpeg';
-      const fileName = `avatar_${currentUser.id}.${extension === 'png' ? 'png' : 'jpg'}`;
+      // 1. Get image dimensions to compute square crop
+      const info = await ImageManipulator.manipulateAsync(sourceUri, [], { format: ImageManipulator.SaveFormat.JPEG });
+      const w = info.width;
+      const h = info.height;
+      const size = Math.min(w, h);
+      const originX = Math.floor((w - size) / 2);
+      const originY = Math.floor((h - size) / 2);
 
-      const sb = getSupabaseClient();
+      // 2. Crop to square center + resize to 600x600 + compress to JPEG 80%
+      //    Result will be ~50-150KB — well under 500KB
+      const processed = await ImageManipulator.manipulateAsync(
+        sourceUri,
+        [
+          { crop: { originX, originY, width: size, height: size } },
+          { resize: { width: 600, height: 600 } },
+        ],
+        { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
+      );
+
+      const fileName = `avatar_${currentUser.id}.jpg`;
       const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
       const supabaseKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
-      // Use FileSystem.uploadAsync — native file streaming, no base64 conversion needed
+      // 3. Upload via PUT (upsert) using native file streaming
       const uploadUrl = `${supabaseUrl}/storage/v1/object/avatars/${fileName}`;
-      const uploadResult = await FileSystem.uploadAsync(uploadUrl, uri, {
-        httpMethod: 'POST',
+      const uploadResult = await FileSystem.uploadAsync(uploadUrl, processed.uri, {
+        httpMethod: 'PUT',
         uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
         headers: {
           'Authorization': `Bearer ${supabaseKey}`,
-          'Content-Type': mimeType,
+          'Content-Type': 'image/jpeg',
           'x-upsert': 'true',
         },
       });
 
       if (uploadResult.status < 200 || uploadResult.status >= 300) {
-        console.error('upload error', uploadResult.status, uploadResult.body);
-        showToast('Ошибка загрузки фото', 'error');
+        console.error('[Avatar] upload failed', uploadResult.status, uploadResult.body);
+        showToast('Не удалось обновить фото. Проверьте подключение к сети.', 'error');
         return;
       }
 
+      const sb = getSupabaseClient();
       const { data: urlData } = sb.storage.from('avatars').getPublicUrl(fileName);
       const avatarUrl = `${urlData.publicUrl}?t=${Date.now()}`;
 
       const updated = { ...currentUser, avatarUrl };
       await dbUpsertUser(updated);
-      await refreshUsers();
       setCurrentUser(updated);
+      refreshUsers().catch(() => {});
       showToast('Фото обновлено 📷', 'success');
     } catch (e) {
-      console.error('photo upload', e);
-      showToast('Не удалось загрузить фото', 'error');
+      console.error('[Avatar] processAndUpload error', e);
+      showToast('Не удалось обновить фото. Проверьте доступ к памяти.', 'error');
     } finally {
       setUploadingPhoto(false);
     }
+  };
+
+  // ── Pick from gallery ────────────────────────────────────────────────────
+  const pickFromGallery = async () => {
+    setShowPhotoSource(false);
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        showToast('Нет доступа к галерее. Разрешите доступ в настройках.', 'error');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false, // We handle crop ourselves via ImageManipulator
+        quality: 1,           // Take full quality; we compress in processAndUpload
+      });
+      if (!result.canceled && result.assets[0]) {
+        await processAndUpload(result.assets[0].uri);
+      }
+    } catch (e) {
+      console.error('[Avatar] pickFromGallery error', e);
+      showToast('Не удалось открыть галерею.', 'error');
+    }
+  };
+
+  // ── Pick from camera ─────────────────────────────────────────────────────
+  const pickFromCamera = async () => {
+    setShowPhotoSource(false);
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        showToast('Нет доступа к камере. Разрешите доступ в настройках.', 'error');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 1,
+      });
+      if (!result.canceled && result.assets[0]) {
+        await processAndUpload(result.assets[0].uri);
+      }
+    } catch (e) {
+      console.error('[Avatar] pickFromCamera error', e);
+      showToast('Не удалось открыть камеру.', 'error');
+    }
+  };
+
+  const pickAndUploadPhoto = () => {
+    setShowPhotoSource(true);
   };
 
   const handleLogout = async () => {
@@ -477,6 +529,41 @@ export default function ProfileScreen() {
 
         <View style={{ height: 20 }} />
       </ScrollView>
+
+      {/* Photo source picker */}
+      {showPhotoSource ? (
+        <View style={styles.confirmOverlay}>
+          <View style={[styles.confirmCard, { gap: 0, padding: 0, overflow: 'hidden' }]}>
+            <View style={{ padding: 20, paddingBottom: 16 }}>
+              <Text style={[styles.confirmTitle, { fontSize: 16 }]}>Обновить фото</Text>
+              <Text style={[styles.confirmBody, { marginTop: 4 }]}>Выберите источник фото</Text>
+            </View>
+            <TouchableOpacity
+              style={photoSrcS.row}
+              onPress={pickFromCamera}
+              activeOpacity={0.8}
+            >
+              <Text style={photoSrcS.icon}>📸</Text>
+              <Text style={photoSrcS.label}>Камера</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[photoSrcS.row, photoSrcS.rowBorder]}
+              onPress={pickFromGallery}
+              activeOpacity={0.8}
+            >
+              <Text style={photoSrcS.icon}>🖼</Text>
+              <Text style={photoSrcS.label}>Галерея</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[photoSrcS.row, photoSrcS.rowBorder, { paddingVertical: 16 }]}
+              onPress={() => setShowPhotoSource(false)}
+              activeOpacity={0.8}
+            >
+              <Text style={[photoSrcS.label, { color: Colors.textMuted, textAlign: 'center', flex: 1 }]}>Отмена</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
 
       {/* Ratings modal */}
       {showRatings ? (
@@ -702,4 +789,14 @@ const styles = StyleSheet.create({
   cancelText: { fontSize: 15, fontWeight: '600', color: Colors.textSecondary },
   logoutConfirmBtn: { flex: 1, backgroundColor: Colors.red, borderRadius: 100, paddingVertical: 14, alignItems: 'center' },
   logoutConfirmText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+});
+
+const photoSrcS = StyleSheet.create({
+  row: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    paddingHorizontal: 20, paddingVertical: 18,
+  },
+  rowBorder: { borderTopWidth: 1, borderTopColor: Colors.divider },
+  icon: { fontSize: 22, width: 30, textAlign: 'center' },
+  label: { fontSize: 16, fontWeight: '600', color: Colors.textPrimary },
 });
