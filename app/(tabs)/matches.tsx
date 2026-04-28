@@ -315,23 +315,26 @@ function EmployerMatches() {
   const approve = async (like: Like) => {
     setLoading(like.id);
     try {
+      // Step 1: set employerLiked=true
       await dbUpsertLike(like.vacancyId, like.workerId, currentUser.id, { employerLiked: true });
+      // Step 2: small delay to ensure DB write is visible before reading
+      await new Promise(r => setTimeout(r, 150));
+      // Step 3: create match (reads fresh DB row)
       const result = await dbCheckAndCreateMatch(like.vacancyId, like.workerId);
-      // Refresh first so UI updates immediately, then navigate
+      // Step 4: refresh context so UI reflects new state
       await refreshAll();
       const vac = getVacancy(like.vacancyId);
       const worker = getWorker(like.workerId);
       const workerName = worker ? `${worker.firstName} ${worker.lastName}` : 'Работник';
       await notifyEmployerGotMatch(workerName, vac?.title ?? '');
       showToast(`🎉 Мэтч с ${workerName}!`, 'match');
-      // Navigate only after state is updated
-      setTimeout(() => {
-        if (result.chatId) {
-          router.push({ pathname: '/chat-room', params: { chatId: result.chatId } });
-        } else {
-          router.push({ pathname: '/(tabs)/chats' });
-        }
-      }, 300);
+      // Step 5: navigate to chat immediately
+      if (result.chatId) {
+        router.push({ pathname: '/chat-room', params: { chatId: result.chatId } });
+      } else {
+        // fallback: try to find chat after refresh
+        router.push({ pathname: '/(tabs)/chats' });
+      }
     } catch {
       showToast('Ошибка', 'error');
     } finally {
