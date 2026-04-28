@@ -285,37 +285,32 @@ export default function ProfileScreen() {
       const uri = asset.uri;
       const extension = uri.split('.').pop()?.split('?')[0]?.toLowerCase() ?? 'jpg';
       const mimeType = extension === 'png' ? 'image/png' : 'image/jpeg';
-      const fileName = `avatar_${currentUser.id}.jpg`;
+      const fileName = `avatar_${currentUser.id}.${extension === 'png' ? 'png' : 'jpg'}`;
 
       const sb = getSupabaseClient();
+      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+      const supabaseKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
-      // Read file as base64 via expo-file-system (works reliably on both iOS and Android)
-      const base64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
+      // Use FileSystem.uploadAsync — native file streaming, no base64 conversion needed
+      const uploadUrl = `${supabaseUrl}/storage/v1/object/avatars/${fileName}`;
+      const uploadResult = await FileSystem.uploadAsync(uploadUrl, uri, {
+        httpMethod: 'POST',
+        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+        headers: {
+          'Authorization': `Bearer ${supabaseKey}`,
+          'Content-Type': mimeType,
+          'x-upsert': 'true',
+        },
       });
 
-      // Convert base64 string to Uint8Array for Supabase upload
-      const binaryString = atob(base64);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-
-      const { error: uploadError } = await sb.storage
-        .from('avatars')
-        .upload(fileName, bytes, {
-          contentType: mimeType,
-          upsert: true,
-        });
-
-      if (uploadError) {
+      if (uploadResult.status < 200 || uploadResult.status >= 300) {
+        console.error('upload error', uploadResult.status, uploadResult.body);
         showToast('Ошибка загрузки фото', 'error');
-        console.error('upload error', uploadError);
         return;
       }
 
       const { data: urlData } = sb.storage.from('avatars').getPublicUrl(fileName);
-      const avatarUrl = urlData.publicUrl;
+      const avatarUrl = `${urlData.publicUrl}?t=${Date.now()}`;
 
       const updated = { ...currentUser, avatarUrl };
       await dbUpsertUser(updated);
