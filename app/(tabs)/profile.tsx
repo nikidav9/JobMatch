@@ -9,6 +9,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
 import { Colors, Radius, Shadow } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
 import { getInitials, nameColorFromString } from '@/services/storage';
@@ -288,13 +289,21 @@ export default function ProfileScreen() {
 
       const sb = getSupabaseClient();
 
-      // Fetch the image as a blob — works for both file:// and content:// URIs
-      const fetchResp = await fetch(uri);
-      const blob = await fetchResp.blob();
+      // Read file as base64 via expo-file-system (works reliably on both iOS and Android)
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      // Convert base64 string to Uint8Array for Supabase upload
+      const binaryString = atob(base64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
 
       const { error: uploadError } = await sb.storage
         .from('avatars')
-        .upload(fileName, blob, {
+        .upload(fileName, bytes, {
           contentType: mimeType,
           upsert: true,
         });
