@@ -272,9 +272,8 @@ export default function ProfileScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: Platform.OS === 'ios',
-      aspect: [1, 1],
-      quality: 0.7,
-      base64: true,
+      ...(Platform.OS === 'ios' ? { aspect: [1, 1] } : {}),
+      quality: 0.5,
     });
 
     if (result.canceled || !result.assets[0]) return;
@@ -282,23 +281,20 @@ export default function ProfileScreen() {
     setUploadingPhoto(true);
     try {
       const asset = result.assets[0];
-      const base64 = asset.base64!;
-      const extension = asset.uri.split('.').pop()?.toLowerCase() ?? 'jpg';
+      const uri = asset.uri;
+      const extension = uri.split('.').pop()?.split('?')[0]?.toLowerCase() ?? 'jpg';
       const mimeType = extension === 'png' ? 'image/png' : 'image/jpeg';
-      const fileName = `avatar_${currentUser.id}.${extension}`;
+      const fileName = `avatar_${currentUser.id}.jpg`;
 
       const sb = getSupabaseClient();
 
-      // Convert base64 to Uint8Array for upload
-      const byteChars = atob(base64);
-      const byteArr = new Uint8Array(byteChars.length);
-      for (let i = 0; i < byteChars.length; i++) {
-        byteArr[i] = byteChars.charCodeAt(i);
-      }
+      // Fetch the image as a blob — works for both file:// and content:// URIs
+      const fetchResp = await fetch(uri);
+      const blob = await fetchResp.blob();
 
       const { error: uploadError } = await sb.storage
         .from('avatars')
-        .upload(fileName, byteArr, {
+        .upload(fileName, blob, {
           contentType: mimeType,
           upsert: true,
         });

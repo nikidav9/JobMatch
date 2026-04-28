@@ -431,7 +431,7 @@ export async function dbCheckAndCreateMatch(
     .maybeSingle();
 
   if (!likeRow) return { matched: false };
-  // If already matched, skip but return existing chat id
+  // If already matched, return existing chat id so caller can navigate
   if (likeRow.is_match) {
     const { data: existingChat } = await sb()
       .from('jm_chats')
