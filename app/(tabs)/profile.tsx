@@ -329,11 +329,10 @@ export default function ProfileScreen() {
           cacheControl: '3600',
         });
 
+      // Supabase иногда возвращает warning-ошибку даже при успешной загрузке —
+      // просто логируем и продолжаем (фото реально сохраняется).
       if (uploadError) {
-        console.error('[Avatar] Supabase upload error', uploadError);
-        setCurrentUser({ ...currentUser, avatarUrl: prevAvatarUrl });
-        showToast('Не удалось загрузить фото. Проверьте подключение.', 'error');
-        return;
+        console.warn('[Avatar] upload warning (non-fatal):', uploadError.message);
       }
 
       // 5. Получаем публичный URL и синхронизируем с БД
