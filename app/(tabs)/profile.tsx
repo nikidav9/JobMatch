@@ -295,12 +295,13 @@ export default function ProfileScreen() {
       // 3. Upload via PUT (upsert) using native file streaming
       const uploadUrl = `${supabaseUrl}/storage/v1/object/avatars/${fileName}`;
       const uploadResult = await FileSystem.uploadAsync(uploadUrl, processed.uri, {
-        httpMethod: 'PUT',
+        httpMethod: 'POST',
         uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
         headers: {
           'Authorization': `Bearer ${supabaseKey}`,
           'Content-Type': 'image/jpeg',
           'x-upsert': 'true',
+          'cache-control': '3600',
         },
       });
 
