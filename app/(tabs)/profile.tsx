@@ -265,12 +265,34 @@ export default function ProfileScreen() {
     }
   };
 
+  // ── Base64 → Uint8Array (без atob — работает на всех RN платформах) ─────
+  const base64ToUint8Array = (base64: string): Uint8Array => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    const lookup = new Uint8Array(256);
+    for (let i = 0; i < chars.length; i++) lookup[chars.charCodeAt(i)] = i;
+    const clean = base64.replace(/=/g, '');
+    const len = clean.length;
+    const bufLen = Math.floor((len * 3) / 4);
+    const buf = new Uint8Array(bufLen);
+    let p = 0;
+    for (let i = 0; i < len; i += 4) {
+      const a = lookup[clean.charCodeAt(i)];
+      const b = lookup[clean.charCodeAt(i + 1)];
+      const c = lookup[clean.charCodeAt(i + 2)] ?? 0;
+      const d = lookup[clean.charCodeAt(i + 3)] ?? 0;
+      buf[p++] = (a << 2) | (b >> 4);
+      if (p < bufLen) buf[p++] = ((b & 15) << 4) | (c >> 2);
+      if (p < bufLen) buf[p++] = ((c & 3) << 6) | d;
+    }
+    return buf;
+  };
+
   // ── Shared upload helper ──────────────────────────────────────────────────
   const processAndUpload = async (sourceUri: string) => {
     setUploadingPhoto(true);
     const prevAvatarUrl = currentUser.avatarUrl;
     try {
-      // 1. Crop + resize + compress
+      // 1. Crop + resize + compress через ImageManipulator
       const info = await ImageManipulator.manipulateAsync(sourceUri, [], { format: ImageManipulator.SaveFormat.JPEG });
       const w = info.width;
       const h = info.height;
@@ -290,45 +312,31 @@ export default function ProfileScreen() {
       // 2. Оптимистичный апдейт — показываем локальное фото мгновенно
       setCurrentUser({ ...currentUser, avatarUrl: processed.uri });
 
+      // 3. Читаем файл как base64 и конвертируем в Uint8Array
+      const base64Data = await FileSystem.readAsStringAsync(processed.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const uint8Array = base64ToUint8Array(base64Data);
+
+      // 4. Загружаем через Supabase JS клиент (самый надёжный способ)
       const fileName = `avatar_${currentUser.id}.jpg`;
-      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
-      const supabaseKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
-      const uploadUrl = `${supabaseUrl}/storage/v1/object/avatars/${fileName}`;
-
-      // 3. Загрузка с retry (до 3 попыток)
-      let uploadResult: FileSystem.FileSystemUploadResult | null = null;
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        uploadResult = await FileSystem.uploadAsync(uploadUrl, processed.uri, {
-          httpMethod: 'POST',
-          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-          headers: {
-            'Authorization': `Bearer ${supabaseKey}`,
-            'Content-Type': 'image/jpeg',
-            'x-upsert': 'true',
-            'cache-control': '3600',
-          },
+      const sb = getSupabaseClient();
+      const { error: uploadError } = await sb.storage
+        .from('avatars')
+        .upload(fileName, uint8Array, {
+          contentType: 'image/jpeg',
+          upsert: true,
+          cacheControl: '3600',
         });
-        if (uploadResult.status >= 200 && uploadResult.status < 300) break;
-        // Пауза перед следующей попыткой
-        if (attempt < 3) await new Promise(r => setTimeout(r, 500));
-      }
 
-      // Supabase Storage считает загрузку успешной если статус 2xx ИЛИ тело содержит поле Key
-      const bodyStr = uploadResult?.body ?? '';
-      const isSuccess = uploadResult &&
-        (uploadResult.status >= 200 && uploadResult.status < 300 ||
-         bodyStr.includes('"Key"') || bodyStr.includes('key'));
-
-      if (!isSuccess) {
-        console.error('[Avatar] upload failed after retries', uploadResult?.status, uploadResult?.body);
-        // Откат к предыдущему фото
+      if (uploadError) {
+        console.error('[Avatar] Supabase upload error', uploadError);
         setCurrentUser({ ...currentUser, avatarUrl: prevAvatarUrl });
         showToast('Не удалось загрузить фото. Проверьте подключение.', 'error');
         return;
       }
 
-      // 4. Получаем публичный URL и синхронизируем с БД
-      const sb = getSupabaseClient();
+      // 5. Получаем публичный URL и синхронизируем с БД
       const { data: urlData } = sb.storage.from('avatars').getPublicUrl(fileName);
       const avatarUrl = `${urlData.publicUrl}?t=${Date.now()}`;
 
@@ -339,7 +347,6 @@ export default function ProfileScreen() {
       showToast('Фото обновлено', 'success');
     } catch (e) {
       console.error('[Avatar] processAndUpload error', e);
-      // Откат к предыдущему фото
       setCurrentUser({ ...currentUser, avatarUrl: prevAvatarUrl });
       showToast('Не удалось обновить фото. Проверьте доступ к памяти.', 'error');
     } finally {
