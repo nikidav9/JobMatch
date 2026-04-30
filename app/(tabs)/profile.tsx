@@ -268,8 +268,9 @@ export default function ProfileScreen() {
   // ── Shared upload helper ──────────────────────────────────────────────────
   const processAndUpload = async (sourceUri: string) => {
     setUploadingPhoto(true);
+    const prevAvatarUrl = currentUser.avatarUrl;
     try {
-      // 1. Get image dimensions to compute square crop
+      // 1. Crop + resize + compress
       const info = await ImageManipulator.manipulateAsync(sourceUri, [], { format: ImageManipulator.SaveFormat.JPEG });
       const w = info.width;
       const h = info.height;
@@ -277,8 +278,6 @@ export default function ProfileScreen() {
       const originX = Math.floor((w - size) / 2);
       const originY = Math.floor((h - size) / 2);
 
-      // 2. Crop to square center + resize to 600x600 + compress to JPEG 80%
-      //    Result will be ~50-150KB — well under 500KB
       const processed = await ImageManipulator.manipulateAsync(
         sourceUri,
         [
@@ -288,29 +287,41 @@ export default function ProfileScreen() {
         { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
       );
 
+      // 2. Оптимистичный апдейт — показываем локальное фото мгновенно
+      setCurrentUser({ ...currentUser, avatarUrl: processed.uri });
+
       const fileName = `avatar_${currentUser.id}.jpg`;
       const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
       const supabaseKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
-
-      // 3. Upload via PUT (upsert) using native file streaming
       const uploadUrl = `${supabaseUrl}/storage/v1/object/avatars/${fileName}`;
-      const uploadResult = await FileSystem.uploadAsync(uploadUrl, processed.uri, {
-        httpMethod: 'POST',
-        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-        headers: {
-          'Authorization': `Bearer ${supabaseKey}`,
-          'Content-Type': 'image/jpeg',
-          'x-upsert': 'true',
-          'cache-control': '3600',
-        },
-      });
 
-      if (uploadResult.status < 200 || uploadResult.status >= 300) {
-        console.error('[Avatar] upload failed', uploadResult.status, uploadResult.body);
-        showToast('Не удалось обновить фото. Проверьте подключение к сети.', 'error');
+      // 3. Загрузка с retry (до 3 попыток)
+      let uploadResult: FileSystem.FileSystemUploadResult | null = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        uploadResult = await FileSystem.uploadAsync(uploadUrl, processed.uri, {
+          httpMethod: 'POST',
+          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+          headers: {
+            'Authorization': `Bearer ${supabaseKey}`,
+            'Content-Type': 'image/jpeg',
+            'x-upsert': 'true',
+            'cache-control': '3600',
+          },
+        });
+        if (uploadResult.status >= 200 && uploadResult.status < 300) break;
+        // Пауза перед следующей попыткой
+        if (attempt < 3) await new Promise(r => setTimeout(r, 500));
+      }
+
+      if (!uploadResult || uploadResult.status < 200 || uploadResult.status >= 300) {
+        console.error('[Avatar] upload failed after retries', uploadResult?.status, uploadResult?.body);
+        // Откат к предыдущему фото
+        setCurrentUser({ ...currentUser, avatarUrl: prevAvatarUrl });
+        showToast('Не удалось загрузить фото. Проверьте подключение.', 'error');
         return;
       }
 
+      // 4. Получаем публичный URL и синхронизируем с БД
       const sb = getSupabaseClient();
       const { data: urlData } = sb.storage.from('avatars').getPublicUrl(fileName);
       const avatarUrl = `${urlData.publicUrl}?t=${Date.now()}`;
@@ -319,9 +330,11 @@ export default function ProfileScreen() {
       await dbUpsertUser(updated);
       setCurrentUser(updated);
       refreshUsers().catch(() => {});
-      showToast('Фото обновлено 📷', 'success');
+      showToast('Фото обновлено', 'success');
     } catch (e) {
       console.error('[Avatar] processAndUpload error', e);
+      // Откат к предыдущему фото
+      setCurrentUser({ ...currentUser, avatarUrl: prevAvatarUrl });
       showToast('Не удалось обновить фото. Проверьте доступ к памяти.', 'error');
     } finally {
       setUploadingPhoto(false);
