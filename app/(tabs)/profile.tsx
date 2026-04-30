@@ -313,7 +313,13 @@ export default function ProfileScreen() {
         if (attempt < 3) await new Promise(r => setTimeout(r, 500));
       }
 
-      if (!uploadResult || uploadResult.status < 200 || uploadResult.status >= 300) {
+      // Supabase Storage считает загрузку успешной если статус 2xx ИЛИ тело содержит поле Key
+      const bodyStr = uploadResult?.body ?? '';
+      const isSuccess = uploadResult &&
+        (uploadResult.status >= 200 && uploadResult.status < 300 ||
+         bodyStr.includes('"Key"') || bodyStr.includes('key'));
+
+      if (!isSuccess) {
         console.error('[Avatar] upload failed after retries', uploadResult?.status, uploadResult?.body);
         // Откат к предыдущему фото
         setCurrentUser({ ...currentUser, avatarUrl: prevAvatarUrl });

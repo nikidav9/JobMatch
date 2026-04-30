@@ -183,7 +183,8 @@ export default function ChatRoom() {
       lastCountRef.current += 1;
       const forRole = currentUser.role === 'worker' ? 'employer' : 'worker';
       await dbIncrementUnread(chat.id, forRole);
-      await notifyNewMessage(otherName, text);
+      // NOTE: не вызываем notifyNewMessage здесь — уведомление о новом сообщении
+      // должно приходить только на устройство ПОЛУЧАТЕЛЯ (обрабатывается в polling).
       await refreshChats();
       setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
     } catch (e) {
