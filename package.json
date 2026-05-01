@@ -151,5 +151,10 @@
     "react-dev-inspector": "^2.0.1",
     "typescript": "~5.8.3"
   },
-  "private": true
+  "private": true,
+  "resolutions": {
+    "metro": "0.82.0",
+    "metro-resolver": "0.82.0",
+    "metro-config": "0.82.0"
+  }
 }
