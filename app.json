@@ -17,15 +17,12 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-<<<<<<< Updated upstream
+      "package": "com.nikidav23.onspaceapp",
       "blockedPermissions": [
         "android.permission.ACTIVITY_RECOGNITION",
         "android.permission.READ_MEDIA_AUDIO",
         "android.permission.READ_MEDIA_VIDEO"
       ]
-=======
-      "package": "com.nikidav23.onspaceapp"
->>>>>>> Stashed changes
     },
     "web": {
       "bundler": "metro",
