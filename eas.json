@@ -9,8 +9,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EAS_NO_FROZEN_LOCKFILE": "1",
-        "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
+        "EAS_NO_FROZEN_LOCKFILE": "1"
       }
     }
   }
