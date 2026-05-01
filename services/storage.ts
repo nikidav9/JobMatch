@@ -49,13 +49,41 @@ export function formatDate(isoDate: string): string {
   return `${days[d.getDay()]} ${d.getDate().toString().padStart(2, '0')}.${(d.getMonth() + 1).toString().padStart(2, '0')}`;
 }
 
-export function getTodayDates(count = 7): string[] {
-  const dates: string[] = [];
+/**
+ * Returns the "virtual start date" for the date strip.
+ * After 21:00, today is considered closed — the strip starts from tomorrow.
+ */
+/** Format a Date object to YYYY-MM-DD using LOCAL date components (not UTC). */
+export function localDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export function getVirtualStartDate(): Date {
   const now = new Date();
-  for (let i = 0; i < count; i++) {
-    const d = new Date(now);
-    d.setDate(now.getDate() + i);
-    dates.push(d.toISOString().slice(0, 10));
+  if (now.getHours() >= 21) {
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(0, 0, 0, 0);
+    return tomorrow;
+  }
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  return today;
+}
+
+/**
+ * Returns ISO date strings for the next 14 days starting from the virtual start date.
+ * Before 21:00: today + 13 more days.
+ * After  21:00: tomorrow + 13 more days.
+ * Always exactly 14 days — auto-updates daily.
+ */
+export function getTodayDates(): string[] {
+  const start = getVirtualStartDate();
+  const dates: string[] = [];
+  const cur = new Date(start);
+  for (let i = 0; i < 14; i++) {
+    dates.push(localDateStr(cur));
+    cur.setDate(cur.getDate() + 1);
   }
   return dates;
 }

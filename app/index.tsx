@@ -1,7 +1,8 @@
 import React, { useEffect } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, SafeAreaView, StatusBar,
+  View, Text, StyleSheet, TouchableOpacity,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useApp } from '@/hooks/useApp';
 import { Colors } from '@/constants/theme';
@@ -14,7 +15,7 @@ export default function Onboarding() {
     if (!loading && currentUser) {
       router.replace('/(tabs)');
     }
-  }, [currentUser?.id, loading]);
+  }, [currentUser, loading]);
 
   if (loading) {
     return (
@@ -31,7 +32,6 @@ export default function Onboarding() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="dark-content" />
       <View style={styles.container}>
         <View style={styles.hero}>
           <Text style={styles.logo}>

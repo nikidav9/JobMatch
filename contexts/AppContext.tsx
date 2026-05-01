@@ -1,14 +1,17 @@
 import React, { createContext, useState, useEffect, useRef, ReactNode } from 'react';
-import { useRouter } from 'expo-router';
 import { getSupabaseClient } from '@/template';
-import { User, Vacancy, Like, Chat } from '@/constants/types';
-import { getSessionUser, saveSessionUser, clearSessionUser } from '@/services/storage';
+import { User, Vacancy, Like, Chat, PermVacancy, PermApplication } from '@/constants/types';
+import { getSessionUser, saveSessionUser, clearSessionUser, getVirtualStartDate, getTodayDates } from '@/services/storage';
 import {
   dbGetUsers, dbUpsertUser,
   dbGetVacancies,
   dbGetLikes,
   dbGetChats,
   dbGetSaved,
+  dbGetPermVacancies,
+  dbGetPermVacanciesByEmployer,
+  dbGetPermApplications,
+  dbGetPermSaved,
 } from '@/services/db';
 
 interface ToastData { message: string; type: 'success' | 'error' | 'match' }
@@ -35,15 +38,23 @@ interface AppContextType {
   toast: ToastData | null;
   showToast: (message: string, type?: 'success' | 'error' | 'match') => void;
   refreshAll: (user?: User | null) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   unreadCount: number;
   loading: boolean;
+  // ── Permanent jobs ──
+  permVacancies: PermVacancy[];
+  refreshPermVacancies: (user?: User | null) => Promise<void>;
+  permApplications: PermApplication[];
+  refreshPermApplications: (user?: User | null) => Promise<void>;
+  permSavedIds: string[];
+  refreshPermSaved: (user?: User | null) => Promise<void>;
+  optimisticAddPermSaved: (id: string) => void;
+  optimisticRemovePermSaved: (id: string) => void;
 }
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const router = useRouter();
   const [currentUser, _setCurrentUser] = useState<User | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [vacancies, setVacancies] = useState<Vacancy[]>([]);
@@ -54,12 +65,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Permanent jobs state
+  const [permVacancies, setPermVacancies] = useState<PermVacancy[]>([]);
+  const [permApplications, setPermApplications] = useState<PermApplication[]>([]);
+  const [permSavedIds, setPermSavedIds] = useState<string[]>([]);
+
   // ── Session ──────────────────────────────────────────────────────────────
 
   const setCurrentUser = (u: User | null) => {
     if (u) {
       _setCurrentUser(u);
-      // Save session and refresh in background — don't block caller
       saveSessionUser(u).catch(() => {});
       Promise.all([
         refreshUsers(),
@@ -67,30 +82,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
         refreshLikes(),
         refreshChats(u),
         refreshSaved(u),
+        refreshPermVacancies(u),
+        refreshPermApplications(u),
+        refreshPermSaved(u),
       ]).catch(() => {});
     } else {
-      // Synchronously clear all state — triggers immediate re-render and navigation
       _setCurrentUser(null);
       setChats([]);
       setSavedIds([]);
       setLikes([]);
       setVacancies([]);
+      setPermVacancies([]);
+      setPermApplications([]);
+      setPermSavedIds([]);
       clearSessionUser().catch(() => {});
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
     console.log('logout start');
-    // CRITICAL: setCurrentUser(null) clears state SYNCHRONOUSLY
     setCurrentUser(null);
     setLoading(false);
     console.log('setCurrentUser(null) done');
-    // Async cleanup happens in background (don't block logout flow)
-    clearSessionUser().catch((error) => {
+    try {
+      await clearSessionUser();
+      console.log('clearSessionUser done');
+    } catch (error) {
       console.warn('[AppContext] clearSessionUser failed during logout', error);
-    });
-    console.log('clearSessionUser started');
-    router.replace('/');
+    }
   };
 
   // ── Fetch helpers ─────────────────────────────────────────────────────────
@@ -98,6 +117,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const refreshUsers = async () => {
     const data = await dbGetUsers();
     setUsers(data);
+    // Sync currentUser with fresh server data (rating, avatar, etc.)
+    _setCurrentUser(prev => {
+      if (!prev) return prev;
+      const fresh = data.find(u => u.id === prev.id);
+      return fresh ?? prev;
+    });
   };
 
   const refreshVacancies = async () => {
@@ -124,17 +149,61 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setSavedIds(data);
   };
 
+  // ── Permanent job helpers ─────────────────────────────────────────────────
+
+  const refreshPermVacancies = async (user?: User | null) => {
+    const u = user ?? currentUser;
+    if (!u) return;
+    try {
+      if (u.role === 'employer') {
+        // Employer sees only their own (all statuses)
+        const data = await dbGetPermVacanciesByEmployer(u.id);
+        setPermVacancies(data);
+      } else {
+        // Worker sees all open vacancies
+        const data = await dbGetPermVacancies();
+        setPermVacancies(data);
+      }
+    } catch (e) {
+      console.warn('[AppContext] refreshPermVacancies error', e);
+    }
+  };
+
+  const refreshPermApplications = async (user?: User | null) => {
+    const u = user ?? currentUser;
+    if (!u) return;
+    try {
+      const data = await dbGetPermApplications(u.id, u.role);
+      setPermApplications(data);
+    } catch (e) {
+      console.warn('[AppContext] refreshPermApplications error', e);
+    }
+  };
+
+  const refreshPermSaved = async (user?: User | null) => {
+    const u = user ?? currentUser;
+    if (!u) return;
+    try {
+      const data = await dbGetPermSaved(u.id);
+      setPermSavedIds(data);
+    } catch (e) {
+      console.warn('[AppContext] refreshPermSaved error', e);
+    }
+  };
+
+  const optimisticAddPermSaved = (id: string) => setPermSavedIds(prev => prev.includes(id) ? prev : [...prev, id]);
+  const optimisticRemovePermSaved = (id: string) => setPermSavedIds(prev => prev.filter(x => x !== id));
+
   const refreshAll = async (user?: User | null) => {
     const u = user ?? currentUser;
     await Promise.all([
       refreshUsers(),
       refreshVacancies(),
       refreshLikes(),
-      ...(u ? [refreshChats(u), refreshSaved(u)] : []),
+      ...(u ? [refreshChats(u), refreshSaved(u), refreshPermVacancies(u), refreshPermApplications(u), refreshPermSaved(u)] : []),
     ]);
   };
 
-  // Optimistic helpers — update local state immediately without server round-trip
   const optimisticAddSaved = (vacancyId: string) => {
     setSavedIds(prev => prev.includes(vacancyId) ? prev : [...prev, vacancyId]);
   };
@@ -162,7 +231,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           refreshUsers(),
           refreshVacancies(),
           refreshLikes(),
-          ...(session ? [refreshChats(session), refreshSaved(session)] : []),
+          ...(session ? [
+            refreshChats(session),
+            refreshSaved(session),
+            refreshPermVacancies(session),
+            refreshPermApplications(session),
+            refreshPermSaved(session),
+          ] : []),
         ]);
       } catch (e) {
         console.warn('[AppContext] boot error:', e);
@@ -172,13 +247,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  useEffect(() => {
-    if (!loading && !currentUser) {
-      router.replace('/');
-    }
-  }, [currentUser, loading, router]);
+  // Navigation handled by AuthGuard in _layout.tsx — no redirect here
 
-  // ── Auto-cleanup: delete vacancies with no applicants 5 min before shift start ──
+  // ── Auto day-switch at 22:00 ──────────────────────────────────────────────
+
+  /**
+   * Archives all open shift vacancies that belong to dates BEFORE today's virtual
+   * start date (i.e. dates that are no longer visible in the date strip).
+   * Runs at boot and every 15 s so the transition happens within one poll cycle.
+   */
+  const archivePastDayVacancies = async () => {
+    try {
+      // dates() now returns full month; cutoff = first visible date
+      const visibleDates = getTodayDates();
+      const cutoff = visibleDates[0]; // first visible date (today or tomorrow after 21:00)
+      const { data } = await getSupabaseClient()
+        .from('jm_vacancies')
+        .select('id, date')
+        .eq('status', 'open');
+      if (!data) return;
+
+      const toArchive = data.filter((v: any) => v.date < cutoff).map((v: any) => v.id);
+      if (toArchive.length === 0) return;
+
+      await getSupabaseClient()
+        .from('jm_vacancies')
+        .update({ status: 'closed' })
+        .in('id', toArchive);
+
+      console.log(`[AppContext] archived ${toArchive.length} past-day vacancies (cutoff ${cutoff})`);
+      await refreshVacancies();
+    } catch (e) {
+      console.warn('[AppContext] archivePastDayVacancies error', e);
+    }
+  };
+
+  // ── Auto-cleanup stale vacancies ──────────────────────────────────────────
 
   const cleanupStaleVacancies = async () => {
     try {
@@ -196,9 +300,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const [h, m] = (v.time_start as string).split(':').map(Number);
         const shiftStart = new Date(`${v.date}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:00`);
         const diffMs = shiftStart.getTime() - now.getTime();
-        // Delete if 5 min or less remain before shift start
         if (diffMs <= 5 * 60 * 1000 && diffMs > -60 * 60 * 1000) {
-          // Check if any worker liked this vacancy
           const { data: likeRows } = await getSupabaseClient()
             .from('jm_likes')
             .select('id')
@@ -224,19 +326,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // ── Background poll (every 15s) when user is logged in ───────────────────
+  // ── Background poll (every 15s) ───────────────────────────────────────────
 
   useEffect(() => {
     if (!currentUser) return;
-    // Run cleanup immediately and then on each poll
+    // Run archive + cleanup on first mount for this user
+    archivePastDayVacancies();
     cleanupStaleVacancies();
+
     const interval = setInterval(() => {
+      archivePastDayVacancies(); // archives dates hidden after 22:00
+      cleanupStaleVacancies();   // deletes vacancies that start very soon with no applicants
       refreshVacancies();
       refreshLikes();
       refreshChats(currentUser);
       refreshSaved(currentUser);
-      cleanupStaleVacancies();
-    }, 15_000);
+      refreshPermVacancies(currentUser);
+      refreshPermApplications(currentUser);
+    }, 5_000);
     return () => clearInterval(interval);
   }, [currentUser?.id]);
 
@@ -290,6 +397,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         logout,
         unreadCount,
         loading,
+        permVacancies,
+        refreshPermVacancies,
+        permApplications,
+        refreshPermApplications,
+        permSavedIds,
+        refreshPermSaved,
+        optimisticAddPermSaved,
+        optimisticRemovePermSaved,
       }}
     >
       {children}

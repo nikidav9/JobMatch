@@ -12,16 +12,16 @@ function AuthGuard() {
   const pathname = usePathname();
   const ctx = React.useContext(AppContext);
 
-  const publicPaths = new Set(['/','/login','/register-worker','/register-employer','/legal']);
-  const isProtected = !publicPaths.has(pathname);
+  const publicPaths = new Set(['/', '/login', '/register-worker', '/register-employer', '/legal']);
 
   useEffect(() => {
-    if (!ctx || ctx.loading) return;
+    if (!ctx) return;
+    if (ctx.loading) return;
+    const isProtected = !publicPaths.has(pathname);
     if (!ctx.currentUser && isProtected) {
-      console.log('AuthGuard redirecting to /');
       router.replace('/');
     }
-  }, [ctx?.currentUser, ctx?.loading, pathname]);
+  }, [ctx?.currentUser?.id, ctx?.loading, pathname]);
 
   return null;
 }
@@ -37,7 +37,7 @@ export default function RootLayout() {
         <AppProvider>
           <StatusBar style="dark" />
           <AuthGuard />
-          <Stack screenOptions={{ headerShown: false }}>
+          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#FFFFFF' } }}>
             <Stack.Screen name="index" />
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="register-worker" />
@@ -51,6 +51,9 @@ export default function RootLayout() {
             <Stack.Screen name="rate" options={{ presentation: 'modal' }} />
             <Stack.Screen name="admin" />
             <Stack.Screen name="user-profile" />
+            <Stack.Screen name="create-perm-vacancy" />
+            <Stack.Screen name="perm-applications" />
+            <Stack.Screen name="perm-vacancy-detail" />
           </Stack>
           <ToastLayer />
         </AppProvider>

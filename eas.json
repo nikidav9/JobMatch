@@ -7,7 +7,9 @@
       "android": {
         "buildType": "apk"
       },
-      "channel": "production"
+      "env": {
+        "EAS_NO_FROZEN_LOCKFILE": "1"
+      }
     }
   }
 }

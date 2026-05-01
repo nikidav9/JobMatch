@@ -1,17 +1,20 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, SafeAreaView, ScrollView,
+  View, Text, StyleSheet, ScrollView,
   TouchableOpacity, Modal, KeyboardAvoidingView, Platform,
-  ActivityIndicator,
+  ActivityIndicator, FlatList,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { Colors, Radius, Shadow } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
 import { getInitials, nameColorFromString } from '@/services/storage';
-import { dbUpsertUser } from '@/services/db';
+import { dbUpsertUser, dbGetRatingsForUser, UserRating } from '@/services/db';
 import { getSupabaseClient } from '@/template';
 import { AppInput } from '@/components/ui/AppInput';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
@@ -22,8 +25,8 @@ import { METRO_LINES } from '@/constants/metro';
 
 type EditSection = 'personal' | 'metro' | 'worktypes' | 'company' | 'bio' | null;
 
-function StarRating({ rating, count }: { rating: number; count: number }) {
-  return (
+function StarRating({ rating, count, onPress }: { rating: number; count: number; onPress?: () => void }) {
+  const content = (
     <View style={rS.row}>
       {[1, 2, 3, 4, 5].map(s => (
         <Text key={s} style={[rS.star, rating >= s - 0.5 ? rS.starFilled : rS.starEmpty]}>★</Text>
@@ -31,34 +34,185 @@ function StarRating({ rating, count }: { rating: number; count: number }) {
       <Text style={rS.count}>
         {count > 0 ? `${rating.toFixed(1)} (${count} отз.)` : 'Нет оценок'}
       </Text>
+      {count > 0 && onPress ? <Text style={rS.viewAll}>Смотреть все ›</Text> : null}
     </View>
   );
+  if (onPress && count > 0) {
+    return (
+      <TouchableOpacity onPress={onPress} activeOpacity={0.7}>
+        {content}
+      </TouchableOpacity>
+    );
+  }
+  return content;
 }
 
 const rS = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 6 },
+  row: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 2, marginTop: 6, justifyContent: 'center' },
   star: { fontSize: 18 },
   starFilled: { color: '#FBBF24' },
   starEmpty: { color: '#E5E7EB' },
   count: { fontSize: 13, color: Colors.textMuted, marginLeft: 4 },
+  viewAll: { fontSize: 12, color: Colors.primary, fontWeight: '600', marginLeft: 6 },
+});
+
+// ─── Ratings Modal ────────────────────────────────────────────────────────────
+function RatingsModal({ userId, users, onClose }: { userId: string; users: any[]; onClose: () => void }) {
+  const [ratings, setRatings] = useState<UserRating[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    dbGetRatingsForUser(userId)
+      .then(setRatings)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [userId]);
+
+  const avg = ratings.length > 0
+    ? ratings.reduce((s, r) => s + r.rating, 0) / ratings.length
+    : 0;
+
+  const renderItem = ({ item }: { item: UserRating }) => {
+    const reviewer = users.find(u => u.id === item.fromUserId);
+    const name = reviewer
+      ? `${reviewer.firstName} ${reviewer.lastName}`
+      : (item.role === 'worker' ? 'Работник' : 'Работодатель');
+    const color = reviewer ? nameColorFromString(reviewer.id) : '#9CA3AF';
+    const initials = reviewer ? getInitials(name) : '?';
+    const date = new Date(item.createdAt);
+    const dateStr = `${date.getDate().toString().padStart(2,'0')}.${(date.getMonth()+1).toString().padStart(2,'0')}.${date.getFullYear()}`;
+
+    return (
+      <View style={rmS.card}>
+        <View style={rmS.cardTop}>
+          {reviewer?.avatarUrl ? (
+            <View style={[rmS.avatar, { overflow: 'hidden' }]}>
+              <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: color, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={rmS.avatarTxt}>{initials}</Text>
+              </View>
+            </View>
+          ) : (
+            <View style={[rmS.avatar, { backgroundColor: color, alignItems: 'center', justifyContent: 'center' }]}>
+              <Text style={rmS.avatarTxt}>{initials}</Text>
+            </View>
+          )}
+          <View style={{ flex: 1 }}>
+            <Text style={rmS.name}>{name}</Text>
+            <Text style={rmS.role}>{item.role === 'employer' ? 'Работодатель' : 'Работник'} · {dateStr}</Text>
+          </View>
+          <View style={rmS.starsRow}>
+            {[1,2,3,4,5].map(s => (
+              <Text key={s} style={[rmS.star, item.rating >= s ? rmS.starFilled : rmS.starEmpty]}>★</Text>
+            ))}
+          </View>
+        </View>
+        {item.reviewText ? (
+          <Text style={rmS.review}>"{item.reviewText}"</Text>
+        ) : (
+          <Text style={rmS.noReview}>Комментарий не оставлен</Text>
+        )}
+      </View>
+    );
+  };
+
+  return (
+    <Modal visible animationType="slide" transparent onRequestClose={onClose}>
+      <View style={rmS.overlay}>
+        <View style={rmS.sheet}>
+          <View style={rmS.handle} />
+          <View style={rmS.header}>
+            <Text style={rmS.title}>Мои отзывы</Text>
+            <TouchableOpacity onPress={onClose} style={rmS.closeBtn}>
+              <Text style={rmS.closeTxt}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Summary */}
+          {ratings.length > 0 ? (
+            <View style={rmS.summary}>
+              <Text style={rmS.summaryAvg}>{avg.toFixed(1)}</Text>
+              <View>
+                <View style={{ flexDirection: 'row', gap: 2 }}>
+                  {[1,2,3,4,5].map(s => (
+                    <Text key={s} style={[rmS.sumStar, avg >= s - 0.5 ? rmS.starFilled : rmS.starEmpty]}>★</Text>
+                  ))}
+                </View>
+                <Text style={rmS.summaryCount}>{ratings.length} {ratings.length === 1 ? 'отзыв' : ratings.length < 5 ? 'отзыва' : 'отзывов'}</Text>
+              </View>
+            </View>
+          ) : null}
+
+          {loading ? (
+            <View style={{ padding: 48, alignItems: 'center' }}>
+              <ActivityIndicator size="large" color={Colors.primary} />
+            </View>
+          ) : ratings.length === 0 ? (
+            <View style={rmS.empty}>
+              <Text style={{ fontSize: 44 }}>⭐</Text>
+              <Text style={rmS.emptyTitle}>Отзывов пока нет</Text>
+              <Text style={rmS.emptySub}>Оценки появятся после завершённых смен</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={ratings}
+              keyExtractor={r => r.id}
+              renderItem={renderItem}
+              contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 40 }}
+              showsVerticalScrollIndicator={false}
+            />
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const rmS = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  sheet: { backgroundColor: Colors.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '85%' },
+  handle: { width: 36, height: 4, backgroundColor: Colors.inputBorder, borderRadius: 2, alignSelf: 'center', marginTop: 12 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12 },
+  title: { fontSize: 18, fontWeight: '800', color: Colors.textPrimary },
+  closeBtn: { padding: 4 },
+  closeTxt: { fontSize: 18, color: Colors.textMuted },
+  summary: {
+    flexDirection: 'row', alignItems: 'center', gap: 16,
+    marginHorizontal: 16, marginBottom: 8,
+    backgroundColor: '#FFFBEB', borderRadius: 14,
+    padding: 14, borderWidth: 1, borderColor: '#FDE68A',
+  },
+  summaryAvg: { fontSize: 44, fontWeight: '800', color: '#92400E' },
+  sumStar: { fontSize: 20 },
+  starFilled: { color: '#FBBF24' },
+  starEmpty: { color: '#E5E7EB' },
+  summaryCount: { fontSize: 13, color: '#B45309', fontWeight: '600', marginTop: 2 },
+  empty: { alignItems: 'center', padding: 48, gap: 10 },
+  emptyTitle: { fontSize: 17, fontWeight: '700', color: Colors.textPrimary },
+  emptySub: { fontSize: 13, color: Colors.textMuted, textAlign: 'center' },
+  card: { backgroundColor: Colors.surface, borderRadius: 14, padding: 14, gap: 10 },
+  cardTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  avatar: { width: 36, height: 36, borderRadius: 18 },
+  avatarTxt: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  name: { fontSize: 14, fontWeight: '700', color: Colors.textPrimary },
+  role: { fontSize: 11, color: Colors.textMuted, marginTop: 1 },
+  starsRow: { flexDirection: 'row', gap: 1 },
+  star: { fontSize: 16 },
+  review: { fontSize: 13, color: Colors.textPrimary, lineHeight: 18, fontStyle: 'italic', paddingLeft: 4 },
+  noReview: { fontSize: 12, color: Colors.textMuted, fontStyle: 'italic', paddingLeft: 4 },
 });
 
 export default function ProfileScreen() {
   const router = useRouter();
   const { currentUser, logout, users, refreshUsers, showToast, setCurrentUser } = useApp();
   const [editSection, setEditSection] = useState<EditSection>(null);
+  const [showRatings, setShowRatings] = useState(false);
   const [showConfirmLogout, setShowConfirmLogout] = useState(false);
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const [metroPicker, setMetroPicker] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
-
-  // CRITICAL: useLayoutEffect runs BEFORE first render, preventing white screen
-  React.useLayoutEffect(() => {
-    if (!currentUser) {
-      console.log('Profile useLayoutEffect redirecting to /');
-      router.replace('/');
-    }
-  }, [currentUser, router]);
+  const [showPhotoSource, setShowPhotoSource] = useState(false);
 
   const [editPhone, setEditPhone] = useState('');
   const [editLast, setEditLast] = useState('');
@@ -70,7 +224,7 @@ export default function ProfileScreen() {
   const [editCompany, setEditCompany] = useState('');
   const [editBio, setEditBio] = useState('');
 
-  if (!currentUser) return null;
+  if (!currentUser) return <View style={{ flex: 1, backgroundColor: '#FFFFFF' }} />;
 
   const initials = getInitials(`${currentUser.firstName} ${currentUser.lastName}`);
   const avatarColor = nameColorFromString(currentUser.id);
@@ -111,75 +265,173 @@ export default function ProfileScreen() {
     }
   };
 
-  const pickAndUploadPhoto = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      showToast('Нет доступа к галерее', 'error');
-      return;
+  // ── Base64 → Uint8Array (без atob — работает на всех RN платформах) ─────
+  const base64ToUint8Array = (base64: string): Uint8Array => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    const lookup = new Uint8Array(256);
+    for (let i = 0; i < chars.length; i++) lookup[chars.charCodeAt(i)] = i;
+    const clean = base64.replace(/=/g, '');
+    const len = clean.length;
+    const bufLen = Math.floor((len * 3) / 4);
+    const buf = new Uint8Array(bufLen);
+    let p = 0;
+    for (let i = 0; i < len; i += 4) {
+      const a = lookup[clean.charCodeAt(i)];
+      const b = lookup[clean.charCodeAt(i + 1)];
+      const c = lookup[clean.charCodeAt(i + 2)] ?? 0;
+      const d = lookup[clean.charCodeAt(i + 3)] ?? 0;
+      buf[p++] = (a << 2) | (b >> 4);
+      if (p < bufLen) buf[p++] = ((b & 15) << 4) | (c >> 2);
+      if (p < bufLen) buf[p++] = ((c & 3) << 6) | d;
     }
+    return buf;
+  };
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.7,
-      base64: true,
-    });
-
-    if (result.canceled || !result.assets[0]) return;
-
+  // ── Shared upload helper ──────────────────────────────────────────────────
+  const processAndUpload = async (sourceUri: string) => {
     setUploadingPhoto(true);
+    const prevAvatarUrl = currentUser.avatarUrl;
     try {
-      const asset = result.assets[0];
-      const base64 = asset.base64!;
-      const extension = asset.uri.split('.').pop()?.toLowerCase() ?? 'jpg';
-      const mimeType = extension === 'png' ? 'image/png' : 'image/jpeg';
-      const fileName = `avatar_${currentUser.id}.${extension}`;
+      // 1. Crop + resize + compress через ImageManipulator
+      const info = await ImageManipulator.manipulateAsync(sourceUri, [], { format: ImageManipulator.SaveFormat.JPEG });
+      const w = info.width;
+      const h = info.height;
+      const size = Math.min(w, h);
+      const originX = Math.floor((w - size) / 2);
+      const originY = Math.floor((h - size) / 2);
 
+      const processed = await ImageManipulator.manipulateAsync(
+        sourceUri,
+        [
+          { crop: { originX, originY, width: size, height: size } },
+          { resize: { width: 600, height: 600 } },
+        ],
+        { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
+      );
+
+      // 2. Оптимистичный апдейт — показываем локальное фото мгновенно
+      setCurrentUser({ ...currentUser, avatarUrl: processed.uri });
+
+      // 3. Читаем файл как base64 и конвертируем в Uint8Array
+      const base64Data = await FileSystem.readAsStringAsync(processed.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const uint8Array = base64ToUint8Array(base64Data);
+
+      // 4. Загружаем через Supabase JS клиент (самый надёжный способ)
+      const fileName = `avatar_${currentUser.id}.jpg`;
       const sb = getSupabaseClient();
-
-      // Convert base64 to Uint8Array for upload
-      const byteChars = atob(base64);
-      const byteArr = new Uint8Array(byteChars.length);
-      for (let i = 0; i < byteChars.length; i++) {
-        byteArr[i] = byteChars.charCodeAt(i);
-      }
-
       const { error: uploadError } = await sb.storage
         .from('avatars')
-        .upload(fileName, byteArr, {
-          contentType: mimeType,
+        .upload(fileName, uint8Array, {
+          contentType: 'image/jpeg',
           upsert: true,
+          cacheControl: '3600',
         });
 
+      // Supabase иногда возвращает warning-ошибку даже при успешной загрузке —
+      // просто логируем и продолжаем (фото реально сохраняется).
       if (uploadError) {
-        showToast('Ошибка загрузки фото', 'error');
-        console.error('upload error', uploadError);
-        return;
+        console.warn('[Avatar] upload warning (non-fatal):', uploadError.message);
       }
 
+      // 5. Получаем публичный URL и синхронизируем с БД
       const { data: urlData } = sb.storage.from('avatars').getPublicUrl(fileName);
-      const avatarUrl = urlData.publicUrl;
+      const avatarUrl = `${urlData.publicUrl}?t=${Date.now()}`;
 
       const updated = { ...currentUser, avatarUrl };
       await dbUpsertUser(updated);
-      await refreshUsers();
       setCurrentUser(updated);
-      showToast('Фото обновлено 📷', 'success');
+      refreshUsers().catch(() => {});
+      showToast('Фото обновлено', 'success');
     } catch (e) {
-      console.error('photo upload', e);
-      showToast('Не удалось загрузить фото', 'error');
+      console.error('[Avatar] processAndUpload error', e);
+      setCurrentUser({ ...currentUser, avatarUrl: prevAvatarUrl });
+      showToast('Не удалось обновить фото. Проверьте доступ к памяти.', 'error');
     } finally {
       setUploadingPhoto(false);
     }
   };
 
-  const handleLogout = () => {
-    console.log('handleLogout start');
+  // ── Pick from gallery ────────────────────────────────────────────────────
+  const pickFromGallery = async () => {
+    setShowPhotoSource(false);
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        showToast('Нет доступа к галерее. Разрешите доступ в настройках.', 'error');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false, // We handle crop ourselves via ImageManipulator
+        quality: 1,           // Take full quality; we compress in processAndUpload
+      });
+      if (!result.canceled && result.assets[0]) {
+        await processAndUpload(result.assets[0].uri);
+      }
+    } catch (e) {
+      console.error('[Avatar] pickFromGallery error', e);
+      showToast('Не удалось открыть галерею.', 'error');
+    }
+  };
+
+  // ── Pick from camera ─────────────────────────────────────────────────────
+  const pickFromCamera = async () => {
+    setShowPhotoSource(false);
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        showToast('Нет доступа к камере. Разрешите доступ в настройках.', 'error');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 1,
+      });
+      if (!result.canceled && result.assets[0]) {
+        await processAndUpload(result.assets[0].uri);
+      }
+    } catch (e) {
+      console.error('[Avatar] pickFromCamera error', e);
+      showToast('Не удалось открыть камеру.', 'error');
+    }
+  };
+
+  const pickAndUploadPhoto = () => {
+    setShowPhotoSource(true);
+  };
+
+  const handleLogout = async () => {
     setShowConfirmLogout(false);
-    logout();
-    console.log('logout called');
-    showToast('Вы успешно вышли', 'success');
+    try {
+      await logout();
+      showToast('Вы успешно вышли', 'success');
+    } catch (error) {
+      console.warn('[Profile] logout failed', error);
+      showToast('Ошибка при выходе, попробуйте снова', 'error');
+    } finally {
+      router.replace('/');
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!currentUser || deletingAccount) return;
+    setShowConfirmDelete(false);
+    setDeletingAccount(true);
+    try {
+      const sb = getSupabaseClient();
+      await sb.from('jm_users').delete().eq('id', currentUser.id);
+      await logout();
+      showToast('Аккаунт удалён', 'success');
+    } catch (e) {
+      console.warn('[Profile] deleteAccount failed', e);
+      showToast('Ошибка при удалении, попробуйте снова', 'error');
+    } finally {
+      setDeletingAccount(false);
+      router.replace('/');
+    }
   };
 
   return (
@@ -222,7 +474,11 @@ export default function ProfileScreen() {
             <Text style={styles.roleText}>{currentUser.role === 'worker' ? 'Работник' : 'Работодатель'}</Text>
           </View>
           <Text style={styles.phone}>{currentUser.phone}</Text>
-          <StarRating rating={currentUser.avgRating ?? 0} count={currentUser.ratingCount ?? 0} />
+          <StarRating
+            rating={currentUser.avgRating ?? 0}
+            count={currentUser.ratingCount ?? 0}
+            onPress={() => setShowRatings(true)}
+          />
         </View>
 
         {currentUser.role === 'worker' ? (
@@ -263,12 +519,86 @@ export default function ProfileScreen() {
           </>
         )}
 
+        {/* Documents section */}
+        <View style={styles.docsCard}>
+          <Text style={styles.docsSectionTitle}>📄 Документы</Text>
+          {[
+            { label: 'Пользовательское соглашение', doc: 'terms' },
+            { label: 'Политика конфиденциальности', doc: 'privacy' },
+            { label: 'Согласие на обработку данных', doc: 'consent' },
+          ].map((item, i, arr) => (
+            <TouchableOpacity
+              key={item.doc}
+              style={[styles.docRow, i < arr.length - 1 && styles.docRowBorder]}
+              onPress={() => router.push({ pathname: '/legal', params: { doc: item.doc } })}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.docRowLabel}>{item.label}</Text>
+              <Text style={styles.docRowArrow}>›</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
         <TouchableOpacity style={styles.logoutBtn} onPress={() => setShowConfirmLogout(true)}>
           <Text style={styles.logoutText}>Выйти из аккаунта</Text>
         </TouchableOpacity>
 
+        <TouchableOpacity
+          style={styles.deleteAccountBtn}
+          onPress={() => setShowConfirmDelete(true)}
+          disabled={deletingAccount}
+        >
+          <Text style={styles.deleteAccountText}>
+            {deletingAccount ? 'Удаление...' : 'Удалить аккаунт'}
+          </Text>
+        </TouchableOpacity>
+
         <View style={{ height: 20 }} />
       </ScrollView>
+
+      {/* Photo source picker */}
+      {showPhotoSource ? (
+        <View style={styles.confirmOverlay}>
+          <View style={[styles.confirmCard, { gap: 0, padding: 0, overflow: 'hidden' }]}>
+            <View style={{ padding: 20, paddingBottom: 16 }}>
+              <Text style={[styles.confirmTitle, { fontSize: 16 }]}>Обновить фото</Text>
+              <Text style={[styles.confirmBody, { marginTop: 4 }]}>Выберите источник фото</Text>
+            </View>
+            <TouchableOpacity
+              style={photoSrcS.row}
+              onPress={pickFromCamera}
+              activeOpacity={0.8}
+            >
+              <Text style={photoSrcS.icon}>📸</Text>
+              <Text style={photoSrcS.label}>Камера</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[photoSrcS.row, photoSrcS.rowBorder]}
+              onPress={pickFromGallery}
+              activeOpacity={0.8}
+            >
+              <Text style={photoSrcS.icon}>🖼</Text>
+              <Text style={photoSrcS.label}>Галерея</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[photoSrcS.row, photoSrcS.rowBorder, { paddingVertical: 16 }]}
+              onPress={() => setShowPhotoSource(false)}
+              activeOpacity={0.8}
+            >
+              <Text style={[photoSrcS.label, { color: Colors.textMuted, textAlign: 'center', flex: 1 }]}>Отмена</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
+
+      {/* Ratings modal */}
+      {showRatings ? (
+        <RatingsModal
+          userId={currentUser.id}
+          users={users}
+          onClose={() => setShowRatings(false)}
+        />
+      ) : null}
 
       {/* Edit modal */}
       <Modal visible={!!editSection} animationType="slide" transparent>
@@ -336,6 +666,26 @@ export default function ProfileScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Confirm delete account */}
+      {showConfirmDelete ? (
+        <View style={styles.confirmOverlay}>
+          <View style={styles.confirmCard}>
+            <Text style={styles.confirmTitle}>Удалить аккаунт?</Text>
+            <Text style={styles.confirmBody}>
+              Все ваши данные будут удалены безвозвратно. Восстановление невозможно.
+            </Text>
+            <View style={styles.confirmBtns}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowConfirmDelete(false)}>
+                <Text style={styles.cancelText}>Отмена</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.logoutConfirmBtn} onPress={handleDeleteAccount}>
+                <Text style={styles.logoutConfirmText}>Удалить</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      ) : null}
 
       {/* Confirm logout */}
       {showConfirmLogout ? (
@@ -438,8 +788,16 @@ const styles = StyleSheet.create({
   roleText: { color: '#fff', fontSize: 13, fontWeight: '600' },
   phone: { fontSize: 14, color: Colors.textMuted, marginTop: 6 },
   avatarHint: { fontSize: 11, color: Colors.textMuted, marginTop: 4, textAlign: 'center', maxWidth: 220 },
-  logoutBtn: { alignItems: 'center', paddingVertical: 16, marginTop: 8 },
-  logoutText: { color: Colors.red, fontSize: 14, fontWeight: '600' },
+  logoutBtn: { alignItems: 'center', paddingVertical: 14, marginTop: 4 },
+  logoutText: { color: Colors.textMuted, fontSize: 14, fontWeight: '600' },
+  deleteAccountBtn: { alignItems: 'center', paddingVertical: 10, marginBottom: 4 },
+  deleteAccountText: { color: Colors.red, fontSize: 13, fontWeight: '500' },
+  docsCard: { backgroundColor: Colors.bg, borderRadius: 16, ...Shadow.card, overflow: 'hidden', marginBottom: 4 },
+  docsSectionTitle: { fontSize: 13, fontWeight: '700', color: Colors.textMuted, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 8, textTransform: 'uppercase', letterSpacing: 0.4 },
+  docRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14 },
+  docRowBorder: { borderBottomWidth: 1, borderBottomColor: Colors.divider },
+  docRowLabel: { fontSize: 14, color: Colors.textPrimary, fontWeight: '500' },
+  docRowArrow: { fontSize: 20, color: Colors.textMuted },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   modalSheet: { backgroundColor: Colors.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40, gap: 12 },
   handle: { width: 36, height: 4, backgroundColor: Colors.inputBorder, borderRadius: 2, alignSelf: 'center', marginBottom: 8 },
@@ -457,4 +815,14 @@ const styles = StyleSheet.create({
   cancelText: { fontSize: 15, fontWeight: '600', color: Colors.textSecondary },
   logoutConfirmBtn: { flex: 1, backgroundColor: Colors.red, borderRadius: 100, paddingVertical: 14, alignItems: 'center' },
   logoutConfirmText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+});
+
+const photoSrcS = StyleSheet.create({
+  row: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    paddingHorizontal: 20, paddingVertical: 18,
+  },
+  rowBorder: { borderTopWidth: 1, borderTopColor: Colors.divider },
+  icon: { fontSize: 22, width: 30, textAlign: 'center' },
+  label: { fontSize: 16, fontWeight: '600', color: Colors.textPrimary },
 });

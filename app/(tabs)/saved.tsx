@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, SafeAreaView, FlatList, TouchableOpacity, RefreshControl,
+  View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, Radius, Shadow } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
 import { formatDate } from '@/services/storage';
@@ -21,7 +22,7 @@ export default function SavedScreen() {
   };
   const [detailVacancy, setDetailVacancy] = useState<Vacancy | null>(null);
 
-  if (!currentUser) return null;
+  if (!currentUser) return <View style={{ flex: 1, backgroundColor: '#FFFFFF' }} />;
 
   const savedVacancies = vacancies.filter(v => savedIds.includes(v.id));
 

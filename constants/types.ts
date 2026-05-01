@@ -94,6 +94,34 @@ export interface Complaint {
   createdAt: string;
 }
 
+// ─── Permanent jobs ──────────────────────────────────────────────────────────
+
+export interface PermVacancy {
+  id: string;
+  employerId: string;
+  company: string;
+  title: string;
+  metroLineId?: string;
+  metroStation?: string;
+  address?: string;
+  salary: number;
+  schedule: string;
+  description?: string;
+  status: 'open' | 'closed';
+  createdAt: string;
+}
+
+export type PermApplicationStatus = 'pending' | 'approved' | 'rejected';
+
+export interface PermApplication {
+  id: string;
+  vacancyId: string;
+  workerId: string;
+  employerId: string;
+  status: PermApplicationStatus;
+  createdAt: string;
+}
+
 export interface Rating {
   id: string;
   fromUserId: string;

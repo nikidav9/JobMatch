@@ -2,7 +2,7 @@
  * Supabase data layer — replaces AsyncStorage for persistent data.
  */
 import { getSupabaseClient } from '@/template';
-import { User, Vacancy, Like, Chat, Message } from '@/constants/types';
+import { User, Vacancy, Like, Chat, Message, PermVacancy, PermApplication, PermApplicationStatus } from '@/constants/types';
 import { uid, nowISO } from '@/services/storage';
 
 const sb = () => getSupabaseClient();
@@ -59,6 +59,11 @@ function userToRow(u: User) {
     password: u.password ?? '',
     bio: u.bio ?? null,
   };
+}
+
+export async function dbGetUserById(id: string): Promise<User | null> {
+  const { data } = await sb().from('jm_users').select('*').eq('id', id).maybeSingle();
+  return data ? rowToUser(data) : null;
 }
 
 export async function dbGetUsers(): Promise<User[]> {
@@ -426,7 +431,18 @@ export async function dbCheckAndCreateMatch(
     .maybeSingle();
 
   if (!likeRow) return { matched: false };
-  if (!likeRow.worker_liked || !likeRow.employer_liked || likeRow.is_match) return { matched: false };
+  // If already matched, return existing chat id so caller can navigate
+  if (likeRow.is_match) {
+    const { data: existingChat } = await sb()
+      .from('jm_chats')
+      .select('id')
+      .eq('vacancy_id', vacancyId)
+      .eq('worker_id', workerId)
+      .maybeSingle();
+    return { matched: false, chatId: existingChat?.id };
+  }
+  // Both worker AND employer must have liked before a match is created
+  if (!likeRow.worker_liked || likeRow.employer_liked !== true) return { matched: false };
 
   await sb()
     .from('jm_likes')
@@ -436,16 +452,26 @@ export async function dbCheckAndCreateMatch(
 
   const { data: vac } = await sb().from('jm_vacancies').select('*').eq('id', vacancyId).maybeSingle();
 
+  const matchMsg = '🎉 У вас мэтч! Вы подошли друг другу. Познакомьтесь и обсудите детали!';
+  const safetyMsg = '🔒 Рекомендуем не переводить общение в сторонние мессенджеры или почту, а продолжить его в чате JobToo: так у мошенников будет меньше шансов вас обмануть.\n\nГде бы вы ни общались — не сообщайте свой CVV-код, код из SMS и не вводите данные карты по ссылке.';
+
+  // Create chat (or get existing) — do NOT pass matchMsg to dbCreateChat
+  // because if the chat already exists (worker pressed «написать» earlier),
+  // dbCreateChat returns immediately without inserting any message.
   const chatId = await dbCreateChat(
     workerId,
     likeRow.employer_id,
     vacancyId,
     vac?.title ?? '',
     vac?.company ?? '',
-    '🎉 Мэтч! Вы подошли друг другу. Познакомьтесь и обсудите детали!',
+    undefined, // no initial message — we insert manually below
     1,
     1
   );
+
+  // Always insert match + safety messages into the chat (new or existing)
+  await dbInsertMessage(chatId, 'system', matchMsg);
+  await dbInsertMessage(chatId, 'system_safety', safetyMsg);
 
   // Update vacancy workersFound and status if limit reached
   if (vac) {
@@ -458,6 +484,124 @@ export async function dbCheckAndCreateMatch(
   }
 
   return { matched: true, chatId };
+}
+
+// ─── Permanent vacancies ─────────────────────────────────────────────────────
+
+function rowToPermVacancy(r: any): PermVacancy {
+  return {
+    id: r.id,
+    employerId: r.employer_id,
+    company: r.company,
+    title: r.title,
+    metroLineId: r.metro_line_id ?? undefined,
+    metroStation: r.metro_station ?? undefined,
+    address: r.address ?? undefined,
+    salary: r.salary,
+    schedule: r.schedule ?? '',
+    description: r.description ?? undefined,
+    status: r.status,
+    createdAt: r.created_at,
+  };
+}
+
+export async function dbGetPermVacancies(): Promise<PermVacancy[]> {
+  const { data, error } = await sb().from('jm_perm_vacancies').select('*').eq('status', 'open').order('created_at', { ascending: false });
+  if (error) throwOnError('dbGetPermVacancies', error);
+  return (data ?? []).map(rowToPermVacancy);
+}
+
+export async function dbGetPermVacanciesByEmployer(employerId: string): Promise<PermVacancy[]> {
+  const { data, error } = await sb().from('jm_perm_vacancies').select('*').eq('employer_id', employerId).order('created_at', { ascending: false });
+  if (error) throwOnError('dbGetPermVacanciesByEmployer', error);
+  return (data ?? []).map(rowToPermVacancy);
+}
+
+export async function dbUpsertPermVacancy(v: PermVacancy): Promise<void> {
+  const { error } = await sb().from('jm_perm_vacancies').upsert({
+    id: v.id,
+    employer_id: v.employerId,
+    company: v.company,
+    title: v.title,
+    metro_line_id: v.metroLineId ?? null,
+    metro_station: v.metroStation ?? null,
+    address: v.address ?? null,
+    salary: v.salary,
+    schedule: v.schedule,
+    description: v.description ?? null,
+    status: v.status,
+    created_at: v.createdAt,
+  }, { onConflict: 'id' });
+  if (error) throwOnError('dbUpsertPermVacancy', error);
+}
+
+export async function dbClosePermVacancy(id: string): Promise<void> {
+  const { error } = await sb().from('jm_perm_vacancies').update({ status: 'closed' }).eq('id', id);
+  if (error) throwOnError('dbClosePermVacancy', error);
+}
+
+// ─── Permanent applications ───────────────────────────────────────────────────
+
+function rowToPermApp(r: any): PermApplication {
+  return {
+    id: r.id,
+    vacancyId: r.vacancy_id,
+    workerId: r.worker_id,
+    employerId: r.employer_id,
+    status: r.status as PermApplicationStatus,
+    createdAt: r.created_at,
+  };
+}
+
+export async function dbGetPermApplications(userId: string, role: 'worker' | 'employer'): Promise<PermApplication[]> {
+  const field = role === 'worker' ? 'worker_id' : 'employer_id';
+  const { data, error } = await sb().from('jm_perm_applications').select('*').eq(field, userId).order('created_at', { ascending: false });
+  if (error) throwOnError('dbGetPermApplications', error);
+  return (data ?? []).map(rowToPermApp);
+}
+
+export async function dbGetPermApplicationsForVacancy(vacancyId: string): Promise<PermApplication[]> {
+  const { data, error } = await sb().from('jm_perm_applications').select('*').eq('vacancy_id', vacancyId).order('created_at', { ascending: false });
+  if (error) throwOnError('dbGetPermApplicationsForVacancy', error);
+  return (data ?? []).map(rowToPermApp);
+}
+
+export async function dbApplyPermVacancy(vacancyId: string, workerId: string, employerId: string): Promise<void> {
+  const { error } = await sb().from('jm_perm_applications').upsert({
+    id: uid(),
+    vacancy_id: vacancyId,
+    worker_id: workerId,
+    employer_id: employerId,
+    status: 'pending',
+    created_at: nowISO(),
+  }, { onConflict: 'vacancy_id,worker_id' });
+  if (error) throwOnError('dbApplyPermVacancy', error);
+}
+
+export async function dbSetPermApplicationStatus(
+  appId: string,
+  status: PermApplicationStatus,
+): Promise<void> {
+  const { error } = await sb().from('jm_perm_applications').update({ status }).eq('id', appId);
+  if (error) throwOnError('dbSetPermApplicationStatus', error);
+}
+
+// ─── Permanent saved ──────────────────────────────────────────────────────────
+
+export async function dbGetPermSaved(userId: string): Promise<string[]> {
+  const { data, error } = await sb().from('jm_perm_saved').select('vacancy_id').eq('user_id', userId);
+  if (error) throwOnError('dbGetPermSaved', error);
+  return (data ?? []).map((r: any) => r.vacancy_id);
+}
+
+export async function dbAddPermSaved(userId: string, vacancyId: string): Promise<void> {
+  const { error } = await sb().from('jm_perm_saved').upsert({ user_id: userId, vacancy_id: vacancyId });
+  if (error) throwOnError('dbAddPermSaved', error);
+}
+
+export async function dbRemovePermSaved(userId: string, vacancyId: string): Promise<void> {
+  const { error } = await sb().from('jm_perm_saved').delete().eq('user_id', userId).eq('vacancy_id', vacancyId);
+  if (error) throwOnError('dbRemovePermSaved', error);
 }
 
 // ─── Ratings for user ────────────────────────────────────────────────────────
@@ -492,19 +636,23 @@ export async function dbGetRatingsForUser(toUserId: string): Promise<UserRating[
 
 // ─── Shift confirmation ───────────────────────────────────────────────────────
 
+/**
+ * Employer-only shift confirmation.
+ * Calling this immediately marks the shift as completed so the worker
+ * can proceed to leave a review without a separate confirmation step.
+ */
 export async function dbConfirmShift(
   likeId: string,
-  role: 'worker' | 'employer'
+  role: 'employer'
 ): Promise<{ bothConfirmed: boolean }> {
-  const field = role === 'worker' ? 'worker_confirmed' : 'employer_confirmed';
-  await sb().from('jm_likes').update({ [field]: true }).eq('id', likeId);
+  // Employer confirmation immediately completes the shift
+  await sb().from('jm_likes').update({
+    employer_confirmed: true,
+    worker_confirmed: true,  // treat worker as auto-confirmed
+    shift_completed: true,
+  }).eq('id', likeId);
 
-  const { data } = await sb().from('jm_likes').select('worker_confirmed,employer_confirmed').eq('id', likeId).maybeSingle();
-  if (data?.worker_confirmed && data?.employer_confirmed) {
-    await sb().from('jm_likes').update({ shift_completed: true }).eq('id', likeId);
-    return { bothConfirmed: true };
-  }
-  return { bothConfirmed: false };
+  return { bothConfirmed: true };
 }
 
 // ─── Rating & match deletion ──────────────────────────────────────────────────
