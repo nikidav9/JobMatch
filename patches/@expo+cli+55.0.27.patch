@@ -1,0 +1,13 @@
+diff --git a/node_modules/@expo/cli/build/src/start/server/metro/instantiateMetro.js b/node_modules/@expo/cli/build/src/start/server/metro/instantiateMetro.js
+index 0dc9e1e..8ef5b61 100644
+--- a/node_modules/@expo/cli/build/src/start/server/metro/instantiateMetro.js
++++ b/node_modules/@expo/cli/build/src/start/server/metro/instantiateMetro.js
+@@ -133,7 +133,7 @@ class LogRespectingTerminal extends _metrocore().Terminal {
+     }
+ }
+ // Share one instance of Terminal for all instances of Metro.
+-const terminal = new LogRespectingTerminal(process.stdout);
++const terminal = new LogRespectingTerminal(process.stdout.isTTY ? process.stdout : process.stderr);
+ async function loadMetroConfigAsync(projectRoot, options, { exp, isExporting, getMetroBundler }) {
+     var _exp_experiments, _exp_experiments1, _exp_experiments2, _exp_experiments3, _config_resolver, _exp_experiments4, _exp_experiments5;
+     let reportEvent;
