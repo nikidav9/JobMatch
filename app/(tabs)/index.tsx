@@ -538,7 +538,7 @@ function WorkerFeed() {
         workerLiked: false,
         workerSkipped: true,
       });
-      await refreshLikes();
+      await refreshLikes(currentUser);
       setHistory(h => ({ ...h, [date]: [card, ...(h[date] ?? []).slice(0, 9)] }));
       setCards(prev => prev.slice(1));
     });
@@ -574,7 +574,7 @@ function WorkerFeed() {
     if (!dateHistory.length || !currentUser || swiping) return;
     const last = dateHistory[0];
     await dbRemoveLike(last.id, currentUser.id);
-    await refreshLikes();
+    await refreshLikes(currentUser);
     setHistory(h => ({ ...h, [selectedDate]: (h[selectedDate] ?? []).slice(1) }));
     setCards(prev => [last, ...prev]);
     pan.setValue({ x: -SW, y: 0 });

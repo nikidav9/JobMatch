@@ -131,7 +131,7 @@ export default function ChatRoom() {
         await notifyEmployerGotMatch(workerName, chat.vacTitle);
       }
       // Refresh likes so the Matches tab updates for both parties
-      await refreshLikes();
+      await refreshLikes(currentUser);
       const newMsgs = await dbGetMessages(chat.id);
       setMessages(newMsgs);
       lastCountRef.current = newMsgs.length;

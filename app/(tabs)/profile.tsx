@@ -24,7 +24,7 @@ import { WorkType } from '@/constants/types';
 import { METRO_LINES } from '@/constants/metro';
 
 type EditSection = 'personal' | 'metro' | 'worktypes' | 'company' | 'bio' | null;
-
+const isWeb = Platform.OS === 'web';
 function StarRating({ rating, count, onPress }: { rating: number; count: number; onPress?: () => void }) {
   const content = (
     <View style={rS.row}>
@@ -292,50 +292,55 @@ export default function ProfileScreen() {
     setUploadingPhoto(true);
     const prevAvatarUrl = currentUser.avatarUrl;
     try {
-      // 1. Crop + resize + compress через ImageManipulator
-      const info = await ImageManipulator.manipulateAsync(sourceUri, [], { format: ImageManipulator.SaveFormat.JPEG });
-      const w = info.width;
-      const h = info.height;
-      const size = Math.min(w, h);
-      const originX = Math.floor((w - size) / 2);
-      const originY = Math.floor((h - size) / 2);
+      let blob: Blob;
 
-      const processed = await ImageManipulator.manipulateAsync(
-        sourceUri,
-        [
-          { crop: { originX, originY, width: size, height: size } },
-          { resize: { width: 600, height: 600 } },
-        ],
-        { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
-      );
+      // ═══ ВЕБ-ВЕРСИЯ ═══
+      if (isWeb) {
+        const response = await fetch(sourceUri);
+        blob = await response.blob();
+        setCurrentUser({ ...currentUser, avatarUrl: sourceUri });
+      } 
+      // ═══ МОБИЛЬНАЯ ВЕРСИЯ ═══
+      else {
+        const info = await ImageManipulator.manipulateAsync(sourceUri, [], { format: ImageManipulator.SaveFormat.JPEG });
+        const w = info.width;
+        const h = info.height;
+        const size = Math.min(w, h);
+        const originX = Math.floor((w - size) / 2);
+        const originY = Math.floor((h - size) / 2);
 
-      // 2. Оптимистичный апдейт — показываем локальное фото мгновенно
-      setCurrentUser({ ...currentUser, avatarUrl: processed.uri });
+        const processed = await ImageManipulator.manipulateAsync(
+          sourceUri,
+          [
+            { crop: { originX, originY, width: size, height: size } },
+            { resize: { width: 600, height: 600 } },
+          ],
+          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
+        );
 
-      // 3. Читаем файл как base64 и конвертируем в Uint8Array
-      const base64Data = await FileSystem.readAsStringAsync(processed.uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      const uint8Array = base64ToUint8Array(base64Data);
+        setCurrentUser({ ...currentUser, avatarUrl: processed.uri });
 
-      // 4. Загружаем через Supabase JS клиент (самый надёжный способ)
+        const base64Data = await FileSystem.readAsStringAsync(processed.uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        const uint8Array = base64ToUint8Array(base64Data);
+        blob = new Blob([uint8Array], { type: 'image/jpeg' });
+      }
+
       const fileName = `avatar_${currentUser.id}.jpg`;
       const sb = getSupabaseClient();
       const { error: uploadError } = await sb.storage
         .from('avatars')
-        .upload(fileName, uint8Array, {
+        .upload(fileName, blob, {
           contentType: 'image/jpeg',
           upsert: true,
           cacheControl: '3600',
         });
 
-      // Supabase иногда возвращает warning-ошибку даже при успешной загрузке —
-      // просто логируем и продолжаем (фото реально сохраняется).
       if (uploadError) {
         console.warn('[Avatar] upload warning (non-fatal):', uploadError.message);
       }
 
-      // 5. Получаем публичный URL и синхронизируем с БД
       const { data: urlData } = sb.storage.from('avatars').getPublicUrl(fileName);
       const avatarUrl = `${urlData.publicUrl}?t=${Date.now()}`;
 
@@ -355,49 +360,63 @@ export default function ProfileScreen() {
 
   // ── Pick from gallery ────────────────────────────────────────────────────
   const pickFromGallery = async () => {
-    setShowPhotoSource(false);
-    try {
+  setShowPhotoSource(false);
+  try {
+    if (!isWeb) {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
         showToast('Нет доступа к галерее. Разрешите доступ в настройках.', 'error');
         return;
       }
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: false, // We handle crop ourselves via ImageManipulator
-        quality: 1,           // Take full quality; we compress in processAndUpload
-      });
-      if (!result.canceled && result.assets[0]) {
-        await processAndUpload(result.assets[0].uri);
-      }
-    } catch (e) {
-      console.error('[Avatar] pickFromGallery error', e);
-      showToast('Не удалось открыть галерею.', 'error');
     }
-  };
+    
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+    
+    if (!result.canceled && result.assets[0]) {
+      await processAndUpload(result.assets[0].uri);
+    }
+  } catch (e) {
+    console.error('[Avatar] pickFromGallery error', e);
+    showToast('Не удалось открыть галерею.', 'error');
+  }
+};
 
   // ── Pick from camera ─────────────────────────────────────────────────────
   const pickFromCamera = async () => {
-    setShowPhotoSource(false);
-    try {
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      if (status !== 'granted') {
-        showToast('Нет доступа к камере. Разрешите доступ в настройках.', 'error');
-        return;
-      }
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: false,
-        quality: 1,
-      });
-      if (!result.canceled && result.assets[0]) {
-        await processAndUpload(result.assets[0].uri);
-      }
-    } catch (e) {
-      console.error('[Avatar] pickFromCamera error', e);
-      showToast('Не удалось открыть камеру.', 'error');
+  setShowPhotoSource(false);
+  
+  if (isWeb) {
+    showToast('Камера недоступна в веб-версии. Используйте галерею.', 'error');
+    return;
+  }
+  
+  try {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      showToast('Нет доступа к камере. Разрешите доступ в настройках.', 'error');
+      return;
     }
-  };
+    
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+    
+    if (!result.canceled && result.assets[0]) {
+      await processAndUpload(result.assets[0].uri);
+    }
+  } catch (e) {
+    console.error('[Avatar] pickFromCamera error', e);
+    showToast('Не удалось открыть камеру.', 'error');
+  }
+};
 
   const pickAndUploadPhoto = () => {
     setShowPhotoSource(true);

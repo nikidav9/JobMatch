@@ -4,7 +4,6 @@
   },
   "build": {
     "production": {
-      "node": "22.13.0",
       "channel": "production",
       "android": {
         "buildType": "apk"

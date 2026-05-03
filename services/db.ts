@@ -176,8 +176,11 @@ function rowToLike(r: any): Like {
   };
 }
 
-export async function dbGetLikes(): Promise<Like[]> {
-  const { data, error } = await sb().from('jm_likes').select('*');
+export async function dbGetLikes(userId?: string, role?: 'worker' | 'employer'): Promise<Like[]> {
+  let query = sb().from('jm_likes').select('*');
+  if (userId && role === 'worker') query = query.eq('worker_id', userId);
+  if (userId && role === 'employer') query = query.eq('employer_id', userId);
+  const { data, error } = await query;
   if (error) throwOnError('dbGetLikes', error);
   return (data ?? []).map(rowToLike);
 }
@@ -303,13 +306,7 @@ export async function dbGetChats(userId: string, role: 'worker' | 'employer'): P
   if (error) throwOnError('dbGetChats', error);
 
   const chatRows = data ?? [];
-  const chats = await Promise.all(
-    chatRows.map(async (row: any) => {
-      const msgs = await dbGetMessages(row.id);
-      return rowToChat(row, msgs);
-    })
-  );
-  return chats;
+  return chatRows.map(row => rowToChat(row, []));
 }
 
 export async function dbCreateChat(

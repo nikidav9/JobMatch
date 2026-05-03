@@ -26,7 +26,7 @@ interface AppContextType {
   refreshVacancies: () => Promise<void>;
   likes: Like[];
   setLikes: (arr: Like[]) => void;
-  refreshLikes: () => Promise<void>;
+  refreshLikes: (user?: User | null) => Promise<void>;
   chats: Chat[];
   refreshChats: (user?: User | null) => Promise<void>;
   savedIds: string[];
@@ -62,105 +62,84 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [chats, setChats] = useState<Chat[]>([]);
   const [savedIds, setSavedIds] = useState<string[]>([]);
   const [toast, setToast] = useState<ToastData | null>(null);
+  // ── FIX: start as true, only set false after boot completes ──
   const [loading, setLoading] = useState(true);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Guard to prevent concurrent boots
+  const bootDone = useRef(false);
 
   // Permanent jobs state
   const [permVacancies, setPermVacancies] = useState<PermVacancy[]>([]);
   const [permApplications, setPermApplications] = useState<PermApplication[]>([]);
   const [permSavedIds, setPermSavedIds] = useState<string[]>([]);
 
-  // ── Session ──────────────────────────────────────────────────────────────
-
-  const setCurrentUser = (u: User | null) => {
-    if (u) {
-      _setCurrentUser(u);
-      saveSessionUser(u).catch(() => {});
-      Promise.all([
-        refreshUsers(),
-        refreshVacancies(),
-        refreshLikes(),
-        refreshChats(u),
-        refreshSaved(u),
-        refreshPermVacancies(u),
-        refreshPermApplications(u),
-        refreshPermSaved(u),
-      ]).catch(() => {});
-    } else {
-      _setCurrentUser(null);
-      setChats([]);
-      setSavedIds([]);
-      setLikes([]);
-      setVacancies([]);
-      setPermVacancies([]);
-      setPermApplications([]);
-      setPermSavedIds([]);
-      clearSessionUser().catch(() => {});
-    }
-  };
-
-  const logout = async () => {
-    console.log('logout start');
-    setCurrentUser(null);
-    setLoading(false);
-    console.log('setCurrentUser(null) done');
-    try {
-      await clearSessionUser();
-      console.log('clearSessionUser done');
-    } catch (error) {
-      console.warn('[AppContext] clearSessionUser failed during logout', error);
-    }
-  };
-
   // ── Fetch helpers ─────────────────────────────────────────────────────────
 
   const refreshUsers = async () => {
-    const data = await dbGetUsers();
-    setUsers(data);
-    // Sync currentUser with fresh server data (rating, avatar, etc.)
-    _setCurrentUser(prev => {
-      if (!prev) return prev;
-      const fresh = data.find(u => u.id === prev.id);
-      return fresh ?? prev;
-    });
+    try {
+      const data = await dbGetUsers();
+      setUsers(data);
+      _setCurrentUser(prev => {
+        if (!prev) return prev;
+        const fresh = data.find(u => u.id === prev.id);
+        return fresh ?? prev;
+      });
+    } catch (e) {
+      console.warn('[AppContext] refreshUsers error', e);
+    }
   };
 
   const refreshVacancies = async () => {
-    const data = await dbGetVacancies();
-    setVacancies(data);
+    try {
+      const data = await dbGetVacancies();
+      setVacancies(data);
+    } catch (e) {
+      console.warn('[AppContext] refreshVacancies error', e);
+    }
   };
 
-  const refreshLikes = async () => {
-    const data = await dbGetLikes();
-    setLikes(data);
+  const refreshLikes = async (user?: User | null) => {
+    try {
+      const u = user ?? currentUser;
+      const data = await dbGetLikes(u?.id, u?.role);
+      setLikes(data);
+    } catch (e) {
+      console.warn('[AppContext] refreshLikes error', e);
+    }
   };
 
   const refreshChats = async (user?: User | null) => {
-    const u = user ?? currentUser;
-    if (!u) return;
-    const data = await dbGetChats(u.id, u.role);
-    setChats(data);
+    try {
+      const u = user ?? currentUser;
+      if (!u) return;
+      const data = await dbGetChats(u.id, u.role);
+      setChats(data);
+    } catch (e) {
+      console.warn('[AppContext] refreshChats error', e);
+    }
   };
 
   const refreshSaved = async (user?: User | null) => {
-    const u = user ?? currentUser;
-    if (!u) return;
-    const data = await dbGetSaved(u.id);
-    setSavedIds(data);
+    try {
+      const u = user ?? currentUser;
+      if (!u) return;
+      const data = await dbGetSaved(u.id);
+      setSavedIds(data);
+    } catch (e) {
+      console.warn('[AppContext] refreshSaved error', e);
+    }
   };
 
   // ── Permanent job helpers ─────────────────────────────────────────────────
 
   const refreshPermVacancies = async (user?: User | null) => {
-    const u = user ?? currentUser;
-    if (!u) return;
     try {
+      const u = user ?? currentUser;
+      if (!u) return;
       if (u.role === 'employer') {
-        // Employer sees only their own (all statuses)
         const data = await dbGetPermVacanciesByEmployer(u.id);
         setPermVacancies(data);
       } else {
-        // Worker sees all open vacancies
         const data = await dbGetPermVacancies();
         setPermVacancies(data);
       }
@@ -170,9 +149,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const refreshPermApplications = async (user?: User | null) => {
-    const u = user ?? currentUser;
-    if (!u) return;
     try {
+      const u = user ?? currentUser;
+      if (!u) return;
       const data = await dbGetPermApplications(u.id, u.role);
       setPermApplications(data);
     } catch (e) {
@@ -181,9 +160,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const refreshPermSaved = async (user?: User | null) => {
-    const u = user ?? currentUser;
-    if (!u) return;
     try {
+      const u = user ?? currentUser;
+      if (!u) return;
       const data = await dbGetPermSaved(u.id);
       setPermSavedIds(data);
     } catch (e) {
@@ -199,17 +178,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await Promise.all([
       refreshUsers(),
       refreshVacancies(),
-      refreshLikes(),
+      refreshLikes(u),
       ...(u ? [refreshChats(u), refreshSaved(u), refreshPermVacancies(u), refreshPermApplications(u), refreshPermSaved(u)] : []),
     ]);
   };
 
-  const optimisticAddSaved = (vacancyId: string) => {
+  const optimisticAddSaved = (vacancyId: string) =>
     setSavedIds(prev => prev.includes(vacancyId) ? prev : [...prev, vacancyId]);
-  };
-  const optimisticRemoveSaved = (vacancyId: string) => {
+
+  const optimisticRemoveSaved = (vacancyId: string) =>
     setSavedIds(prev => prev.filter(id => id !== vacancyId));
-  };
+
   const optimisticUpdateLike = (vacancyId: string, workerId: string, patch: Partial<Like>) => {
     setLikes(prev => {
       const idx = prev.findIndex(l => l.vacancyId === vacancyId && l.workerId === workerId);
@@ -219,48 +198,105 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  // ── Session ──────────────────────────────────────────────────────────────
+
+  /**
+   * FIX: setCurrentUser теперь НЕ вызывает refresh* при логине.
+   * Обновление данных происходит только через refreshAll, вызываемый
+   * из экрана регистрации/логина ПОСЛЕ setCurrentUser.
+   * Это устраняет гонку запросов и зависание loading.
+   */
+  const setCurrentUser = (u: User | null) => {
+    if (u) {
+      _setCurrentUser(u);
+      saveSessionUser(u).catch(() => {});
+    } else {
+      _setCurrentUser(null);
+      setChats([]);
+      setSavedIds([]);
+      setLikes([]);
+      setVacancies([]);
+      setPermVacancies([]);
+      setPermApplications([]);
+      setPermSavedIds([]);
+      clearSessionUser().catch(() => {});
+    }
+  };
+
+  const logout = async () => {
+    setCurrentUser(null);
+    setLoading(false);
+    try {
+      await clearSessionUser();
+    } catch (error) {
+      console.warn('[AppContext] clearSessionUser failed during logout', error);
+    }
+  };
+
   // ── Boot ──────────────────────────────────────────────────────────────────
 
   useEffect(() => {
+    if (bootDone.current) return;
+    bootDone.current = true;
+
     (async () => {
       setLoading(true);
       try {
+        // Читаем сессию из AsyncStorage (быстро, локально)
         const session = await getSessionUser();
-        if (session) _setCurrentUser(session);
-        await Promise.all([
+
+        // Если сессия есть — валидируем в БД, вдруг юзер удалён/заблокирован
+        let validSession: User | null = session;
+        if (session) {
+          try {
+            const { data } = await getSupabaseClient()
+              .from('jm_users')
+              .select('id')
+              .eq('id', session.id)
+              .maybeSingle();
+            if (!data) {
+              // Юзер не найден в БД — чистим сессию
+              validSession = null;
+              await clearSessionUser().catch(() => {});
+            }
+          } catch {
+            // Нет сети — доверяем кэшу, загрузимся с тем что есть
+            validSession = session;
+          }
+        }
+
+        if (validSession) {
+          _setCurrentUser(validSession);
+        }
+
+        // Загружаем данные параллельно, каждый wrapped в try/catch (уже внутри функций)
+        await Promise.allSettled([
           refreshUsers(),
           refreshVacancies(),
-          refreshLikes(),
-          ...(session ? [
-            refreshChats(session),
-            refreshSaved(session),
-            refreshPermVacancies(session),
-            refreshPermApplications(session),
-            refreshPermSaved(session),
+          validSession ? refreshLikes(validSession) : Promise.resolve(),
+          ...(validSession ? [
+            refreshChats(validSession),
+            refreshSaved(validSession),
+            refreshPermVacancies(validSession),
+            refreshPermApplications(validSession),
+            refreshPermSaved(validSession),
           ] : []),
         ]);
       } catch (e) {
         console.warn('[AppContext] boot error:', e);
       } finally {
+        // ── FIX: loading=false ВСЕГДА, даже если всё упало ──
         setLoading(false);
       }
     })();
   }, []);
 
-  // Navigation handled by AuthGuard in _layout.tsx — no redirect here
+  // ── Auto day-switch / cleanup ─────────────────────────────────────────────
 
-  // ── Auto day-switch at 22:00 ──────────────────────────────────────────────
-
-  /**
-   * Archives all open shift vacancies that belong to dates BEFORE today's virtual
-   * start date (i.e. dates that are no longer visible in the date strip).
-   * Runs at boot and every 15 s so the transition happens within one poll cycle.
-   */
   const archivePastDayVacancies = async () => {
     try {
-      // dates() now returns full month; cutoff = first visible date
       const visibleDates = getTodayDates();
-      const cutoff = visibleDates[0]; // first visible date (today or tomorrow after 21:00)
+      const cutoff = visibleDates[0];
       const { data } = await getSupabaseClient()
         .from('jm_vacancies')
         .select('id, date')
@@ -281,8 +317,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       console.warn('[AppContext] archivePastDayVacancies error', e);
     }
   };
-
-  // ── Auto-cleanup stale vacancies ──────────────────────────────────────────
 
   const cleanupStaleVacancies = async () => {
     try {
@@ -315,7 +349,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       for (const id of toDelete) {
         await getSupabaseClient().from('jm_vacancies').delete().eq('id', id);
-        console.log('[AppContext] auto-deleted stale vacancy', id);
       }
 
       if (toDelete.length > 0) {
@@ -326,24 +359,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // ── Background poll (every 15s) ───────────────────────────────────────────
+  // ── Background poll ───────────────────────────────────────────────────────
 
   useEffect(() => {
     if (!currentUser) return;
-    // Run archive + cleanup on first mount for this user
     archivePastDayVacancies();
     cleanupStaleVacancies();
 
     const interval = setInterval(() => {
-      archivePastDayVacancies(); // archives dates hidden after 22:00
-      cleanupStaleVacancies();   // deletes vacancies that start very soon with no applicants
+      archivePastDayVacancies();
+      cleanupStaleVacancies();
       refreshVacancies();
-      refreshLikes();
+      refreshLikes(currentUser);
       refreshChats(currentUser);
       refreshSaved(currentUser);
       refreshPermVacancies(currentUser);
       refreshPermApplications(currentUser);
-    }, 5_000);
+    }, 30_000); // ── FIX: 30s polling — убран refreshUsers
+
     return () => clearInterval(interval);
   }, [currentUser?.id]);
 

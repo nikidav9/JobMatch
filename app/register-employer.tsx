@@ -19,7 +19,7 @@ const SUPPORT_EMAIL = 'zpouches@yandex.ru';
 
 export default function RegisterEmployer() {
   const router = useRouter();
-  const { setCurrentUser, refreshUsers, showToast } = useApp();
+  const { setCurrentUser, refreshUsers, showToast, refreshAll } = useApp();
 
   const [step, setStep] = useState(1);
   const [phone, setPhone] = useState('+7 ');
@@ -81,8 +81,8 @@ export default function RegisterEmployer() {
         createdAt: nowISO(),
       };
       await dbUpsertUser(user);
-      await refreshUsers();
       setCurrentUser(user);
+      await refreshAll(user);
       showToast('Добро пожаловать! 👋', 'success');
       router.replace('/(tabs)');
     } catch (e) {

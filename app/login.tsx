@@ -19,7 +19,7 @@ const SUPPORT_EMAIL = 'zpouches@yandex.ru';
 
 export default function Login() {
   const router = useRouter();
-  const { users, setCurrentUser, showToast } = useApp();
+  const { users, setCurrentUser, showToast, refreshAll } = useApp();
 
   const [phone, setPhone] = useState('+7 ');
   const [password, setPassword] = useState('');
@@ -71,9 +71,8 @@ export default function Login() {
     }
 
     setCurrentUser(user);
+    await refreshAll(user);
     showToast('Добро пожаловать! 👋', 'success');
-    // AppContext’s useEffect will navigate to /(tabs) once currentUser is set
-    setLoading(false);
   };
 
   const openSupport = () => {
