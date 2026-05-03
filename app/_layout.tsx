@@ -38,7 +38,7 @@ export default function RootLayout() {
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="JobToo" />
-        <link rel="apple-touch-icon" href="/assets/images/jt-logo.jpg" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
       </Head>
       <AlertProvider>
         <SafeAreaProvider>
