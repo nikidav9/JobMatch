@@ -30,15 +30,15 @@
         "android.permission.READ_MEDIA_VIDEO"
       ]
     },
-   "web": {
-  "bundler": "metro",
-  "output": "static",
-  "favicon": "./assets/images/jt-logo.jpg",
-  "name": "JobToo",
-  "shortName": "JobToo",
-  "themeColor": "#FF6B1A",
-  "backgroundColor": "#ffffff"
-},
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/jt-logo.jpg",
+      "name": "JobToo",
+      "shortName": "JobToo",
+      "themeColor": "#FF6B1A",
+      "backgroundColor": "#ffffff"
+    },
     "plugins": [
       "expo-router",
       [
@@ -61,18 +61,18 @@
     "extra": {
       "router": {},
       "eas": {
-  "projectId": "5b26bb1e-9e73-4d94-8907-b27e3f66096f"
-}
+        "projectId": "5b26bb1e-9e73-4d94-8907-b27e3f66096f"
+      }
     },
     "runtimeVersion": {
       "policy": "appVersion"
     },
     "updates": {
-      "url": "https://u.expo.dev/cd13f9da-fb8f-49ff-b8cc-8c2cd7895671",
+      "url": "https://u.expo.dev/5b26bb1e-9e73-4d94-8907-b27e3f66096f",
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0
     },
-    "owner": "nikidav"
+    "owner": "nikidav23"
   }
 }
