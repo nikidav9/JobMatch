@@ -74,6 +74,20 @@ export default function CreatePermVacancy() {
         createdAt: existing?.createdAt ?? nowISO(),
       };
       await dbUpsertPermVacancy(vac);
+      if (!isEdit) {
+        fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/send-push`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({
+            metro_station: metroStation,
+            title: `${vac.title} · Постоянная · ${vac.salary.toLocaleString('ru-RU')} ₽/мес`,
+            vacancy_id: vac.id,
+          }),
+        }).catch(() => {});
+      }
       await refreshPermVacancies();
       showToast(isEdit ? 'Вакансия обновлена ✅' : 'Вакансия опубликована ✅', 'success');
       router.back();
