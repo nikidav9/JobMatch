@@ -41,7 +41,7 @@ function getDatesBetween(start: Date, end: Date): Date[] {
 const NORM_FIELDS = [
   { key: 'sborka',     label: 'Сборка товара',          max: 20  },
   { key: 'razmTovara', label: 'Размещение товара',       max: 20  },
-  { key: 'razmMaketa', label: 'Размещение макета',       max: 20  },
+  { key: 'razmMaketa', label: 'Размещение маркета',       max: 20  },
   { key: 'razmMoroza', label: 'Размещение мороза',       max: 20  },
   { key: 'razmMulti',  label: 'Размещение многоштучки',  max: 20  },
   { key: 'npo',        label: 'НПО',                    max: 999 },
