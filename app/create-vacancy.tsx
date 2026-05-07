@@ -233,6 +233,18 @@ export default function CreateVacancy() {
           createdAt: nowISO(),
         };
         await dbUpsertVacancy(vac);
+        fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/send-push`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({
+            metro_station: metroStation,
+            title: `${title} · ${formatTime(selectedTimeStart)}–${formatTime(selectedTimeEnd)}`,
+            vacancy_id: vac.id,
+          }),
+        }).catch(() => {});
         showToast('Вакансия опубликована ✅', 'success');
       }
       await refreshVacancies();

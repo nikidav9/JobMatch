@@ -2,6 +2,7 @@ import React, { createContext, useState, useEffect, useRef, ReactNode } from 're
 import { getSupabaseClient } from '@/template';
 import { User, Vacancy, Like, Chat, PermVacancy, PermApplication } from '@/constants/types';
 import { getSessionUser, saveSessionUser, clearSessionUser, getVirtualStartDate, getTodayDates } from '@/services/storage';
+import { registerPushToken } from '@/services/notifications';
 import {
   dbGetUsers, dbUpsertUser,
   dbGetVacancies,
@@ -210,6 +211,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (u) {
       _setCurrentUser(u);
       saveSessionUser(u).catch(() => {});
+      registerPushToken(u.id).catch(() => {});
     } else {
       _setCurrentUser(null);
       setChats([]);

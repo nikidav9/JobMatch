@@ -20,6 +20,8 @@
 
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import * as Device from 'expo-device';
+import { getSupabaseClient } from '@/template';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -226,4 +228,25 @@ export async function notifyConfirmShiftReminder(options: {
     ? `Не забудьте подтвердить выход на смену «${vacancyTitle}» ${date}`
     : `Не забудьте подтвердить смену «${vacancyTitle}» ${date}`;
   await notify('⏰ Напоминание о смене', body, 'confirm_reminder');
+}
+
+
+export async function registerPushToken(userId: string): Promise<void> {
+  try {
+    if (Platform.OS === 'web') return;
+    if (!Device.isDevice) return;
+
+    const granted = await requestNotificationPermissions();
+    if (!granted) return;
+
+    const token = (await Notifications.getExpoPushTokenAsync()).data;
+    if (!token) return;
+
+    await getSupabaseClient()
+      .from('jm_users')
+      .update({ push_token: token })
+      .eq('id', userId);
+  } catch (e) {
+    console.warn('[notifications] registerPushToken error', e);
+  }
 }
