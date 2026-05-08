@@ -193,6 +193,11 @@ export async function dbGetLikes(): Promise<Like[]> {
   return (data ?? []).map(rowToLike);
 }
 
+export async function dbGetLikeByVacancyWorker(vacancyId: string, workerId: string): Promise<Like | null> {
+  const { data } = await sb().from('jm_likes').select('*').eq('vacancy_id', vacancyId).eq('worker_id', workerId).maybeSingle();
+  return data ? rowToLike(data) : null;
+}
+
 export async function dbUpsertLike(
   vacancyId: string,
   workerId: string,

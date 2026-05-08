@@ -44,7 +44,8 @@ export interface AppContextValue {
   refreshUsers: () => Promise<void>;
   refreshVacancies: () => Promise<void>;
   refreshLikes: () => Promise<void>;
-  refreshChats: (u: User) => Promise<void>;
+  refreshChats: (u?: User) => Promise<void>;
+  refreshAll: () => Promise<void>;
   refreshSaved: (u: User) => Promise<void>;
   permSavedIds: string[];
   optimisticAddPermSaved: (vacancyId: string) => void;
@@ -206,14 +207,28 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setLikes(data);
   };
 
-  const refreshChats = async (u: User) => {
+  const refreshChats = async (u?: User) => {
+    const user = u ?? currentUser;
+    if (!user) return;
     const data = await dbGetChats();
-    const mine = data.filter(c => c.userId === u.id || c.employerId === u.id);
+    const mine = data.filter(c => c.userId === user.id || c.employerId === user.id);
     await Promise.all(mine.map(async chat => {
       chat.messages = await dbGetMessages(chat.id);
     }));
     setChats(mine);
   };
+
+  const refreshAll = useCallback(async () => {
+    if (!currentUser) return;
+    await Promise.all([
+      refreshUsers(),
+      refreshVacancies(),
+      refreshLikes(),
+      refreshChats(currentUser),
+      refreshPermVacancies(currentUser),
+      refreshPermApplications(currentUser),
+    ]);
+  }, [currentUser]);
 
   const refreshSaved = async (u: User) => {
     if (u.role !== 'employer') return;
@@ -284,6 +299,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         refreshPermVacancies,
         refreshPermApplications,
         refreshPermSaved,
+        refreshAll,
         updateUser,
       }}
     >

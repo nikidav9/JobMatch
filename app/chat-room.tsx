@@ -11,7 +11,7 @@ import { Colors, Radius, Shadow } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
 import { Message } from '@/constants/types';
 import { nameColorFromString, getInitials, formatDate } from '@/services/storage';
-import { dbGetMessages, dbInsertMessage, dbMarkRead, dbIncrementUnread, dbGetLikes, dbUpsertLike, dbCheckAndCreateMatch } from '@/services/db';
+import { dbGetMessages, dbInsertMessage, dbMarkRead, dbIncrementUnread, dbGetLikeByVacancyWorker, dbUpsertLike, dbCheckAndCreateMatch } from '@/services/db';
 import { notifyWorkerGotMatch, notifyWorkerNewMessage, notifyEmployerNewMessage } from '@/services/notifications';
 
 const POLL_INTERVAL = 4000;
@@ -89,9 +89,7 @@ export default function ChatRoom() {
           lastCountRef.current = msgs.length;
           setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
         }
-        // Refresh like status for both roles so worker immediately sees if rejected
-        const allLikes = await dbGetLikes();
-        const like = allLikes.find(l => l.vacancyId === chat.vacancyId && l.workerId === chat.workerId);
+        const like = await dbGetLikeByVacancyWorker(chat.vacancyId, chat.workerId);
         if (like) {
           if (like.isMatch || like.employerLiked === true) setLikeStatus('approved');
           else if (like.employerLiked === false) setLikeStatus('rejected');
