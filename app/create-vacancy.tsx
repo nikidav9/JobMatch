@@ -39,11 +39,11 @@ function getDatesBetween(start: Date, end: Date): Date[] {
   return dates;
 }
 
-// Norm fields
+// Norm fields (stocker)
 const NORM_FIELDS = [
   { key: 'sborka',     label: 'Сборка товара',          max: 20  },
   { key: 'razmTovara', label: 'Размещение товара',       max: 20  },
-  { key: 'razmMaketa', label: 'Размещение маркета',       max: 20  },
+  { key: 'razmMaketa', label: 'Размещение маркета',      max: 20  },
   { key: 'razmMoroza', label: 'Размещение мороза',       max: 20  },
   { key: 'razmMulti',  label: 'Размещение многоштучки',  max: 20  },
   { key: 'npo',        label: 'НПО',                    max: 999 },
@@ -57,6 +57,13 @@ function buildNormsText(address: string, norms: Norms): string {
   const lines = NORM_FIELDS.map(f => `— ${f.label}: ${norms[f.key] || '0'} ₽`).join('\n');
   return `📍 Адрес: ${address}\nНормативы:\n${lines}`;
 }
+
+// Role-specific single norm configs
+const ROLE_NORM: Record<string, { label: string; unit: string; hint: string; min: number; max: number; placeholder: string }> = {
+  cook:             { label: 'Почасовая ставка',  unit: '₽/час',   hint: 'Диапазон: 1–999 ₽/час',              min: 1, max: 999,   placeholder: '250'  },
+  shift_supervisor: { label: 'Оплата за смену',   unit: '₽/смену', hint: 'Укажите фиксированную оплату за смену', min: 1, max: 99999, placeholder: '3000' },
+  picker:           { label: 'Сборка заказов',    unit: '₽/шт',    hint: 'За 1 позицию · диапазон: 1–99 ₽',    min: 1, max: 99,    placeholder: '5'    },
+};
 
 type PickerMode = 'date' | 'endDate' | 'timeStart' | 'timeEnd' | null;
 
@@ -171,6 +178,7 @@ export default function CreateVacancy() {
 
   const isStorcker = selectedWorkType === 'stocker';
   const meta = WORK_TYPE_META[selectedWorkType];
+  const roleNorm = ROLE_NORM[selectedWorkType];
 
   const validate = () => {
     const e: Record<string, string> = {};
@@ -179,8 +187,10 @@ export default function CreateVacancy() {
     if (isStorcker) {
       if (!normsValid) e.norms = 'Проверьте нормативы (0–20 ₽, НПО: 1–999)';
     } else {
-      const sal = parseInt(fixedSalary, 10);
-      if (isNaN(sal) || sal <= 0) e.salary = 'Введите зарплату';
+      const val = parseFloat(fixedSalary);
+      if (isNaN(val) || val < roleNorm.min || val > roleNorm.max) {
+        e.salary = `Введите значение от ${roleNorm.min} до ${roleNorm.max}`;
+      }
     }
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -191,7 +201,7 @@ export default function CreateVacancy() {
     setSaving(true);
     const normsAndPay = isStorcker
       ? buildNormsText(address, norms)
-      : `📍 Адрес: ${address}\n💰 Зарплата: ${fixedSalary} ₽/смену${fixedConditions ? `\n📝 Условия: ${fixedConditions}` : ''}`;
+      : `📍 Адрес: ${address}\nНормативы:\n— ${roleNorm.label}: ${fixedSalary} ${roleNorm.unit}`;
     const base = {
       employerId: existing?.employerId ?? currentUser.id,
       company: existing?.company ?? (currentUser.company ?? `${currentUser.firstName} ${currentUser.lastName}`),
@@ -203,7 +213,7 @@ export default function CreateVacancy() {
       address,
       timeStart: formatTime(selectedTimeStart),
       timeEnd: formatTime(selectedTimeEnd),
-      salary: isStorcker ? 0 : parseInt(fixedSalary, 10),
+      salary: isStorcker ? 0 : parseFloat(fixedSalary),
       normsAndPay,
       workersNeeded,
       isUrgent,
@@ -441,25 +451,21 @@ export default function CreateVacancy() {
             </View>
           ) : (
             <View style={styles.fieldGroup}>
-              <Text style={styles.sectionLabel}>Зарплата за смену (₽) *</Text>
-              <TextInput
-                style={[styles.input, errors.salary ? styles.inputError : null]}
-                value={fixedSalary}
-                onChangeText={setFixedSalary}
-                placeholder="например, 2500"
-                keyboardType="numeric"
-                placeholderTextColor={Colors.textMuted}
-              />
+              <Text style={styles.sectionLabel}>Нормативы *</Text>
+              <Text style={styles.normHint}>{roleNorm.hint}</Text>
               {errors.salary ? <Text style={styles.errMsg}>{errors.salary}</Text> : null}
-              <Text style={[styles.sectionLabel, { marginTop: 16 }]}>Условия работы</Text>
-              <TextInput
-                style={[styles.input, { height: 80, textAlignVertical: 'top', paddingTop: 10 }]}
-                value={fixedConditions}
-                onChangeText={setFixedConditions}
-                placeholder="Требования, описание обязанностей..."
-                placeholderTextColor={Colors.textMuted}
-                multiline
-              />
+              <View style={styles.normRow}>
+                <Text style={styles.normLabel}>{roleNorm.label}</Text>
+                <TextInput
+                  style={[styles.normInput, errors.salary ? styles.inputError : null]}
+                  value={fixedSalary}
+                  onChangeText={setFixedSalary}
+                  placeholder={roleNorm.placeholder}
+                  keyboardType="decimal-pad"
+                  placeholderTextColor={Colors.textMuted}
+                />
+                <Text style={styles.normUnit}>{roleNorm.unit}</Text>
+              </View>
             </View>
           )}
 
