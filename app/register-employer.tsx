@@ -11,7 +11,7 @@ import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { PhoneInput } from '@/components/feature/PhoneInput';
 import { useApp } from '@/hooks/useApp';
 import { uid, nowISO, isPhoneComplete, extractPhoneDigits } from '@/services/storage';
-import { dbGetUsers } from '@/services/db';
+import { dbCheckPhoneExists } from '@/services/db';
 
 // Steps: 1-Phone, 2-Password, 3-Name, 4-Legal
 const TOTAL = 4;
@@ -39,15 +39,19 @@ export default function RegisterEmployer() {
   const continueFromPhone = async () => {
     setPhoneError('');
     setChecking(true);
-    const digits = extractPhoneDigits(phone);
-    const allUsers = await dbGetUsers();
-    const exists = allUsers.find(u => u.phone === digits);
-    setChecking(false);
-    if (exists) {
-      setPhoneError('Аккаунт с этим номером уже существует. Войдите в систему.');
-      return;
+    try {
+      const digits = extractPhoneDigits(phone);
+      const exists = await dbCheckPhoneExists(digits);
+      if (exists) {
+        setPhoneError('Аккаунт с этим номером уже существует. Войдите в систему.');
+        return;
+      }
+      setStep(2);
+    } catch {
+      setPhoneError('Ошибка проверки номера. Попробуйте ещё раз.');
+    } finally {
+      setChecking(false);
     }
-    setStep(2);
   };
 
   // Step 2 → 3: validate password

@@ -13,7 +13,7 @@ import { MetroPicker } from '@/components/feature/MetroPicker';
 import { WorkTypeSelector } from '@/components/feature/WorkTypeSelector';
 import { useApp } from '@/hooks/useApp';
 import { uid, nowISO, isPhoneComplete, extractPhoneDigits } from '@/services/storage';
-import { dbGetUsers } from '@/services/db';
+import { dbCheckPhoneExists } from '@/services/db';
 import { WorkType } from '@/constants/types';
 import { METRO_LINES } from '@/constants/metro';
 
@@ -52,15 +52,19 @@ export default function RegisterWorker() {
   const continueFromPhone = async () => {
     setPhoneError('');
     setChecking(true);
-    const digits = extractPhoneDigits(phone);
-    const allUsers = await dbGetUsers();
-    const exists = allUsers.find(u => u.phone === digits);
-    setChecking(false);
-    if (exists) {
-      setPhoneError('Аккаунт с этим номером уже существует. Войдите в систему.');
-      return;
+    try {
+      const digits = extractPhoneDigits(phone);
+      const exists = await dbCheckPhoneExists(digits);
+      if (exists) {
+        setPhoneError('Аккаунт с этим номером уже существует. Войдите в систему.');
+        return;
+      }
+      setStep(2);
+    } catch {
+      setPhoneError('Ошибка проверки номера. Попробуйте ещё раз.');
+    } finally {
+      setChecking(false);
     }
-    setStep(2);
   };
 
   // Step 2 → 3: validate password
