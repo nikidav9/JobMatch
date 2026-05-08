@@ -16,7 +16,9 @@ import {
   dbGetChats,
   dbGetMessages,
   dbGetPermVacancies,
+  dbGetPermVacanciesByEmployer,
   dbGetPermApplications,
+  dbGetPermSaved,
 } from '@/services/db';
 import { registerForPushNotifications } from '@/services/notifications';
 
@@ -43,9 +45,12 @@ export interface AppContextValue {
   refreshLikes: () => Promise<void>;
   refreshChats: (u: User) => Promise<void>;
   refreshSaved: (u: User) => Promise<void>;
-  refreshPermVacancies: (u: User) => Promise<void>;
-  refreshPermApplications: (u: User) => Promise<void>;
-  refreshPermSaved: (u: User) => Promise<void>;
+  permSavedIds: string[];
+  optimisticAddPermSaved: (vacancyId: string) => void;
+  optimisticRemovePermSaved: (vacancyId: string) => void;
+  refreshPermVacancies: (u?: User) => Promise<void>;
+  refreshPermApplications: (u?: User) => Promise<void>;
+  refreshPermSaved: (u?: User) => Promise<void>;
   updateUser: (u: User) => Promise<void>;
 }
 
@@ -70,6 +75,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [permApplications, setPermApplications] = useState<PermApplication[]>([]);
   const [savedWorkers, setSavedWorkers] = useState<User[]>([]);
   const [permSavedWorkers, setPermSavedWorkers] = useState<User[]>([]);
+  const [permSavedIds, setPermSavedIds] = useState<string[]>([]);
+
+  const optimisticAddPermSaved = useCallback((vacancyId: string) => {
+    setPermSavedIds(prev => prev.includes(vacancyId) ? prev : [...prev, vacancyId]);
+  }, []);
+  const optimisticRemovePermSaved = useCallback((vacancyId: string) => {
+    setPermSavedIds(prev => prev.filter(id => id !== vacancyId));
+  }, []);
 
   // Boot
   useEffect(() => {
@@ -207,30 +220,35 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setSavedWorkers(allUsers.filter(user => workerIds.includes(user.id)));
   };
 
-  const refreshPermVacancies = async (u: User) => {
-    if (u.role !== 'employer') return;
-    const data = await dbGetPermVacancies();
-    setPermVacancies(data.filter(v => v.employerId === u.id));
-  };
-
-  const refreshPermApplications = async (u: User) => {
-    const data = await dbGetPermApplications();
-    if (u.role === 'worker') {
-      setPermApplications(data.filter(a => a.workerId === u.id));
+  const refreshPermVacancies = async (u?: User) => {
+    const user = u ?? currentUser;
+    if (!user) return;
+    if (user.role === 'employer') {
+      const data = await dbGetPermVacanciesByEmployer(user.id);
+      setPermVacancies(data);
     } else {
-      const myVacIds = permVacancies.map(v => v.id);
-      setPermApplications(data.filter(a => myVacIds.includes(a.vacancyId)));
+      const data = await dbGetPermVacancies();
+      setPermVacancies(data);
     }
   };
 
-  const refreshPermSaved = async (u: User) => {
-    if (u.role !== 'employer') return;
-    const allApps = await dbGetPermApplications();
-    const myVacIds = permVacancies.map(v => v.id);
-    const saved = allApps.filter(a => myVacIds.includes(a.vacancyId) && a.saved);
-    const workerIds = saved.map(a => a.workerId);
-    const allUsers = await dbGetUsers();
-    setPermSavedWorkers(allUsers.filter(user => workerIds.includes(user.id)));
+  const refreshPermApplications = async (u?: User) => {
+    const user = u ?? currentUser;
+    if (!user) return;
+    const data = await dbGetPermApplications(user.id, user.role);
+    setPermApplications(data);
+  };
+
+  const refreshPermSaved = async (u?: User) => {
+    const user = u ?? currentUser;
+    if (!user) return;
+    if (user.role === 'worker') {
+      const ids = await dbGetPermSaved(user.id);
+      setPermSavedIds(ids);
+    } else {
+      const ids = await dbGetPermSaved(user.id);
+      setPermSavedIds(ids);
+    }
   };
 
   return (
@@ -248,6 +266,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         permApplications,
         savedWorkers,
         permSavedWorkers,
+        permSavedIds,
+        optimisticAddPermSaved,
+        optimisticRemovePermSaved,
         registerUser,
         loginUser,
         logout,
