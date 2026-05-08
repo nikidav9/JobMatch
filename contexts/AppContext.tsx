@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useRef, ReactNode } from 'react';
+import React, { createContext, useState, useEffect, useRef, useCallback, ReactNode } from 'react';
 import { getSupabaseClient } from '@/template';
 import { User, Vacancy, Like, Chat, PermVacancy, PermApplication } from '@/constants/types';
 import {
@@ -20,9 +20,13 @@ import {
 } from '@/services/db';
 import { registerForPushNotifications } from '@/services/notifications';
 
+export interface ToastMessage { message: string; type: 'success' | 'error' | 'info' }
+
 export interface AppContextValue {
   currentUser: User | null;
   loading: boolean;
+  toast: ToastMessage | null;
+  showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   users: User[];
   vacancies: Vacancy[];
   likes: Like[];
@@ -50,6 +54,14 @@ export const AppContext = createContext<AppContextValue | null>(null);
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [currentUser, _setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ message, type });
+    toastTimer.current = setTimeout(() => setToast(null), 3000);
+  }, []);
   const [users, setUsers] = useState<User[]>([]);
   const [vacancies, setVacancies] = useState<Vacancy[]>([]);
   const [likes, setLikes] = useState<Like[]>([]);
@@ -226,6 +238,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       value={{
         currentUser,
         loading,
+        toast,
+        showToast,
         users,
         vacancies,
         likes,

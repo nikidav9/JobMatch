@@ -11,7 +11,7 @@ import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { PhoneInput } from '@/components/feature/PhoneInput';
 import { useApp } from '@/hooks/useApp';
 import { uid, nowISO, isPhoneComplete, extractPhoneDigits } from '@/services/storage';
-import { dbUpsertUser, dbGetUsers } from '@/services/db';
+import { dbGetUsers } from '@/services/db';
 
 // Steps: 1-Phone, 2-Password, 3-Name, 4-Legal
 const TOTAL = 4;
@@ -19,7 +19,7 @@ const SUPPORT_EMAIL = 'zpouches@yandex.ru';
 
 export default function RegisterEmployer() {
   const router = useRouter();
-  const { setCurrentUser, refreshUsers, showToast } = useApp();
+  const { registerUser, showToast } = useApp();
 
   const [step, setStep] = useState(1);
   const [phone, setPhone] = useState('+7 ');
@@ -80,9 +80,7 @@ export default function RegisterEmployer() {
         company: '', // явная пустая компания для физлиц
         createdAt: nowISO(),
       };
-      await dbUpsertUser(user);
-      await refreshUsers();
-      setCurrentUser(user);
+      await registerUser(user);
       showToast('Добро пожаловать! 👋', 'success');
       router.replace('/(tabs)');
     } catch (e) {

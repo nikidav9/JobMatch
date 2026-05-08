@@ -19,7 +19,7 @@ const SUPPORT_EMAIL = 'zpouches@yandex.ru';
 
 export default function Login() {
   const router = useRouter();
-  const { users, setCurrentUser, showToast } = useApp();
+  const { loginUser, showToast } = useApp();
 
   const [phone, setPhone] = useState('+7 ');
   const [password, setPassword] = useState('');
@@ -53,27 +53,17 @@ export default function Login() {
     }
 
     // Regular user
-    const user = users.find(u => {
-      const uDigits = u.phone.replace(/\D/g, '').slice(-10);
-      return uDigits === digits;
-    });
+    const user = await loginUser(phone, password);
 
     if (!user) {
-      setPhoneError('Пользователь с таким номером не найден');
+      setPhoneError('Пользователь с таким номером не найден или неверный пароль');
       setLoading(false);
       return;
     }
 
-    if (user.password !== password) {
-      setPassError('Неверный пароль');
-      setLoading(false);
-      return;
-    }
-
-    setCurrentUser(user);
     showToast('Добро пожаловать! 👋', 'success');
-    // AppContext’s useEffect will navigate to /(tabs) once currentUser is set
     setLoading(false);
+    router.replace('/(tabs)');
   };
 
   const openSupport = () => {

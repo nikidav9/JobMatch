@@ -13,7 +13,7 @@ import { MetroPicker } from '@/components/feature/MetroPicker';
 import { WorkTypeSelector } from '@/components/feature/WorkTypeSelector';
 import { useApp } from '@/hooks/useApp';
 import { uid, nowISO, isPhoneComplete, extractPhoneDigits } from '@/services/storage';
-import { dbUpsertUser, dbGetUsers } from '@/services/db';
+import { dbGetUsers } from '@/services/db';
 import { WorkType } from '@/constants/types';
 import { METRO_LINES } from '@/constants/metro';
 
@@ -23,7 +23,7 @@ const SUPPORT_EMAIL = 'zpouches@yandex.ru';
 
 export default function RegisterWorker() {
   const router = useRouter();
-  const { setCurrentUser, refreshUsers, showToast } = useApp();
+  const { registerUser, showToast } = useApp();
 
   const [step, setStep] = useState(1);
   const [phone, setPhone] = useState('+7 ');
@@ -95,9 +95,7 @@ export default function RegisterWorker() {
         workTypes,
         createdAt: nowISO(),
       };
-      await dbUpsertUser(user);
-      await refreshUsers();
-      setCurrentUser(user);
+      await registerUser(user);
       showToast('Добро пожаловать! 👋', 'success');
       router.replace('/(tabs)');
     } catch (e) {
