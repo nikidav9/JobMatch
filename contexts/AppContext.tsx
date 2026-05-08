@@ -87,12 +87,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Boot
   useEffect(() => {
+    const bootTimeout = setTimeout(() => setLoading(false), 8000);
     (async () => {
       try {
         const sessionUser = await getSessionUser();
         if (sessionUser) {
           _setCurrentUser(sessionUser);
-          // ensure user record exists in DB (may have failed on first register)
           dbUpsertUser(sessionUser).catch(() => {});
           await Promise.all([
             refreshUsers(),
@@ -108,6 +108,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       } catch (e) {
         console.warn('[AppContext] boot error', e);
       } finally {
+        clearTimeout(bootTimeout);
         setLoading(false);
       }
     })();
@@ -208,9 +209,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const refreshChats = async (u: User) => {
     const data = await dbGetChats();
     const mine = data.filter(c => c.userId === u.id || c.employerId === u.id);
-    for (const chat of mine) {
+    await Promise.all(mine.map(async chat => {
       chat.messages = await dbGetMessages(chat.id);
-    }
+    }));
     setChats(mine);
   };
 
