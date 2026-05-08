@@ -16,7 +16,7 @@ import {
   dbGetVacancies,
   dbGetLikes,
   dbGetChats,
-  dbGetMessages,
+  dbGetSaved,
   dbGetPermVacancies,
   dbGetPermVacanciesByEmployer,
   dbGetPermApplications,
@@ -39,6 +39,9 @@ export interface AppContextValue {
   permApplications: PermApplication[];
   savedWorkers: User[];
   permSavedWorkers: User[];
+  savedIds: string[];
+  optimisticAddSaved: (vacancyId: string) => void;
+  optimisticRemoveSaved: (vacancyId: string) => void;
   registerUser: (u: User) => Promise<void>;
   loginUser: (phone: string, password: string) => Promise<User | null>;
   logout: () => Promise<void>;
@@ -47,7 +50,7 @@ export interface AppContextValue {
   refreshLikes: () => Promise<void>;
   refreshChats: (u?: User) => Promise<void>;
   refreshAll: () => Promise<void>;
-  refreshSaved: (u: User) => Promise<void>;
+  refreshSaved: (u?: User) => Promise<void>;
   permSavedIds: string[];
   optimisticAddPermSaved: (vacancyId: string) => void;
   optimisticRemovePermSaved: (vacancyId: string) => void;
@@ -78,7 +81,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [permApplications, setPermApplications] = useState<PermApplication[]>([]);
   const [savedWorkers, setSavedWorkers] = useState<User[]>([]);
   const [permSavedWorkers, setPermSavedWorkers] = useState<User[]>([]);
+  const [savedIds, setSavedIds] = useState<string[]>([]);
   const [permSavedIds, setPermSavedIds] = useState<string[]>([]);
+
+  const optimisticAddSaved = useCallback((vacancyId: string) => {
+    setSavedIds(prev => prev.includes(vacancyId) ? prev : [...prev, vacancyId]);
+  }, []);
+  const optimisticRemoveSaved = useCallback((vacancyId: string) => {
+    setSavedIds(prev => prev.filter(id => id !== vacancyId));
+  }, []);
 
   const optimisticAddPermSaved = useCallback((vacancyId: string) => {
     setPermSavedIds(prev => prev.includes(vacancyId) ? prev : [...prev, vacancyId]);
@@ -182,6 +193,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setPermApplications([]);
     setSavedWorkers([]);
     setPermSavedWorkers([]);
+    setSavedIds([]);
+    setPermSavedIds([]);
   };
 
   const updateUser = async (u: User) => {
@@ -210,12 +223,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const refreshChats = async (u?: User) => {
     const user = u ?? currentUser;
     if (!user) return;
-    const data = await dbGetChats();
-    const mine = data.filter(c => c.userId === user.id || c.employerId === user.id);
-    await Promise.all(mine.map(async chat => {
-      chat.messages = await dbGetMessages(chat.id);
-    }));
-    setChats(mine);
+    const data = await dbGetChats(user.id, user.role);
+    setChats(data);
   };
 
   const refreshAll = useCallback(async () => {
@@ -227,13 +236,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     ]);
   }, [currentUser]);
 
-  const refreshSaved = async (u: User) => {
-    if (u.role !== 'employer') return;
-    const allLikes = await dbGetLikes();
-    const saved = allLikes.filter(l => l.employerId === u.id && l.saved);
-    const workerIds = saved.map(l => l.userId);
-    const allUsers = await dbGetUsers();
-    setSavedWorkers(allUsers.filter(user => workerIds.includes(user.id)));
+  const refreshSaved = async (u?: User) => {
+    const user = u ?? currentUser;
+    if (!user) return;
+    if (user.role === 'worker') {
+      const ids = await dbGetSaved(user.id);
+      setSavedIds(ids);
+    }
   };
 
   const refreshPermVacancies = async (u?: User) => {
@@ -282,6 +291,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         permApplications,
         savedWorkers,
         permSavedWorkers,
+        savedIds,
+        optimisticAddSaved,
+        optimisticRemoveSaved,
         permSavedIds,
         optimisticAddPermSaved,
         optimisticRemovePermSaved,

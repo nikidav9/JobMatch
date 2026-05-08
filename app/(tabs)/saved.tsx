@@ -96,7 +96,7 @@ export default function SavedScreen() {
             <Text style={styles.jobTitle}>{v.title}</Text>
 
             <View style={styles.chipsRow}>
-              <Chip label="📦 Кладовщик" variant="work" />
+              <Chip label={v.workTypeLabel ?? v.workType ?? 'Работа'} variant="work" />
               <Chip label={`⏰ ${v.timeStart}–${v.timeEnd}`} variant="time" />
               <Chip label={`📅 ${formatDate(v.date)}`} variant="date" />
               {v.isUrgent ? <Chip label="🔥 Срочно" variant="urgent" /> : null}
