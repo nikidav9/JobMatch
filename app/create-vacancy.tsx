@@ -268,7 +268,8 @@ export default function CreateVacancy() {
       await refreshVacancies();
       router.back();
     } catch (e) {
-      showToast('Ошибка при публикации', 'error');
+      const msg = e instanceof Error ? e.message : String(e);
+      showToast(`Ошибка: ${msg}`, 'error');
       console.error('[CreateVacancy] submit error', e);
     } finally {
       setSaving(false);
@@ -367,23 +368,43 @@ export default function CreateVacancy() {
               </View>
             ) : null}
 
-            <TouchableOpacity style={styles.pickerField} onPress={() => openPicker('date')} activeOpacity={0.8}>
-              <Text style={styles.pickerIcon}>📅</Text>
-              <Text style={styles.pickerValue}>{multiDay ? `С ${formatDisplayDate(selectedDate)}` : formatDisplayDate(selectedDate)}</Text>
-              <Text style={styles.pickerArrow}>›</Text>
-            </TouchableOpacity>
-            {Platform.OS !== 'ios' && pickerMode === 'date' ? (
+            {Platform.OS === 'web' ? (
+              <View style={styles.pickerField}>
+                <Text style={styles.pickerIcon}>📅</Text>
+                {/* @ts-ignore */}
+                <input type="date" value={formatISODate(selectedDate)} min={formatISODate(new Date())}
+                  onChange={(e: any) => e.target.value && applyDate('date', parseISOToDate(e.target.value))}
+                  style={{ flex: 1, border: 'none', background: 'transparent', fontSize: 16, color: '#111111', fontFamily: 'inherit', cursor: 'pointer', outline: 'none' }} />
+              </View>
+            ) : (
+              <TouchableOpacity style={styles.pickerField} onPress={() => openPicker('date')} activeOpacity={0.8}>
+                <Text style={styles.pickerIcon}>📅</Text>
+                <Text style={styles.pickerValue}>{multiDay ? `С ${formatDisplayDate(selectedDate)}` : formatDisplayDate(selectedDate)}</Text>
+                <Text style={styles.pickerArrow}>›</Text>
+              </TouchableOpacity>
+            )}
+            {Platform.OS === 'android' && pickerMode === 'date' ? (
               <DateTimePicker value={selectedDate} mode="date" display="calendar" minimumDate={new Date()} onChange={onAndroidChange} />
             ) : null}
 
             {multiDay ? (
               <>
-                <TouchableOpacity style={styles.pickerField} onPress={() => openPicker('endDate')} activeOpacity={0.8}>
-                  <Text style={styles.pickerIcon}>📅</Text>
-                  <Text style={styles.pickerValue}>По {formatDisplayDate(selectedEndDate)}</Text>
-                  <Text style={styles.pickerArrow}>›</Text>
-                </TouchableOpacity>
-                {Platform.OS !== 'ios' && pickerMode === 'endDate' ? (
+                {Platform.OS === 'web' ? (
+                  <View style={styles.pickerField}>
+                    <Text style={styles.pickerIcon}>📅</Text>
+                    {/* @ts-ignore */}
+                    <input type="date" value={formatISODate(selectedEndDate)} min={formatISODate(selectedDate)}
+                      onChange={(e: any) => e.target.value && applyDate('endDate', parseISOToDate(e.target.value))}
+                      style={{ flex: 1, border: 'none', background: 'transparent', fontSize: 16, color: '#111111', fontFamily: 'inherit', cursor: 'pointer', outline: 'none' }} />
+                  </View>
+                ) : (
+                  <TouchableOpacity style={styles.pickerField} onPress={() => openPicker('endDate')} activeOpacity={0.8}>
+                    <Text style={styles.pickerIcon}>📅</Text>
+                    <Text style={styles.pickerValue}>По {formatDisplayDate(selectedEndDate)}</Text>
+                    <Text style={styles.pickerArrow}>›</Text>
+                  </TouchableOpacity>
+                )}
+                {Platform.OS === 'android' && pickerMode === 'endDate' ? (
                   <DateTimePicker value={selectedEndDate} mode="date" display="calendar" minimumDate={selectedDate} onChange={onAndroidChange} />
                 ) : null}
 
@@ -404,23 +425,45 @@ export default function CreateVacancy() {
           {/* Time */}
           <View style={styles.fieldGroup}>
             <Text style={styles.sectionLabel}>Время смены</Text>
-            <View style={styles.timeRow}>
-              <TouchableOpacity style={[styles.pickerField, { flex: 1 }]} onPress={() => openPicker('timeStart')} activeOpacity={0.8}>
-                <Text style={styles.pickerIcon}>⏰</Text>
-                <Text style={styles.pickerValue}>{formatTime(selectedTimeStart)}</Text>
-              </TouchableOpacity>
-              <Text style={styles.timeSep}>–</Text>
-              <TouchableOpacity style={[styles.pickerField, { flex: 1 }]} onPress={() => openPicker('timeEnd')} activeOpacity={0.8}>
-                <Text style={styles.pickerIcon}>⏰</Text>
-                <Text style={styles.pickerValue}>{formatTime(selectedTimeEnd)}</Text>
-              </TouchableOpacity>
-            </View>
-            {Platform.OS !== 'ios' && pickerMode === 'timeStart' ? (
-              <DateTimePicker value={selectedTimeStart} mode="time" display="spinner" is24Hour onChange={onAndroidChange} />
-            ) : null}
-            {Platform.OS !== 'ios' && pickerMode === 'timeEnd' ? (
-              <DateTimePicker value={selectedTimeEnd} mode="time" display="spinner" is24Hour onChange={onAndroidChange} />
-            ) : null}
+            {Platform.OS === 'web' ? (
+              <View style={styles.timeRow}>
+                <View style={[styles.pickerField, { flex: 1 }]}>
+                  <Text style={styles.pickerIcon}>⏰</Text>
+                  {/* @ts-ignore */}
+                  <input type="time" value={formatTime(selectedTimeStart)}
+                    onChange={(e: any) => e.target.value && applyDate('timeStart', parseTimeToDate(e.target.value))}
+                    style={{ flex: 1, border: 'none', background: 'transparent', fontSize: 16, color: '#111111', fontFamily: 'inherit', cursor: 'pointer', outline: 'none' }} />
+                </View>
+                <Text style={styles.timeSep}>–</Text>
+                <View style={[styles.pickerField, { flex: 1 }]}>
+                  <Text style={styles.pickerIcon}>⏰</Text>
+                  {/* @ts-ignore */}
+                  <input type="time" value={formatTime(selectedTimeEnd)}
+                    onChange={(e: any) => e.target.value && applyDate('timeEnd', parseTimeToDate(e.target.value))}
+                    style={{ flex: 1, border: 'none', background: 'transparent', fontSize: 16, color: '#111111', fontFamily: 'inherit', cursor: 'pointer', outline: 'none' }} />
+                </View>
+              </View>
+            ) : (
+              <>
+                <View style={styles.timeRow}>
+                  <TouchableOpacity style={[styles.pickerField, { flex: 1 }]} onPress={() => openPicker('timeStart')} activeOpacity={0.8}>
+                    <Text style={styles.pickerIcon}>⏰</Text>
+                    <Text style={styles.pickerValue}>{formatTime(selectedTimeStart)}</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.timeSep}>–</Text>
+                  <TouchableOpacity style={[styles.pickerField, { flex: 1 }]} onPress={() => openPicker('timeEnd')} activeOpacity={0.8}>
+                    <Text style={styles.pickerIcon}>⏰</Text>
+                    <Text style={styles.pickerValue}>{formatTime(selectedTimeEnd)}</Text>
+                  </TouchableOpacity>
+                </View>
+                {Platform.OS === 'android' && pickerMode === 'timeStart' ? (
+                  <DateTimePicker value={selectedTimeStart} mode="time" display="spinner" is24Hour onChange={onAndroidChange} />
+                ) : null}
+                {Platform.OS === 'android' && pickerMode === 'timeEnd' ? (
+                  <DateTimePicker value={selectedTimeEnd} mode="time" display="spinner" is24Hour onChange={onAndroidChange} />
+                ) : null}
+              </>
+            )}
           </View>
 
           {/* Norms (stocker) / Salary (other) */}

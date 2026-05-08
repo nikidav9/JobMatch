@@ -84,7 +84,8 @@ export default function CreatePermVacancy() {
       showToast(isEdit ? 'Вакансия обновлена ✅' : 'Вакансия опубликована ✅', 'success');
       router.back();
     } catch (e) {
-      showToast('Ошибка при публикации', 'error');
+      const msg = e instanceof Error ? e.message : String(e);
+      showToast(`Ошибка: ${msg}`, 'error');
       console.error('[CreatePermVacancy] submit error', e);
     } finally {
       setSaving(false);
