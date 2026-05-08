@@ -91,6 +91,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const sessionUser = await getSessionUser();
         if (sessionUser) {
           _setCurrentUser(sessionUser);
+          // ensure user record exists in DB (may have failed on first register)
+          dbUpsertUser(sessionUser).catch(() => {});
           await Promise.all([
             refreshUsers(),
             refreshVacancies(),
