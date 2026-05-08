@@ -221,12 +221,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const refreshAll = useCallback(async () => {
     if (!currentUser) return;
     await Promise.all([
-      refreshUsers(),
       refreshVacancies(),
       refreshLikes(),
-      refreshChats(currentUser),
       refreshPermVacancies(currentUser),
-      refreshPermApplications(currentUser),
     ]);
   }, [currentUser]);
 

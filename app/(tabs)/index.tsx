@@ -88,7 +88,7 @@ function WorkerListModal({
   onClose: () => void;
 }) {
   const router = useRouter();
-  const { currentUser, users, vacancies, chats, showToast, refreshAll } = useApp();
+  const { currentUser, users, vacancies, chats, showToast, refreshLikes, refreshChats } = useApp();
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [dataLoading, setDataLoading] = useState(true);
   const [localLikes, setLocalLikes] = useState<Like[]>([]);
@@ -174,7 +174,7 @@ function WorkerListModal({
         1,
         0,
       );
-      await refreshAll();
+      await refreshChats();
       onClose();
       router.push({ pathname: '/chat-room', params: { chatId } });
     } catch {
@@ -191,7 +191,7 @@ function WorkerListModal({
     try {
       await dbUpsertLike(vacancyId, like.workerId, currentUser.id, { employerLiked: true });
       const result = await dbCheckAndCreateMatch(vacancyId, like.workerId);
-      await refreshAll();
+      await refreshLikes();
       notifyWorkerGotMatch(like.workerId, vacancy?.company ?? '', vacTitle).catch(() => {});
       showToast('🎉 Мэтч! Чат открыт', 'match');
       onClose();
@@ -229,7 +229,7 @@ function WorkerListModal({
         0,
         0,
       );
-      await refreshAll();
+      await refreshChats();
       onClose();
       router.push({ pathname: '/chat-room', params: { chatId: newChatId } });
     } catch {
@@ -270,7 +270,7 @@ function WorkerListModal({
         : `Здравствуйте! Я хотел бы обсудить вашу заявку на вакансию «${vacTitle}».`;
       await dbInsertMessage(chatId, currentUser.id, text);
       await dbIncrementUnread(chatId, 'worker');
-      await refreshAll();
+      await refreshChats();
 
       showToast('Сообщение отправлено. Открываем чат...', 'success');
       onClose();
@@ -554,7 +554,7 @@ function WorkerFeed() {
       });
 
       const result = await dbCheckAndCreateMatch(card.id, currentUser.id);
-      await refreshAll();
+      await refreshLikes();
 
       if (result.matched) {
         notifyEmployerGotMatch(card.employerId, `${currentUser.firstName} ${currentUser.lastName}`, card.title).catch(() => {});
@@ -567,7 +567,7 @@ function WorkerFeed() {
         showToast('Отклик отправлен! Ждём решения работодателя 👍', 'success');
       }
     });
-  }, [currentCard, currentUser, swiping, selectedDate, animateCard, refreshAll, router, showToast]);
+  }, [currentCard, currentUser, swiping, selectedDate, animateCard, refreshLikes, router, showToast]);
 
   const doUndo = useCallback(async () => {
     if (!dateHistory.length || !currentUser || swiping) return;
@@ -604,12 +604,12 @@ function WorkerFeed() {
         0,
         1,
       );
-      await refreshAll();
+      await refreshChats();
       router.push({ pathname: '/chat-room', params: { chatId } });
     } catch (e) {
       showToast('Ошибка при открытии чата', 'error');
     }
-  }, [currentCard, currentUser, chats, refreshAll, router, showToast]);
+  }, [currentCard, currentUser, chats, refreshChats, router, showToast]);
 
   const swipeCbRef = useRef<((dir: 'want' | 'skip', vx: number) => void) | null>(null);
   const snapBackRef = useRef<(() => void) | null>(null);
