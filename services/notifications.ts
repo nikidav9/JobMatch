@@ -1,25 +1,7 @@
-/**
- * Local push notifications for JobToo.
- *
- * KEY RULE: These are LOCAL notifications — they appear on the CURRENT device.
- * So every notification must be meaningful to the person whose device this is.
- *
- * Flow table (who calls what on which device):
- *
- * Event                        | Worker device calls         | Employer device calls
- * -----------------------------|-----------------------------|-----------------------
- * Worker swipes right          | notifyWorkerSentApplication | (nothing — employer sees badge later)
- * Employer approves worker     | (nothing yet)               | notifyEmployerApprovedWorker
- * Both liked → MATCH created   | notifyWorkerGotMatch        | notifyEmployerGotMatch
- * Worker confirms shift        | notifyWorkerConfirmedShift  | notifyEmployerConfirmedShift (wait for both)
- * Employer confirms shift      | (same as above)             | (same as above)
- * Both confirmed → completed   | notifyShiftConfirmedBoth    | notifyShiftConfirmedBoth
- * New chat message received    | notifyNewMessage            | notifyNewMessage
- * Manual remind button         | notifyConfirmShiftReminder  | notifyConfirmShiftReminder
- */
-
 import * as Notifications from 'expo-notifications';
+import * as Device from 'expo-device';
 import { Platform } from 'react-native';
+import { dbSavePushToken, dbGetPushToken, dbGetWorkerTokensByMetro } from '@/services/db';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -31,6 +13,8 @@ Notifications.setNotificationHandler({
   }),
 });
 
+// ─── Token registration ───────────────────────────────────────────────────────
+
 export async function requestNotificationPermissions(): Promise<boolean> {
   if (Platform.OS === 'web') return false;
   const { status: existing } = await Notifications.getPermissionsAsync();
@@ -39,191 +23,115 @@ export async function requestNotificationPermissions(): Promise<boolean> {
   return status === 'granted';
 }
 
+export async function registerForPushNotifications(userId: string): Promise<void> {
+  if (Platform.OS === 'web') return;
+  if (!Device.isDevice) return;
+
+  const { status: existing } = await Notifications.getPermissionsAsync();
+  let finalStatus = existing;
+  if (existing !== 'granted') {
+    const { status } = await Notifications.requestPermissionsAsync();
+    finalStatus = status;
+  }
+  if (finalStatus !== 'granted') return;
+
+  if (Platform.OS === 'android') {
+    await Notifications.setNotificationChannelAsync('default', {
+      name: 'default',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 250, 250, 250],
+    });
+  }
+
+  try {
+    const token = (await Notifications.getExpoPushTokenAsync({
+      projectId: '5b26bb1e-9e73-4d94-8907-b27e3f66096f',
+    })).data;
+    await dbSavePushToken(userId, token);
+  } catch {
+    // Not a physical device or EAS not configured — skip silently
+  }
+}
+
 // ─── Internal helper ──────────────────────────────────────────────────────────
 
-async function notify(title: string, body: string, type: string): Promise<void> {
+async function pushTo(recipientUserId: string, title: string, body: string, type: string): Promise<void> {
   try {
-    await Notifications.scheduleNotificationAsync({
-      content: { title, body, sound: true, data: { type } },
-      trigger: null,
+    const token = await dbGetPushToken(recipientUserId);
+    if (!token) return;
+    await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ to: token, title, body, sound: 'default', data: { type } }),
     });
   } catch {
     // Never crash the app due to a notification failure
   }
 }
 
-// ─── Worker device notifications ─────────────────────────────────────────────
+// ─── Employer notifications ───────────────────────────────────────────────────
 
-/**
- * Called on WORKER device after they swipe right on a vacancy.
- * Confirms that their application was sent.
- */
-export async function notifyWorkerSentApplication(vacancyTitle: string, company: string): Promise<void> {
-  await notify(
-    '📤 Отклик отправлен',
-    `Вы откликнулись на «${vacancyTitle}» в ${company}. Ждём решения работодателя.`,
-    'application_sent'
-  );
+export async function notifyEmployerNewApplicant(employerId: string, workerName: string, vacancyTitle: string): Promise<void> {
+  await pushTo(employerId, '📥 Новый отклик!', `${workerName} хочет выйти на смену «${vacancyTitle}». Посмотрите кандидата!`, 'new_applicant');
 }
 
-/**
- * Called on WORKER device when a MATCH is created (both sides liked).
- * Worker learns the employer also wants them.
- */
-export async function notifyWorkerGotMatch(companyName: string, vacancyTitle: string): Promise<void> {
-  await notify(
-    '🎉 Мэтч! Вас хотят взять!',
-    `${companyName} подтвердили ваш отклик на «${vacancyTitle}». Откройте чат!`,
-    'match_worker'
-  );
+export async function notifyEmployerGotMatch(employerId: string, workerName: string, vacancyTitle: string): Promise<void> {
+  await pushTo(employerId, '🎉 Мэтч!', `${workerName} готов выйти на смену «${vacancyTitle}». Откройте чат!`, 'match_employer');
 }
 
-/**
- * Called on WORKER device when employer confirms the shift.
- * Worker is prompted to leave a review.
- */
-export async function notifyWorkerShiftConfirmedByEmployer(
-  companyName: string,
-  vacancyTitle: string
-): Promise<void> {
-  await notify(
-    '✅ Смена подтверждена работодателем',
-    `${companyName} подтвердил смену «${vacancyTitle}». Хотите оставить отзыв?`,
-    'shift_confirmed_by_employer'
-  );
+export async function notifyEmployerNewMessage(employerId: string, senderName: string, preview: string): Promise<void> {
+  await pushTo(employerId, `💬 ${senderName}`, preview.slice(0, 100), 'message');
 }
 
-/**
- * Called on WORKER device when they've confirmed the shift and we're waiting for employer,
- * OR when both confirmed and shift is complete.
- */
-export async function notifyWorkerConfirmedShift(
-  vacancyTitle: string,
-  bothConfirmed: boolean
-): Promise<void> {
-  if (bothConfirmed) {
-    await notify(
-      '✅ Смена подтверждена обеими сторонами!',
-      `«${vacancyTitle}» — удачи на смене! Не забудьте оценить работодателя.`,
-      'shift_confirmed_both'
-    );
-  } else {
-    await notify(
-      '✔ Вы подтвердили выход',
-      `Ждём подтверждения работодателя для «${vacancyTitle}».`,
-      'shift_confirmed_worker'
-    );
-  }
+// ─── Worker notifications ─────────────────────────────────────────────────────
+
+export async function notifyWorkerGotMatch(workerId: string, companyName: string, vacancyTitle: string): Promise<void> {
+  await pushTo(workerId, '🎉 Мэтч! Вас хотят взять!', `${companyName} подтвердили ваш отклик на «${vacancyTitle}». Откройте чат!`, 'match_worker');
 }
 
-/**
- * Called on WORKER device when the employer has confirmed (and worker already did).
- * This means both confirmed — shift is go.
- */
-export async function notifyWorkerEmployerConfirmed(
-  companyName: string,
-  vacancyTitle: string
-): Promise<void> {
-  await notify(
-    '✅ Работодатель подтвердил смену!',
-    `${companyName} подтвердил вашу смену «${vacancyTitle}». Удачи!`,
-    'employer_confirmed_worker'
-  );
+export async function notifyWorkerShiftConfirmedByEmployer(workerId: string, companyName: string, vacancyTitle: string): Promise<void> {
+  await pushTo(workerId, '✅ Смена подтверждена работодателем', `${companyName} подтвердил смену «${vacancyTitle}». Хотите оставить отзыв?`, 'shift_confirmed_by_employer');
 }
 
-// ─── Employer device notifications ───────────────────────────────────────────
-
-/**
- * Called on EMPLOYER device when a worker applies (swipes right) on their vacancy.
- */
-export async function notifyEmployerNewApplicant(
-  workerName: string,
-  vacancyTitle: string
-): Promise<void> {
-  await notify(
-    '📥 Новый отклик!',
-    `${workerName} хочет выйти на смену «${vacancyTitle}». Посмотрите кандидата!`,
-    'new_applicant'
-  );
+export async function notifyWorkerNewMessage(workerId: string, senderName: string, preview: string): Promise<void> {
+  await pushTo(workerId, `💬 ${senderName}`, preview.slice(0, 100), 'message');
 }
 
-/**
- * Called on EMPLOYER device when a MATCH is created (employer approved, worker also liked).
- */
-export async function notifyEmployerGotMatch(
-  workerName: string,
-  vacancyTitle: string
-): Promise<void> {
-  await notify(
-    '🎉 Мэтч!',
-    `${workerName} готов выйти на смену «${vacancyTitle}». Откройте чат!`,
-    'match_employer'
-  );
-}
+// ─── Nearby vacancy broadcast ─────────────────────────────────────────────────
 
-/**
- * Called on EMPLOYER device after they confirm the shift.
- */
-export async function notifyEmployerConfirmedShift(
-  workerName: string,
-  vacancyTitle: string,
-  bothConfirmed: boolean
-): Promise<void> {
-  if (bothConfirmed) {
-    await notify(
-      '✅ Смена подтверждена обеими сторонами!',
-      `${workerName} и вы подтвердили смену «${vacancyTitle}». Не забудьте оценить работника.`,
-      'shift_confirmed_both'
-    );
-  } else {
-    await notify(
-      '✔ Вы подтвердили смену',
-      `Ждём подтверждения от ${workerName} для «${vacancyTitle}».`,
-      'shift_confirmed_employer'
-    );
-  }
-}
-
-/**
- * Called on EMPLOYER device when the worker has confirmed (and employer already did).
- */
-export async function notifyEmployerWorkerConfirmed(
-  workerName: string,
-  vacancyTitle: string
-): Promise<void> {
-  await notify(
-    '✅ Работник подтвердил выход!',
-    `${workerName} подтвердил смену «${vacancyTitle}». Всё готово!`,
-    'worker_confirmed_employer'
-  );
-}
-
-// ─── Shared ───────────────────────────────────────────────────────────────────
-
-/**
- * New chat message — shown on the RECEIVER's device.
- * Called when polling detects a message from the other party.
- */
-export async function notifyNewMessage(senderName: string, preview: string): Promise<void> {
-  await notify(
-    `💬 ${senderName}`,
-    preview.slice(0, 100),
-    'message'
-  );
-}
-
-/**
- * Manual reminder — called on the CURRENT user's device when they tap the 🔔 button.
- * Reminds the current user (not the other side) to confirm.
- */
-export async function notifyConfirmShiftReminder(options: {
-  role: 'worker' | 'employer';
-  vacancyTitle: string;
-  date: string;
+export async function notifyWorkersNearVacancy(params: {
+  metroStation: string;
+  title: string;
+  company: string;
+  type: 'shift' | 'permanent';
 }): Promise<void> {
-  const { role, vacancyTitle, date } = options;
-  const body = role === 'worker'
-    ? `Не забудьте подтвердить выход на смену «${vacancyTitle}» ${date}`
-    : `Не забудьте подтвердить смену «${vacancyTitle}» ${date}`;
-  await notify('⏰ Напоминание о смене', body, 'confirm_reminder');
+  try {
+    const { metroStation, title, company, type } = params;
+    const workers = await dbGetWorkerTokensByMetro(metroStation);
+    if (workers.length === 0) return;
+
+    const notifTitle = type === 'permanent'
+      ? '💼 Новая постоянная вакансия рядом!'
+      : '⚡ Новая подработка рядом!';
+    const body = `${company} ищет сотрудника на «${title}» — м. ${metroStation}`;
+
+    const messages = workers.map(w => ({
+      to: w.push_token,
+      title: notifTitle,
+      body,
+      sound: 'default',
+      data: { type: type === 'permanent' ? 'nearby_perm' : 'nearby_shift' },
+    }));
+
+    // Expo Push API accepts batches of up to 100
+    for (let i = 0; i < messages.length; i += 100) {
+      await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(messages.slice(i, i + 100)),
+      });
+    }
+  } catch {
+    // Never crash the app due to a notification failure
+  }
 }

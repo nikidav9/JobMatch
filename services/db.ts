@@ -82,6 +82,17 @@ export async function dbDeleteUser(id: string): Promise<void> {
   if (error) console.error('dbDeleteUser', error.message);
 }
 
+// Быстрая проверка номера — не тянет всех пользователей
+export async function dbCheckPhoneExists(phone: string): Promise<boolean> {
+  const { data, error } = await sb()
+    .from('jm_users')
+    .select('id')
+    .eq('phone', phone)
+    .maybeSingle();
+  if (error) return false;
+  return !!data;
+}
+
 // ─── Vacancies ────────────────────────────────────────────────────────────────
 
 function rowToVacancy(r: any): Vacancy {
@@ -346,7 +357,6 @@ export async function dbCreateChat(
   if (error) throwOnError('dbCreateChat', error);
 
   if (systemMessage) {
-    // system messages are not assigned to a user
     await dbInsertMessage(chatId, 'system', systemMessage);
   }
 
@@ -431,7 +441,6 @@ export async function dbCheckAndCreateMatch(
     .maybeSingle();
 
   if (!likeRow) return { matched: false };
-  // If already matched, return existing chat id so caller can navigate
   if (likeRow.is_match) {
     const { data: existingChat } = await sb()
       .from('jm_chats')
@@ -441,7 +450,6 @@ export async function dbCheckAndCreateMatch(
       .maybeSingle();
     return { matched: false, chatId: existingChat?.id };
   }
-  // Both worker AND employer must have liked before a match is created
   if (!likeRow.worker_liked || likeRow.employer_liked !== true) return { matched: false };
 
   await sb()
@@ -455,25 +463,20 @@ export async function dbCheckAndCreateMatch(
   const matchMsg = '🎉 У вас мэтч! Вы подошли друг другу. Познакомьтесь и обсудите детали!';
   const safetyMsg = '🔒 Рекомендуем не переводить общение в сторонние мессенджеры или почту, а продолжить его в чате JobToo: так у мошенников будет меньше шансов вас обмануть.\n\nГде бы вы ни общались — не сообщайте свой CVV-код, код из SMS и не вводите данные карты по ссылке.';
 
-  // Create chat (or get existing) — do NOT pass matchMsg to dbCreateChat
-  // because if the chat already exists (worker pressed «написать» earlier),
-  // dbCreateChat returns immediately without inserting any message.
   const chatId = await dbCreateChat(
     workerId,
     likeRow.employer_id,
     vacancyId,
     vac?.title ?? '',
     vac?.company ?? '',
-    undefined, // no initial message — we insert manually below
+    undefined,
     1,
     1
   );
 
-  // Always insert match + safety messages into the chat (new or existing)
   await dbInsertMessage(chatId, 'system', matchMsg);
   await dbInsertMessage(chatId, 'system_safety', safetyMsg);
 
-  // Update vacancy workersFound and status if limit reached
   if (vac) {
     const newWorkersFound = (vac.workers_found || 0) + 1;
     const newStatus = newWorkersFound >= vac.workers_needed ? 'closed' : 'open';
@@ -494,6 +497,7 @@ function rowToPermVacancy(r: any): PermVacancy {
     employerId: r.employer_id,
     company: r.company,
     title: r.title,
+    workType: r.work_type ?? undefined,
     metroLineId: r.metro_line_id ?? undefined,
     metroStation: r.metro_station ?? undefined,
     address: r.address ?? undefined,
@@ -523,6 +527,7 @@ export async function dbUpsertPermVacancy(v: PermVacancy): Promise<void> {
     employer_id: v.employerId,
     company: v.company,
     title: v.title,
+    work_type: v.workType ?? null,
     metro_line_id: v.metroLineId ?? null,
     metro_station: v.metroStation ?? null,
     address: v.address ?? null,
@@ -636,19 +641,13 @@ export async function dbGetRatingsForUser(toUserId: string): Promise<UserRating[
 
 // ─── Shift confirmation ───────────────────────────────────────────────────────
 
-/**
- * Employer-only shift confirmation.
- * Calling this immediately marks the shift as completed so the worker
- * can proceed to leave a review without a separate confirmation step.
- */
 export async function dbConfirmShift(
   likeId: string,
   role: 'employer'
 ): Promise<{ bothConfirmed: boolean }> {
-  // Employer confirmation immediately completes the shift
   await sb().from('jm_likes').update({
     employer_confirmed: true,
-    worker_confirmed: true,  // treat worker as auto-confirmed
+    worker_confirmed: true,
     shift_completed: true,
   }).eq('id', likeId);
 
@@ -668,7 +667,6 @@ export async function dbSubmitRatingAndMaybeDelete(params: {
 }): Promise<{ bothRated: boolean }> {
   const { likeId, fromUserId, toUserId, vacancyId, rating, role, reviewText } = params;
 
-  // Save rating record
   await sb().from('jm_ratings').insert({
     id: uid(),
     from_user_id: fromUserId,
@@ -681,11 +679,9 @@ export async function dbSubmitRatingAndMaybeDelete(params: {
     created_at: nowISO(),
   });
 
-  // Mark as rated on like row
   const ratedField = role === 'worker' ? 'worker_rated' : 'employer_rated';
   await sb().from('jm_likes').update({ [ratedField]: true }).eq('id', likeId);
 
-  // Update target user average rating
   const { data: allRatings } = await sb()
     .from('jm_ratings')
     .select('rating')
@@ -698,7 +694,6 @@ export async function dbSubmitRatingAndMaybeDelete(params: {
     }).eq('id', toUserId);
   }
 
-  // Check if both sides have now rated
   const { data: likeRow } = await sb()
     .from('jm_likes')
     .select('worker_rated,employer_rated')
@@ -706,9 +701,29 @@ export async function dbSubmitRatingAndMaybeDelete(params: {
     .maybeSingle();
 
   if (likeRow?.worker_rated && likeRow?.employer_rated) {
-    // Both rated — delete the match (like row)
     await sb().from('jm_likes').delete().eq('id', likeId);
     return { bothRated: true };
   }
   return { bothRated: false };
+}
+
+// ─── Push tokens ──────────────────────────────────────────────────────────────
+
+export async function dbSavePushToken(userId: string, token: string): Promise<void> {
+  await sb().from('jm_users').update({ push_token: token }).eq('id', userId);
+}
+
+export async function dbGetPushToken(userId: string): Promise<string | null> {
+  const { data } = await sb().from('jm_users').select('push_token').eq('id', userId).maybeSingle();
+  return data?.push_token ?? null;
+}
+
+export async function dbGetWorkerTokensByMetro(metroStation: string): Promise<{ id: string; push_token: string }[]> {
+  const { data } = await sb()
+    .from('jm_users')
+    .select('id, push_token')
+    .eq('role', 'worker')
+    .eq('metro_station', metroStation)
+    .not('push_token', 'is', null);
+  return (data ?? []) as { id: string; push_token: string }[];
 }

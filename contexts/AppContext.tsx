@@ -1,133 +1,175 @@
 import React, { createContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { getSupabaseClient } from '@/template';
 import { User, Vacancy, Like, Chat, PermVacancy, PermApplication } from '@/constants/types';
-import { getSessionUser, saveSessionUser, clearSessionUser, getVirtualStartDate, getTodayDates } from '@/services/storage';
 import {
-  dbGetUsers, dbUpsertUser,
+  getSessionUser,
+  saveSessionUser,
+  clearSessionUser,
+  getTodayDate,
+  extractPhoneDigits,
+} from '@/services/storage';
+import {
+  dbGetUsers,
+  dbUpsertUser,
   dbGetVacancies,
   dbGetLikes,
   dbGetChats,
-  dbGetSaved,
+  dbGetMessages,
   dbGetPermVacancies,
-  dbGetPermVacanciesByEmployer,
   dbGetPermApplications,
-  dbGetPermSaved,
 } from '@/services/db';
+import { registerForPushNotifications } from '@/services/notifications';
 
-interface ToastData { message: string; type: 'success' | 'error' | 'match' }
-
-interface AppContextType {
+export interface AppContextValue {
   currentUser: User | null;
-  setCurrentUser: (u: User | null) => void;
-  users: User[];
-  refreshUsers: () => Promise<void>;
-  vacancies: Vacancy[];
-  setVacancies: (arr: Vacancy[]) => void;
-  refreshVacancies: () => Promise<void>;
-  likes: Like[];
-  setLikes: (arr: Like[]) => void;
-  refreshLikes: () => Promise<void>;
-  chats: Chat[];
-  refreshChats: (user?: User | null) => Promise<void>;
-  savedIds: string[];
-  setSavedIds: (ids: string[]) => void;
-  refreshSaved: (user?: User | null) => Promise<void>;
-  optimisticAddSaved: (vacancyId: string) => void;
-  optimisticRemoveSaved: (vacancyId: string) => void;
-  optimisticUpdateLike: (vacancyId: string, workerId: string, patch: Partial<import('@/constants/types').Like>) => void;
-  toast: ToastData | null;
-  showToast: (message: string, type?: 'success' | 'error' | 'match') => void;
-  refreshAll: (user?: User | null) => Promise<void>;
-  logout: () => Promise<void>;
-  unreadCount: number;
   loading: boolean;
-  // ── Permanent jobs ──
+  users: User[];
+  vacancies: Vacancy[];
+  likes: Like[];
+  chats: Chat[];
   permVacancies: PermVacancy[];
-  refreshPermVacancies: (user?: User | null) => Promise<void>;
   permApplications: PermApplication[];
-  refreshPermApplications: (user?: User | null) => Promise<void>;
-  permSavedIds: string[];
-  refreshPermSaved: (user?: User | null) => Promise<void>;
-  optimisticAddPermSaved: (id: string) => void;
-  optimisticRemovePermSaved: (id: string) => void;
+  savedWorkers: User[];
+  permSavedWorkers: User[];
+  registerUser: (u: User) => Promise<void>;
+  loginUser: (phone: string, password: string) => Promise<User | null>;
+  logout: () => Promise<void>;
+  refreshUsers: () => Promise<void>;
+  refreshVacancies: () => Promise<void>;
+  refreshLikes: () => Promise<void>;
+  refreshChats: (u: User) => Promise<void>;
+  refreshSaved: (u: User) => Promise<void>;
+  refreshPermVacancies: (u: User) => Promise<void>;
+  refreshPermApplications: (u: User) => Promise<void>;
+  refreshPermSaved: (u: User) => Promise<void>;
+  updateUser: (u: User) => Promise<void>;
 }
 
-export const AppContext = createContext<AppContextType | undefined>(undefined);
+export const AppContext = createContext<AppContextValue | null>(null);
 
-export function AppProvider({ children }: { children: ReactNode }) {
+export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [currentUser, _setCurrentUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<User[]>([]);
   const [vacancies, setVacancies] = useState<Vacancy[]>([]);
   const [likes, setLikes] = useState<Like[]>([]);
   const [chats, setChats] = useState<Chat[]>([]);
-  const [savedIds, setSavedIds] = useState<string[]>([]);
-  const [toast, setToast] = useState<ToastData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Permanent jobs state
   const [permVacancies, setPermVacancies] = useState<PermVacancy[]>([]);
   const [permApplications, setPermApplications] = useState<PermApplication[]>([]);
-  const [permSavedIds, setPermSavedIds] = useState<string[]>([]);
+  const [savedWorkers, setSavedWorkers] = useState<User[]>([]);
+  const [permSavedWorkers, setPermSavedWorkers] = useState<User[]>([]);
 
-  // ── Session ──────────────────────────────────────────────────────────────
+  // Boot
+  useEffect(() => {
+    (async () => {
+      try {
+        const sessionUser = await getSessionUser();
+        if (sessionUser) {
+          _setCurrentUser(sessionUser);
+          await Promise.all([
+            refreshUsers(),
+            refreshVacancies(),
+            refreshLikes(),
+            refreshChats(sessionUser),
+            refreshSaved(sessionUser),
+            refreshPermVacancies(sessionUser),
+            refreshPermApplications(sessionUser),
+            refreshPermSaved(sessionUser),
+          ]);
+        }
+      } catch (e) {
+        console.warn('[AppContext] boot error', e);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
 
-  const setCurrentUser = (u: User | null) => {
-    if (u) {
-      _setCurrentUser(u);
-      saveSessionUser(u).catch(() => {});
-      Promise.all([
-        refreshUsers(),
-        refreshVacancies(),
-        refreshLikes(),
-        refreshChats(u),
-        refreshSaved(u),
-        refreshPermVacancies(u),
-        refreshPermApplications(u),
-        refreshPermSaved(u),
-      ]).catch(() => {});
-    } else {
-      _setCurrentUser(null);
-      setChats([]);
-      setSavedIds([]);
-      setLikes([]);
-      setVacancies([]);
-      setPermVacancies([]);
-      setPermApplications([]);
-      setPermSavedIds([]);
-      clearSessionUser().catch(() => {});
-    }
+  // Real-time subscriptions
+  useEffect(() => {
+    const sb = getSupabaseClient();
+    const usersSub = sb.channel('jm_users_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_users' }, () => refreshUsers()).subscribe();
+    const vacSub = sb.channel('jm_vacancies_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_vacancies' }, () => refreshVacancies()).subscribe();
+    const likesSub = sb.channel('jm_likes_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_likes' }, () => refreshLikes()).subscribe();
+    const chatsSub = sb.channel('jm_chats_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_chats' }, () => { if (currentUser) refreshChats(currentUser); }).subscribe();
+    const permVacSub = sb.channel('jm_perm_vacancies_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_vacancies' }, () => { if (currentUser) refreshPermVacancies(currentUser); }).subscribe();
+    const permAppSub = sb.channel('jm_perm_applications_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_applications' }, () => { if (currentUser) refreshPermApplications(currentUser); }).subscribe();
+    return () => {
+      usersSub.unsubscribe();
+      vacSub.unsubscribe();
+      likesSub.unsubscribe();
+      chatsSub.unsubscribe();
+      permVacSub.unsubscribe();
+      permAppSub.unsubscribe();
+    };
+  }, [currentUser?.id]);
+
+  const registerUser = async (u: User) => {
+    _setCurrentUser(u);
+    await saveSessionUser(u);
+    setLoading(false); // ← критично для разблокировки AuthGuard
+    registerForPushNotifications(u.id).catch(() => {});
+    // Все запросы к БД в фоне
+    dbUpsertUser(u).catch(e => console.warn('[registerUser] db write error', e));
+    refreshUsers().catch(() => {});
+    refreshVacancies().catch(() => {});
+    refreshLikes().catch(() => {});
+    refreshChats(u).catch(() => {});
+    refreshSaved(u).catch(() => {});
+    refreshPermVacancies(u).catch(() => {});
+    refreshPermApplications(u).catch(() => {});
+    refreshPermSaved(u).catch(() => {});
+  };
+
+  const loginUser = async (phone: string, password: string): Promise<User | null> => {
+    const digits = extractPhoneDigits(phone);
+    const all = await dbGetUsers();
+    const found = all.find(u => u.phone === digits && u.password === password);
+    if (!found) return null;
+    _setCurrentUser(found);
+    await saveSessionUser(found);
+    setLoading(false);
+    registerForPushNotifications(found.id).catch(() => {});
+    refreshUsers().catch(() => {});
+    refreshVacancies().catch(() => {});
+    refreshLikes().catch(() => {});
+    refreshChats(found).catch(() => {});
+    refreshSaved(found).catch(() => {});
+    refreshPermVacancies(found).catch(() => {});
+    refreshPermApplications(found).catch(() => {});
+    refreshPermSaved(found).catch(() => {});
+    return found;
   };
 
   const logout = async () => {
-    console.log('logout start');
-    setCurrentUser(null);
-    setLoading(false);
-    console.log('setCurrentUser(null) done');
-    try {
-      await clearSessionUser();
-      console.log('clearSessionUser done');
-    } catch (error) {
-      console.warn('[AppContext] clearSessionUser failed during logout', error);
-    }
+    _setCurrentUser(null);
+    await clearSessionUser();
+    setUsers([]);
+    setVacancies([]);
+    setLikes([]);
+    setChats([]);
+    setPermVacancies([]);
+    setPermApplications([]);
+    setSavedWorkers([]);
+    setPermSavedWorkers([]);
   };
 
-  // ── Fetch helpers ─────────────────────────────────────────────────────────
+  const updateUser = async (u: User) => {
+    _setCurrentUser(u);
+    await saveSessionUser(u);
+    await dbUpsertUser(u);
+    await refreshUsers();
+  };
 
   const refreshUsers = async () => {
     const data = await dbGetUsers();
     setUsers(data);
-    // Sync currentUser with fresh server data (rating, avatar, etc.)
-    _setCurrentUser(prev => {
-      if (!prev) return prev;
-      const fresh = data.find(u => u.id === prev.id);
-      return fresh ?? prev;
-    });
   };
 
   const refreshVacancies = async () => {
     const data = await dbGetVacancies();
-    setVacancies(data);
+    const today = getTodayDate();
+    setVacancies(data.filter(v => v.date === today));
   };
 
   const refreshLikes = async () => {
@@ -135,279 +177,78 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setLikes(data);
   };
 
-  const refreshChats = async (user?: User | null) => {
-    const u = user ?? currentUser;
-    if (!u) return;
-    const data = await dbGetChats(u.id, u.role);
-    setChats(data);
+  const refreshChats = async (u: User) => {
+    const data = await dbGetChats();
+    const mine = data.filter(c => c.userId === u.id || c.employerId === u.id);
+    for (const chat of mine) {
+      chat.messages = await dbGetMessages(chat.id);
+    }
+    setChats(mine);
   };
 
-  const refreshSaved = async (user?: User | null) => {
-    const u = user ?? currentUser;
-    if (!u) return;
-    const data = await dbGetSaved(u.id);
-    setSavedIds(data);
+  const refreshSaved = async (u: User) => {
+    if (u.role !== 'employer') return;
+    const allLikes = await dbGetLikes();
+    const saved = allLikes.filter(l => l.employerId === u.id && l.saved);
+    const workerIds = saved.map(l => l.userId);
+    const allUsers = await dbGetUsers();
+    setSavedWorkers(allUsers.filter(user => workerIds.includes(user.id)));
   };
 
-  // ── Permanent job helpers ─────────────────────────────────────────────────
+  const refreshPermVacancies = async (u: User) => {
+    if (u.role !== 'employer') return;
+    const data = await dbGetPermVacancies();
+    setPermVacancies(data.filter(v => v.employerId === u.id));
+  };
 
-  const refreshPermVacancies = async (user?: User | null) => {
-    const u = user ?? currentUser;
-    if (!u) return;
-    try {
-      if (u.role === 'employer') {
-        // Employer sees only their own (all statuses)
-        const data = await dbGetPermVacanciesByEmployer(u.id);
-        setPermVacancies(data);
-      } else {
-        // Worker sees all open vacancies
-        const data = await dbGetPermVacancies();
-        setPermVacancies(data);
-      }
-    } catch (e) {
-      console.warn('[AppContext] refreshPermVacancies error', e);
+  const refreshPermApplications = async (u: User) => {
+    const data = await dbGetPermApplications();
+    if (u.role === 'worker') {
+      setPermApplications(data.filter(a => a.workerId === u.id));
+    } else {
+      const myVacIds = permVacancies.map(v => v.id);
+      setPermApplications(data.filter(a => myVacIds.includes(a.vacancyId)));
     }
   };
 
-  const refreshPermApplications = async (user?: User | null) => {
-    const u = user ?? currentUser;
-    if (!u) return;
-    try {
-      const data = await dbGetPermApplications(u.id, u.role);
-      setPermApplications(data);
-    } catch (e) {
-      console.warn('[AppContext] refreshPermApplications error', e);
-    }
+  const refreshPermSaved = async (u: User) => {
+    if (u.role !== 'employer') return;
+    const allApps = await dbGetPermApplications();
+    const myVacIds = permVacancies.map(v => v.id);
+    const saved = allApps.filter(a => myVacIds.includes(a.vacancyId) && a.saved);
+    const workerIds = saved.map(a => a.workerId);
+    const allUsers = await dbGetUsers();
+    setPermSavedWorkers(allUsers.filter(user => workerIds.includes(user.id)));
   };
-
-  const refreshPermSaved = async (user?: User | null) => {
-    const u = user ?? currentUser;
-    if (!u) return;
-    try {
-      const data = await dbGetPermSaved(u.id);
-      setPermSavedIds(data);
-    } catch (e) {
-      console.warn('[AppContext] refreshPermSaved error', e);
-    }
-  };
-
-  const optimisticAddPermSaved = (id: string) => setPermSavedIds(prev => prev.includes(id) ? prev : [...prev, id]);
-  const optimisticRemovePermSaved = (id: string) => setPermSavedIds(prev => prev.filter(x => x !== id));
-
-  const refreshAll = async (user?: User | null) => {
-    const u = user ?? currentUser;
-    await Promise.all([
-      refreshUsers(),
-      refreshVacancies(),
-      refreshLikes(),
-      ...(u ? [refreshChats(u), refreshSaved(u), refreshPermVacancies(u), refreshPermApplications(u), refreshPermSaved(u)] : []),
-    ]);
-  };
-
-  const optimisticAddSaved = (vacancyId: string) => {
-    setSavedIds(prev => prev.includes(vacancyId) ? prev : [...prev, vacancyId]);
-  };
-  const optimisticRemoveSaved = (vacancyId: string) => {
-    setSavedIds(prev => prev.filter(id => id !== vacancyId));
-  };
-  const optimisticUpdateLike = (vacancyId: string, workerId: string, patch: Partial<Like>) => {
-    setLikes(prev => {
-      const idx = prev.findIndex(l => l.vacancyId === vacancyId && l.workerId === workerId);
-      if (idx === -1) return prev;
-      const updated = { ...prev[idx], ...patch };
-      return [...prev.slice(0, idx), updated, ...prev.slice(idx + 1)];
-    });
-  };
-
-  // ── Boot ──────────────────────────────────────────────────────────────────
-
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      try {
-        const session = await getSessionUser();
-        if (session) _setCurrentUser(session);
-        await Promise.all([
-          refreshUsers(),
-          refreshVacancies(),
-          refreshLikes(),
-          ...(session ? [
-            refreshChats(session),
-            refreshSaved(session),
-            refreshPermVacancies(session),
-            refreshPermApplications(session),
-            refreshPermSaved(session),
-          ] : []),
-        ]);
-      } catch (e) {
-        console.warn('[AppContext] boot error:', e);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
-
-  // Navigation handled by AuthGuard in _layout.tsx — no redirect here
-
-  // ── Auto day-switch at 22:00 ──────────────────────────────────────────────
-
-  /**
-   * Archives all open shift vacancies that belong to dates BEFORE today's virtual
-   * start date (i.e. dates that are no longer visible in the date strip).
-   * Runs at boot and every 15 s so the transition happens within one poll cycle.
-   */
-  const archivePastDayVacancies = async () => {
-    try {
-      // dates() now returns full month; cutoff = first visible date
-      const visibleDates = getTodayDates();
-      const cutoff = visibleDates[0]; // first visible date (today or tomorrow after 21:00)
-      const { data } = await getSupabaseClient()
-        .from('jm_vacancies')
-        .select('id, date')
-        .eq('status', 'open');
-      if (!data) return;
-
-      const toArchive = data.filter((v: any) => v.date < cutoff).map((v: any) => v.id);
-      if (toArchive.length === 0) return;
-
-      await getSupabaseClient()
-        .from('jm_vacancies')
-        .update({ status: 'closed' })
-        .in('id', toArchive);
-
-      console.log(`[AppContext] archived ${toArchive.length} past-day vacancies (cutoff ${cutoff})`);
-      await refreshVacancies();
-    } catch (e) {
-      console.warn('[AppContext] archivePastDayVacancies error', e);
-    }
-  };
-
-  // ── Auto-cleanup stale vacancies ──────────────────────────────────────────
-
-  const cleanupStaleVacancies = async () => {
-    try {
-      const { data } = await getSupabaseClient()
-        .from('jm_vacancies')
-        .select('id, date, time_start')
-        .eq('status', 'open');
-      if (!data) return;
-
-      const now = new Date();
-      const toDelete: string[] = [];
-
-      for (const v of data) {
-        if (!v.date || !v.time_start) continue;
-        const [h, m] = (v.time_start as string).split(':').map(Number);
-        const shiftStart = new Date(`${v.date}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:00`);
-        const diffMs = shiftStart.getTime() - now.getTime();
-        if (diffMs <= 5 * 60 * 1000 && diffMs > -60 * 60 * 1000) {
-          const { data: likeRows } = await getSupabaseClient()
-            .from('jm_likes')
-            .select('id')
-            .eq('vacancy_id', v.id)
-            .eq('worker_liked', true)
-            .limit(1);
-          if (!likeRows || likeRows.length === 0) {
-            toDelete.push(v.id);
-          }
-        }
-      }
-
-      for (const id of toDelete) {
-        await getSupabaseClient().from('jm_vacancies').delete().eq('id', id);
-        console.log('[AppContext] auto-deleted stale vacancy', id);
-      }
-
-      if (toDelete.length > 0) {
-        await refreshVacancies();
-      }
-    } catch (e) {
-      console.warn('[AppContext] cleanupStaleVacancies error', e);
-    }
-  };
-
-  // ── Background poll (every 15s) ───────────────────────────────────────────
-
-  useEffect(() => {
-    if (!currentUser) return;
-    // Run archive + cleanup on first mount for this user
-    archivePastDayVacancies();
-    cleanupStaleVacancies();
-
-    const interval = setInterval(() => {
-      archivePastDayVacancies(); // archives dates hidden after 22:00
-      cleanupStaleVacancies();   // deletes vacancies that start very soon with no applicants
-      refreshVacancies();
-      refreshLikes();
-      refreshChats(currentUser);
-      refreshSaved(currentUser);
-      refreshPermVacancies(currentUser);
-      refreshPermApplications(currentUser);
-    }, 5_000);
-    return () => clearInterval(interval);
-  }, [currentUser?.id]);
-
-  // ── Toast ─────────────────────────────────────────────────────────────────
-
-  const showToast = (message: string, type: 'success' | 'error' | 'match' = 'success') => {
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    setToast({ message, type });
-    toastTimer.current = setTimeout(() => setToast(null), 2500);
-  };
-
-  // ── Derived: unread count ─────────────────────────────────────────────────
-
-  const unreadCount = currentUser
-    ? chats
-        .filter(c =>
-          currentUser.role === 'worker'
-            ? c.workerId === currentUser.id && c.unreadWorker > 0
-            : c.employerId === currentUser.id && c.unreadEmployer > 0
-        )
-        .reduce(
-          (sum, c) => sum + (currentUser.role === 'worker' ? c.unreadWorker : c.unreadEmployer),
-          0
-        )
-    : 0;
 
   return (
     <AppContext.Provider
       value={{
         currentUser,
-        setCurrentUser,
-        users,
-        refreshUsers,
-        vacancies,
-        setVacancies,
-        refreshVacancies,
-        likes,
-        setLikes,
-        refreshLikes,
-        chats,
-        refreshChats,
-        savedIds,
-        setSavedIds,
-        refreshSaved,
-        optimisticAddSaved,
-        optimisticRemoveSaved,
-        optimisticUpdateLike,
-        toast,
-        showToast,
-        refreshAll,
-        logout,
-        unreadCount,
         loading,
+        users,
+        vacancies,
+        likes,
+        chats,
         permVacancies,
-        refreshPermVacancies,
         permApplications,
+        savedWorkers,
+        permSavedWorkers,
+        registerUser,
+        loginUser,
+        logout,
+        refreshUsers,
+        refreshVacancies,
+        refreshLikes,
+        refreshChats,
+        refreshSaved,
+        refreshPermVacancies,
         refreshPermApplications,
-        permSavedIds,
         refreshPermSaved,
-        optimisticAddPermSaved,
-        optimisticRemovePermSaved,
+        updateUser,
       }}
     >
       {children}
     </AppContext.Provider>
   );
-}
+};

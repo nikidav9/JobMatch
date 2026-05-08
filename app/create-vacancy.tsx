@@ -13,8 +13,10 @@ import { MetroPicker } from '@/components/feature/MetroPicker';
 import { useApp } from '@/hooks/useApp';
 import { uid, nowISO } from '@/services/storage';
 import { dbUpsertVacancy } from '@/services/db';
-import { Vacancy } from '@/constants/types';
+import { notifyWorkersNearVacancy } from '@/services/notifications';
+import { Vacancy, WorkType } from '@/constants/types';
 import { METRO_LINES } from '@/constants/metro';
+import { WorkTypeSelector, WORK_TYPE_META } from '@/components/feature/WorkTypeSelector';
 
 function pad2(n: number) { return n.toString().padStart(2, '0'); }
 function formatDisplayDate(d: Date) { return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.${d.getFullYear()}`; }
@@ -41,7 +43,7 @@ function getDatesBetween(start: Date, end: Date): Date[] {
 const NORM_FIELDS = [
   { key: 'sborka',     label: 'Сборка товара',          max: 20  },
   { key: 'razmTovara', label: 'Размещение товара',       max: 20  },
-  { key: 'razmMaketa', label: 'Размещение макета',       max: 20  },
+  { key: 'razmMaketa', label: 'Размещение маркета',       max: 20  },
   { key: 'razmMoroza', label: 'Размещение мороза',       max: 20  },
   { key: 'razmMulti',  label: 'Размещение многоштучки',  max: 20  },
   { key: 'npo',        label: 'НПО',                    max: 999 },
@@ -67,7 +69,7 @@ export default function CreateVacancy() {
   const isEdit = !!existing;
 
   const [loadingInit, setLoadingInit] = useState(isEdit);
-  const [title, setTitle] = useState('Кладовщик');
+  const [selectedWorkType, setSelectedWorkType] = useState<WorkType>(existing?.workType ?? 'stocker');
   const [address, setAddress] = useState('');
   const [metroLineId, setMetroLineId] = useState('');
   const [metroLineName, setMetroLineName] = useState('');
@@ -85,13 +87,15 @@ export default function CreateVacancy() {
   const [noExp, setNoExp] = useState(true);
   const [metroPicker, setMetroPicker] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [fixedSalary, setFixedSalary] = useState(existing?.salary ? String(existing.salary) : '');
+  const [fixedConditions, setFixedConditions] = useState('');
   const [saving, setSaving] = useState(false);
   // Multi-day toggle (disabled in edit mode)
   const [multiDay, setMultiDay] = useState(false);
 
   useEffect(() => {
     if (!existing) { setLoadingInit(false); return; }
-    setTitle(existing.title);
+    setSelectedWorkType(existing.workType ?? 'stocker');
     setAddress(existing.address ?? '');
     setMetroLineId(existing.metroLineId ?? '');
     setMetroStation(existing.metroStation ?? '');
@@ -165,11 +169,19 @@ export default function CreateVacancy() {
 
   const normsValid = NORM_FIELDS.every(f => normFieldValid(f.key));
 
+  const isStorcker = selectedWorkType === 'stocker';
+  const meta = WORK_TYPE_META[selectedWorkType];
+
   const validate = () => {
     const e: Record<string, string> = {};
-    if (!address.trim()) e.address = 'Введите адрес склада';
+    if (!address.trim()) e.address = 'Введите адрес';
     if (!metroStation) e.metro = 'Выберите станцию метро';
-    if (!normsValid) e.norms = 'Проверьте нормативы (0–20 ₽, НПО: 1–999)';
+    if (isStorcker) {
+      if (!normsValid) e.norms = 'Проверьте нормативы (0–20 ₽, НПО: 1–999)';
+    } else {
+      const sal = parseInt(fixedSalary, 10);
+      if (isNaN(sal) || sal <= 0) e.salary = 'Введите зарплату';
+    }
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -177,24 +189,26 @@ export default function CreateVacancy() {
   const submit = async () => {
     if (!validate() || !currentUser || saving) return;
     setSaving(true);
-    const normsText = buildNormsText(address, norms);
+    const normsAndPay = isStorcker
+      ? buildNormsText(address, norms)
+      : `📍 Адрес: ${address}\n💰 Зарплата: ${fixedSalary} ₽/смену${fixedConditions ? `\n📝 Условия: ${fixedConditions}` : ''}`;
     const base = {
       employerId: existing?.employerId ?? currentUser.id,
       company: existing?.company ?? (currentUser.company ?? `${currentUser.firstName} ${currentUser.lastName}`),
-      title,
-      workType: 'stocker' as const,
-      workTypeLabel: 'Кладовщик',
+      title: meta.label,
+      workType: selectedWorkType,
+      workTypeLabel: meta.label,
       metroLineId,
       metroStation,
       address,
       timeStart: formatTime(selectedTimeStart),
       timeEnd: formatTime(selectedTimeEnd),
-      salary: 0,
-      normsAndPay: normsText,
+      salary: isStorcker ? 0 : parseInt(fixedSalary, 10),
+      normsAndPay,
       workersNeeded,
       isUrgent,
       noExperienceNeeded: noExp,
-      conditions: normsText,
+      conditions: normsAndPay,
     };
 
     try {
@@ -222,6 +236,9 @@ export default function CreateVacancy() {
           };
           return dbUpsertVacancy(vac);
         }));
+        if (metroStation) {
+          notifyWorkersNearVacancy({ metroStation, title: meta.label, company: base.company, type: 'shift' }).catch(() => {});
+        }
         showToast(`Опубликовано ${dates.length} вакансий ✅`, 'success');
       } else {
         const vac: Vacancy = {
@@ -233,6 +250,9 @@ export default function CreateVacancy() {
           createdAt: nowISO(),
         };
         await dbUpsertVacancy(vac);
+        if (metroStation) {
+          notifyWorkersNearVacancy({ metroStation, title: meta.label, company: base.company, type: 'shift' }).catch(() => {});
+        }
         showToast('Вакансия опубликована ✅', 'success');
       }
       await refreshVacancies();
@@ -271,15 +291,15 @@ export default function CreateVacancy() {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
 
-          {/* Work type badge */}
-          <View style={styles.typeRow}>
-            <Text style={styles.typeLabel}>Тип вакансии</Text>
-            <View style={styles.typeBadge}><Text style={styles.typeBadgeText}>📦 Кладовщик</Text></View>
+          {/* Work type */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.sectionLabel}>Специальность *</Text>
+            <WorkTypeSelector selected={[selectedWorkType]} onToggle={t => setSelectedWorkType(t)} />
           </View>
 
           {/* Address */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.sectionLabel}>Адрес склада *</Text>
+            <Text style={styles.sectionLabel}>Адрес *</Text>
             <TextInput
               style={[styles.input, errors.address ? styles.inputError : null]}
               value={address}
@@ -393,31 +413,55 @@ export default function CreateVacancy() {
             ) : null}
           </View>
 
-          {/* Norms */}
-          <View style={styles.fieldGroup}>
-            <Text style={styles.sectionLabel}>Нормативы (₽ за единицу) *</Text>
-            <Text style={styles.normHint}>Сборка/размещение: 0–20 ₽ (дробные значения допустимы) · НПО: 1–999</Text>
-            {errors.norms ? <Text style={styles.errMsg}>{errors.norms}</Text> : null}
-            {NORM_FIELDS.map(f => {
-              const v = norms[f.key];
-              const num = parseFloat(v);
-              const invalid = v !== '' && (isNaN(num) || num < 0 || num > f.max);
-              return (
-                <View key={f.key} style={styles.normRow}>
-                  <Text style={styles.normLabel}>{f.label}</Text>
-                  <TextInput
-                    style={[styles.normInput, invalid ? styles.inputError : null]}
-                    value={v}
-                    onChangeText={val => setNormVal(f.key, val)}
-                    placeholder={f.key === 'npo' ? '1' : '0'}
-                    keyboardType="decimal-pad"
-                    placeholderTextColor={Colors.textMuted}
-                  />
-                  <Text style={styles.normUnit}>₽</Text>
-                </View>
-              );
-            })}
-          </View>
+          {/* Norms (stocker) / Salary (other) */}
+          {isStorcker ? (
+            <View style={styles.fieldGroup}>
+              <Text style={styles.sectionLabel}>Нормативы (₽ за единицу) *</Text>
+              <Text style={styles.normHint}>Сборка/размещение: 0–20 ₽ (дробные значения допустимы) · НПО: 1–999</Text>
+              {errors.norms ? <Text style={styles.errMsg}>{errors.norms}</Text> : null}
+              {NORM_FIELDS.map(f => {
+                const v = norms[f.key];
+                const num = parseFloat(v);
+                const invalid = v !== '' && (isNaN(num) || num < 0 || num > f.max);
+                return (
+                  <View key={f.key} style={styles.normRow}>
+                    <Text style={styles.normLabel}>{f.label}</Text>
+                    <TextInput
+                      style={[styles.normInput, invalid ? styles.inputError : null]}
+                      value={v}
+                      onChangeText={val => setNormVal(f.key, val)}
+                      placeholder={f.key === 'npo' ? '1' : '0'}
+                      keyboardType="decimal-pad"
+                      placeholderTextColor={Colors.textMuted}
+                    />
+                    <Text style={styles.normUnit}>₽</Text>
+                  </View>
+                );
+              })}
+            </View>
+          ) : (
+            <View style={styles.fieldGroup}>
+              <Text style={styles.sectionLabel}>Зарплата за смену (₽) *</Text>
+              <TextInput
+                style={[styles.input, errors.salary ? styles.inputError : null]}
+                value={fixedSalary}
+                onChangeText={setFixedSalary}
+                placeholder="например, 2500"
+                keyboardType="numeric"
+                placeholderTextColor={Colors.textMuted}
+              />
+              {errors.salary ? <Text style={styles.errMsg}>{errors.salary}</Text> : null}
+              <Text style={[styles.sectionLabel, { marginTop: 16 }]}>Условия работы</Text>
+              <TextInput
+                style={[styles.input, { height: 80, textAlignVertical: 'top', paddingTop: 10 }]}
+                value={fixedConditions}
+                onChangeText={setFixedConditions}
+                placeholder="Требования, описание обязанностей..."
+                placeholderTextColor={Colors.textMuted}
+                multiline
+              />
+            </View>
+          )}
 
           {/* Workers needed */}
           <View style={styles.fieldGroup}>

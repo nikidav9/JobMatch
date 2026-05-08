@@ -1,10 +1,12 @@
 {
   "name": "onspace-app",
   "main": "expo-router/entry",
+  "type": "module",
   "version": "1.0.0",
   "scripts": {
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
+    "import-users": "ts-node ./scripts/import-users.ts",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
@@ -149,6 +151,7 @@
     "eslint": "^9.25.0",
     "eslint-config-expo": "~9.2.0",
     "react-dev-inspector": "^2.0.1",
+    "ts-node": "^10.9.2",
     "typescript": "~5.8.3"
   },
   "private": true,

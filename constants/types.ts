@@ -1,4 +1,4 @@
-export type WorkType = 'stocker';
+export type WorkType = 'stocker' | 'cook' | 'shift_supervisor' | 'picker';
 
 export interface User {
   id: string;
@@ -101,6 +101,7 @@ export interface PermVacancy {
   employerId: string;
   company: string;
   title: string;
+  workType?: WorkType;
   metroLineId?: string;
   metroStation?: string;
   address?: string;

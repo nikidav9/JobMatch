@@ -42,7 +42,7 @@ export default function RegisterWorker() {
   const [agreed, setAgreed] = useState(false);
 
   const toggleWork = (t: WorkType) => {
-    setWorkTypes(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
+    setWorkTypes([t]);
   };
 
   const back = () => { if (step === 1) router.back(); else setStep(s => s - 1); };

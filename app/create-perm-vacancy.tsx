@@ -11,8 +11,10 @@ import { MetroPicker } from '@/components/feature/MetroPicker';
 import { useApp } from '@/hooks/useApp';
 import { uid, nowISO } from '@/services/storage';
 import { dbUpsertPermVacancy, dbGetPermVacanciesByEmployer } from '@/services/db';
-import { PermVacancy } from '@/constants/types';
+import { notifyWorkersNearVacancy } from '@/services/notifications';
+import { PermVacancy, WorkType } from '@/constants/types';
 import { METRO_LINES } from '@/constants/metro';
+import { WorkTypeSelector, WORK_TYPE_META } from '@/components/feature/WorkTypeSelector';
 
 export default function CreatePermVacancy() {
   const router = useRouter();
@@ -22,7 +24,8 @@ export default function CreatePermVacancy() {
   const existing = editId ? permVacancies.find(v => v.id === editId) : undefined;
   const isEdit = !!existing;
 
-  const [title, setTitle] = useState(existing?.title ?? '');
+  const [workType, setWorkType] = useState<WorkType>(existing?.workType ?? 'stocker');
+  const title = WORK_TYPE_META[workType].label;
   const [address, setAddress] = useState(existing?.address ?? '');
   const [metroLineId, setMetroLineId] = useState(existing?.metroLineId ?? '');
   const [metroLineName, setMetroLineName] = useState('');
@@ -45,7 +48,6 @@ export default function CreatePermVacancy() {
 
   const validate = () => {
     const e: Record<string, string> = {};
-    if (!title.trim()) e.title = 'Введите название';
     if (!address.trim()) e.address = 'Введите адрес';
     if (!metroStation) e.metro = 'Выберите станцию метро';
     const sal = parseInt(salary, 10);
@@ -63,7 +65,8 @@ export default function CreatePermVacancy() {
         id: existing?.id ?? uid(),
         employerId: existing?.employerId ?? currentUser.id,
         company: existing?.company ?? (currentUser.company ?? `${currentUser.firstName} ${currentUser.lastName}`),
-        title: title.trim(),
+        title,
+        workType,
         metroLineId,
         metroStation,
         address: address.trim(),
@@ -75,6 +78,9 @@ export default function CreatePermVacancy() {
       };
       await dbUpsertPermVacancy(vac);
       await refreshPermVacancies();
+      if (!isEdit && metroStation) {
+        notifyWorkersNearVacancy({ metroStation, title: title.trim(), company: vac.company, type: 'permanent' }).catch(() => {});
+      }
       showToast(isEdit ? 'Вакансия обновлена ✅' : 'Вакансия опубликована ✅', 'success');
       router.back();
     } catch (e) {
@@ -103,18 +109,10 @@ export default function CreatePermVacancy() {
             <Text style={styles.modeBadgeText}>💼 Постоянная работа</Text>
           </View>
 
-          {/* Title */}
+          {/* Work type */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.sectionLabel}>Название должности *</Text>
-            <TextInput
-              style={[styles.input, errors.title ? styles.inputError : null]}
-              value={title}
-              onChangeText={setTitle}
-              placeholder="Кладовщик, оператор, сортировщик..."
-              placeholderTextColor={Colors.textMuted}
-              autoFocus
-            />
-            {errors.title ? <Text style={styles.errMsg}>{errors.title}</Text> : null}
+            <Text style={styles.sectionLabel}>Специальность *</Text>
+            <WorkTypeSelector selected={[workType]} onToggle={t => setWorkType(t)} />
           </View>
 
           {/* Metro */}

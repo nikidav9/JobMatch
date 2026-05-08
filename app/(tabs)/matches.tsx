@@ -13,8 +13,7 @@ import { formatDate, getInitials, nameColorFromString } from '@/services/storage
 import { dbUpsertLike, dbCheckAndCreateMatch, dbConfirmShift } from '@/services/db';
 import {
   notifyWorkerShiftConfirmedByEmployer,
-  notifyEmployerGotMatch,
-  notifyEmployerConfirmedShift,
+  notifyWorkerGotMatch,
 } from '@/services/notifications';
 import { Chip } from '@/components/ui/Chip';
 import { VacancyDetailModal } from '@/components/feature/VacancyDetailModal';
@@ -333,7 +332,7 @@ function EmployerMatches() {
       // Step 3: refresh context so UI reflects new state
       await refreshAll();
 
-      await notifyEmployerGotMatch(workerName, vac?.title ?? '');
+      notifyWorkerGotMatch(like.workerId, vac?.company ?? currentUser.company ?? '', vac?.title ?? '').catch(() => {});
       showToast(`🎉 Мэтч с ${workerName}!`, 'match');
 
       // Step 4: navigate to chat
@@ -377,9 +376,8 @@ function EmployerMatches() {
 
       // Notify worker that employer confirmed → they can now rate
       if (worker && vac) {
-        await notifyWorkerShiftConfirmedByEmployer(company, vac.title);
+        notifyWorkerShiftConfirmedByEmployer(worker.id, company, vac.title).catch(() => {});
       }
-      await notifyEmployerConfirmedShift(workerName, vac?.title ?? '', true);
 
       showToast('Смена подтверждена! Оцените работника 🌟', 'success');
 

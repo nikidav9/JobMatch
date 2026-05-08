@@ -26,7 +26,7 @@ import {
   dbGetUserById,
   dbGetLikes,
 } from '@/services/db';
-import { notifyWorkerSentApplication, notifyWorkerGotMatch, notifyEmployerGotMatch } from '@/services/notifications';
+import { notifyEmployerNewApplicant, notifyEmployerGotMatch, notifyWorkerGotMatch } from '@/services/notifications';
 import { Image } from 'expo-image';
 import { Chip } from '@/components/ui/Chip';
 import { VacancyDetailModal } from '@/components/feature/VacancyDetailModal';
@@ -192,8 +192,7 @@ function WorkerListModal({
       await dbUpsertLike(vacancyId, like.workerId, currentUser.id, { employerLiked: true });
       const result = await dbCheckAndCreateMatch(vacancyId, like.workerId);
       await refreshAll();
-      const worker = getWorker(like.workerId);
-      await notifyEmployerGotMatch(worker ? `${worker.firstName} ${worker.lastName}` : 'Работник', vacTitle);
+      notifyWorkerGotMatch(like.workerId, vacancy?.company ?? '', vacTitle).catch(() => {});
       showToast('🎉 Мэтч! Чат открыт', 'match');
       onClose();
       if (result.chatId) {
@@ -558,13 +557,13 @@ function WorkerFeed() {
       await refreshAll();
 
       if (result.matched) {
-        await notifyWorkerGotMatch(card.company, card.title);
+        notifyEmployerGotMatch(card.employerId, `${currentUser.firstName} ${currentUser.lastName}`, card.title).catch(() => {});
         setHistory(h => ({ ...h, [date]: [card, ...(h[date] ?? []).slice(0, 9)] }));
         router.push({ pathname: '/match', params: { vacancyId: card.id, chatId: result.chatId } });
       } else {
+        notifyEmployerNewApplicant(card.employerId, `${currentUser.firstName} ${currentUser.lastName}`, card.title).catch(() => {});
         setHistory(h => ({ ...h, [date]: [card, ...(h[date] ?? []).slice(0, 9)] }));
         setCards(prev => prev.slice(1));
-        await notifyWorkerSentApplication(card.title, card.company);
         showToast('Отклик отправлен! Ждём решения работодателя 👍', 'success');
       }
     });
@@ -952,6 +951,7 @@ function WorkerPermMode() {
   const matchesFilters = (v: PermVacancy) => {
     if (filterLineId && v.metroLineId !== filterLineId) return false;
     if (minSalary > 0 && v.salary < minSalary) return false;
+    if (currentUser?.workTypes?.length && v.workType && !currentUser.workTypes.includes(v.workType)) return false;
     return true;
   };
 

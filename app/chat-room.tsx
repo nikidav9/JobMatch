@@ -12,7 +12,7 @@ import { useApp } from '@/hooks/useApp';
 import { Message } from '@/constants/types';
 import { nameColorFromString, getInitials, formatDate } from '@/services/storage';
 import { dbGetMessages, dbInsertMessage, dbMarkRead, dbIncrementUnread, dbGetLikes, dbUpsertLike, dbCheckAndCreateMatch } from '@/services/db';
-import { notifyNewMessage, notifyEmployerGotMatch } from '@/services/notifications';
+import { notifyWorkerGotMatch, notifyWorkerNewMessage, notifyEmployerNewMessage } from '@/services/notifications';
 
 const POLL_INTERVAL = 4000;
 
@@ -83,7 +83,6 @@ export default function ChatRoom() {
           const newMsgs = msgs.slice(lastCountRef.current);
           const fromOther = newMsgs.filter(m => m.senderId !== userId && m.senderId !== 'system');
           if (fromOther.length > 0) {
-            await notifyNewMessage(otherName, fromOther[fromOther.length - 1].text);
             await dbMarkRead(localChatId, role);
             await refreshChats();
           }
@@ -128,7 +127,7 @@ export default function ChatRoom() {
       const workerName = worker ? `${worker.firstName} ${worker.lastName}` : 'Работник';
       setLikeStatus('approved');
       if (result.matched) {
-        await notifyEmployerGotMatch(workerName, chat.vacTitle);
+        notifyWorkerGotMatch(chat.workerId, chat.companyName, chat.vacTitle).catch(() => {});
       }
       // Refresh likes so the Matches tab updates for both parties
       await refreshLikes();
@@ -183,8 +182,12 @@ export default function ChatRoom() {
       lastCountRef.current += 1;
       const forRole = currentUser.role === 'worker' ? 'employer' : 'worker';
       await dbIncrementUnread(chat.id, forRole);
-      // NOTE: не вызываем notifyNewMessage здесь — уведомление о новом сообщении
-      // должно приходить только на устройство ПОЛУЧАТЕЛЯ (обрабатывается в polling).
+      const senderName = `${currentUser.firstName} ${currentUser.lastName}`;
+      if (currentUser.role === 'worker') {
+        notifyEmployerNewMessage(chat.employerId, senderName, text).catch(() => {});
+      } else {
+        notifyWorkerNewMessage(chat.workerId, senderName, text).catch(() => {});
+      }
       await refreshChats();
       setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
     } catch (e) {
