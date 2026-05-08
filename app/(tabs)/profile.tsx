@@ -14,13 +14,14 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { Colors, Radius, Shadow } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
 import { getInitials, nameColorFromString } from '@/services/storage';
-import { dbUpsertUser, dbGetRatingsForUser, UserRating } from '@/services/db';
+import { dbGetRatingsForUser, UserRating } from '@/services/db';
 import { getSupabaseClient } from '@/template';
 import { AppInput } from '@/components/ui/AppInput';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { MetroPicker } from '@/components/feature/MetroPicker';
 import { WorkTypeSelector } from '@/components/feature/WorkTypeSelector';
 import { WorkType } from '@/constants/types';
+import { WORK_TYPE_META } from '@/components/feature/WorkTypeSelector';
 import { METRO_LINES } from '@/constants/metro';
 
 type EditSection = 'personal' | 'metro' | 'worktypes' | 'company' | 'bio' | null;
@@ -203,7 +204,7 @@ const rmS = StyleSheet.create({
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { currentUser, logout, users, refreshUsers, showToast, setCurrentUser } = useApp();
+  const { currentUser, logout, users, showToast, updateUser } = useApp();
   const [editSection, setEditSection] = useState<EditSection>(null);
   const [showRatings, setShowRatings] = useState(false);
   const [showConfirmLogout, setShowConfirmLogout] = useState(false);
@@ -253,9 +254,7 @@ export default function ProfileScreen() {
       if (editSection === 'worktypes') updated.workTypes = editWorkTypes;
       if (editSection === 'company') { updated.company = editCompany; updated.bio = editBio; }
       if (editSection === 'bio') updated.bio = editBio;
-      await dbUpsertUser(updated);
-      await refreshUsers();
-      setCurrentUser(updated);
+      await updateUser(updated);
       showToast('Сохранено', 'success');
       setEditSection(null);
     } catch {
@@ -309,8 +308,8 @@ export default function ProfileScreen() {
         { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
       );
 
-      // 2. Оптимистичный апдейт — показываем локальное фото мгновенно
-      setCurrentUser({ ...currentUser, avatarUrl: processed.uri });
+      // 2. Локальный оптимистичный апдейт через updateUser (без записи в БД)
+      // — пропускаем, финальный апдейт будет после загрузки
 
       // 3. Читаем файл как base64 и конвертируем в Uint8Array
       const base64Data = await FileSystem.readAsStringAsync(processed.uri, {
@@ -340,13 +339,11 @@ export default function ProfileScreen() {
       const avatarUrl = `${urlData.publicUrl}?t=${Date.now()}`;
 
       const updated = { ...currentUser, avatarUrl };
-      await dbUpsertUser(updated);
-      setCurrentUser(updated);
-      refreshUsers().catch(() => {});
+      await updateUser(updated);
       showToast('Фото обновлено', 'success');
     } catch (e) {
       console.error('[Avatar] processAndUpload error', e);
-      setCurrentUser({ ...currentUser, avatarUrl: prevAvatarUrl });
+      updateUser({ ...currentUser, avatarUrl: prevAvatarUrl }).catch(() => {});
       showToast('Не удалось обновить фото. Проверьте доступ к памяти.', 'error');
     } finally {
       setUploadingPhoto(false);
@@ -496,7 +493,7 @@ export default function ProfileScreen() {
                 { label: 'Станция', value: currentUser.metroStation ?? '—' },
               ]}
             />
-            <SectionCard icon="💼" title="Специализация" onEdit={() => openEdit('worktypes')} rows={[]} chips={['📦 Кладовщик']} />
+            <SectionCard icon="💼" title="Специализация" onEdit={() => openEdit('worktypes')} rows={[]} chips={(currentUser.workTypes ?? []).map(t => `${WORK_TYPE_META[t]?.emoji ?? ''} ${WORK_TYPE_META[t]?.label ?? t}`)} />
             <SectionCard icon="📝" title="О себе" onEdit={() => openEdit('bio')}
               rows={currentUser.bio ? [{ label: '', value: currentUser.bio }] : []}
               placeholder="Расскажите о себе — опыт, навыки, предпочтения"
@@ -640,7 +637,7 @@ export default function ProfileScreen() {
               </View>
             )}
             {editSection === 'worktypes' && (
-              <WorkTypeSelector selected={editWorkTypes} onToggle={t => setEditWorkTypes(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t])} />
+              <WorkTypeSelector selected={editWorkTypes} onToggle={t => setEditWorkTypes([t])} />
             )}
             {editSection === 'company' && (
               <View style={{ gap: 12 }}>
