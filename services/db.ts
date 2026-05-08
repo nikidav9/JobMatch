@@ -93,6 +93,16 @@ export async function dbCheckPhoneExists(phone: string): Promise<boolean> {
   return !!data;
 }
 
+// Логин: одна строка по телефону + пароль
+export async function dbGetUserByPhone(phone: string): Promise<User | null> {
+  const { data } = await sb()
+    .from('jm_users')
+    .select('*')
+    .eq('phone', phone)
+    .maybeSingle();
+  return data ? rowToUser(data) : null;
+}
+
 // ─── Vacancies ────────────────────────────────────────────────────────────────
 
 function rowToVacancy(r: any): Vacancy {

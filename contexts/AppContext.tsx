@@ -12,6 +12,7 @@ import {
 import {
   dbGetUsers,
   dbUpsertUser,
+  dbGetUserByPhone,
   dbGetVacancies,
   dbGetLikes,
   dbGetChats,
@@ -153,9 +154,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const loginUser = async (phone: string, password: string): Promise<User | null> => {
     const digits = extractPhoneDigits(phone);
-    const all = await dbGetUsers();
-    const found = all.find(u => u.phone === digits && u.password === password);
-    if (!found) return null;
+    const found = await dbGetUserByPhone(digits);
+    if (!found || found.password !== password) return null;
     _setCurrentUser(found);
     await saveSessionUser(found);
     setLoading(false);

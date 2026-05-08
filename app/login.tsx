@@ -53,7 +53,15 @@ export default function Login() {
     }
 
     // Regular user
-    const user = await loginUser(phone, password);
+    let user = null;
+    try {
+      user = await loginUser(phone, password);
+    } catch (e) {
+      console.error('[Login] loginUser error', e);
+      setPhoneError('Ошибка входа. Проверьте соединение и попробуйте ещё раз.');
+      setLoading(false);
+      return;
+    }
 
     if (!user) {
       setPhoneError('Пользователь с таким номером не найден или неверный пароль');
