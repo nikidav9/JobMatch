@@ -5,7 +5,8 @@ import {
   getSessionUser,
   saveSessionUser,
   clearSessionUser,
-  getTodayDate,
+  localDateStr,
+  getVirtualStartDate,
   extractPhoneDigits,
 } from '@/services/storage';
 import {
@@ -195,7 +196,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const refreshVacancies = async () => {
     const data = await dbGetVacancies();
-    const today = getTodayDate();
+    const today = localDateStr(getVirtualStartDate());
     setVacancies(data.filter(v => v.date === today));
   };
 
