@@ -10,7 +10,9 @@
         "buildType": "apk"
       },
       "env": {
-        "EAS_NO_FROZEN_LOCKFILE": "1"
+        "EAS_NO_FROZEN_LOCKFILE": "1",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://bbiqmkeysalwdonlnylb.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_R0vtCZ1ass3YJPG2r1jaew_tv2XZ6Mt"
       }
     }
   }
