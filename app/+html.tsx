@@ -29,14 +29,13 @@ export default function Root({ children }: PropsWithChildren) {
 
         <ScrollViewStyleReset />
 
-        {/* Splash shown while JS loads — hides once React mounts */}
         <style>{`
           #splash {
             position: fixed; inset: 0;
             display: flex; flex-direction: column;
             align-items: center; justify-content: center;
             background: #fff; z-index: 9999;
-            transition: opacity 0.3s;
+            transition: opacity 0.35s ease;
           }
           #splash.hidden { opacity: 0; pointer-events: none; }
           #splash-logo {
@@ -47,13 +46,18 @@ export default function Root({ children }: PropsWithChildren) {
             margin-top: 14px; font-size: 24px; font-weight: 800;
             color: #FF6B1A; font-family: -apple-system, sans-serif;
           }
-          #splash-dot {
-            margin-top: 32px; width: 36px; height: 4px;
-            border-radius: 2px; background: #FF6B1A;
-            animation: pulse 1.2s ease-in-out infinite;
+          #splash-track {
+            margin-top: 36px;
+            width: 160px; height: 4px;
+            background: #F0E8E0;
+            border-radius: 2px;
+            overflow: hidden;
           }
-          @keyframes pulse {
-            0%, 100% { opacity: 0.3; } 50% { opacity: 1; }
+          #splash-bar {
+            height: 100%; width: 0%;
+            background: #FF6B1A;
+            border-radius: 2px;
+            transition: width 0.25s ease-out;
           }
         `}</style>
       </head>
@@ -61,22 +65,51 @@ export default function Root({ children }: PropsWithChildren) {
         <div id="splash">
           <img id="splash-logo" src="/jt-logo.jpg" alt="JobToo" />
           <div id="splash-name">JobToo</div>
-          <div id="splash-dot" />
+          <div id="splash-track">
+            <div id="splash-bar" />
+          </div>
         </div>
         {children}
         <script>{`
           (function() {
+            var bar = document.getElementById('splash-bar');
             var splash = document.getElementById('splash');
-            function hideSplash() {
-              if (splash) { splash.classList.add('hidden'); setTimeout(function(){ splash.remove(); }, 400); }
+            var progress = 0;
+            var done = false;
+
+            // Gradually move bar toward 80% — slows as it gets closer
+            var ticker = setInterval(function() {
+              if (done) return;
+              var gap = 80 - progress;
+              var step = Math.max(gap * 0.07, 0.4);
+              progress = Math.min(progress + step, 80);
+              if (bar) bar.style.width = progress + '%';
+            }, 80);
+
+            function finish() {
+              if (done) return;
+              done = true;
+              clearInterval(ticker);
+              // Snap to 100% quickly, then fade out
+              if (bar) {
+                bar.style.transition = 'width 0.3s ease-in';
+                bar.style.width = '100%';
+              }
+              setTimeout(function() {
+                if (splash) {
+                  splash.classList.add('hidden');
+                  setTimeout(function() { if (splash.parentNode) splash.parentNode.removeChild(splash); }, 400);
+                }
+              }, 320);
             }
-            // Hide once React renders or after 4s max
+
             if (document.readyState === 'complete') {
-              setTimeout(hideSplash, 300);
+              setTimeout(finish, 200);
             } else {
-              window.addEventListener('load', function() { setTimeout(hideSplash, 300); });
+              window.addEventListener('load', function() { setTimeout(finish, 200); });
             }
-            setTimeout(hideSplash, 4000);
+            // Hard cap at 5s in case load never fires
+            setTimeout(finish, 5000);
           })();
         `}</script>
       </body>
