@@ -14,7 +14,7 @@ import { nameColorFromString, getInitials, formatDate } from '@/services/storage
 import { dbGetMessages, dbInsertMessage, dbMarkRead, dbIncrementUnread, dbGetLikeByVacancyWorker, dbUpsertLike, dbCheckAndCreateMatch, dbGetLikes, dbGetChatById } from '@/services/db';
 import { notifyWorkerGotMatch, notifyWorkerNewMessage, notifyEmployerNewMessage } from '@/services/notifications';
 
-const POLL_INTERVAL = 4000;
+const POLL_INTERVAL = 8000;
 
 export default function ChatRoom() {
   const router = useRouter();
@@ -41,13 +41,15 @@ export default function ChatRoom() {
   // fetch it directly from DB so the chat room is fully functional immediately.
   useEffect(() => {
     if (!chatId || foundChat) return;
+    let isMounted = true;
     dbGetChatById(chatId).then(c => {
-      if (c) {
+      if (isMounted && c) {
         setDbChat(c);
         setMessages(c.messages);
         lastCountRef.current = c.messages.length;
       }
     }).catch(() => {});
+    return () => { isMounted = false; };
   }, [chatId]);
 
   // Clear dbChat once context has the chat (avoid stale fallback)
@@ -96,7 +98,10 @@ export default function ChatRoom() {
 
     const poll = async () => {
       try {
-        const msgs = await dbGetMessages(localChatId);
+        const [msgs, like] = await Promise.all([
+          dbGetMessages(localChatId),
+          dbGetLikeByVacancyWorker(chat.vacancyId, chat.workerId),
+        ]);
         if (msgs.length !== lastCountRef.current) {
           setMessages(msgs);
           const newMsgs = msgs.slice(lastCountRef.current);
@@ -108,7 +113,6 @@ export default function ChatRoom() {
           lastCountRef.current = msgs.length;
           setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
         }
-        const like = await dbGetLikeByVacancyWorker(chat.vacancyId, chat.workerId);
         if (like) {
           if (like.isMatch || like.employerLiked === true) setLikeStatus('approved');
           else if (like.employerLiked === false) setLikeStatus('rejected');

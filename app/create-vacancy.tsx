@@ -265,8 +265,8 @@ export default function CreateVacancy() {
         }
         showToast('Вакансия опубликована ✅', 'success');
       }
-      await refreshVacancies();
       router.back();
+      refreshVacancies().catch(() => {});
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       showToast(`Ошибка: ${msg}`, 'error');

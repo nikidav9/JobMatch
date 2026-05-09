@@ -77,12 +77,12 @@ export default function CreatePermVacancy() {
         createdAt: existing?.createdAt ?? nowISO(),
       };
       await dbUpsertPermVacancy(vac);
-      await refreshPermVacancies();
       if (!isEdit && metroStation) {
         notifyWorkersNearVacancy({ metroStation, title: title.trim(), company: vac.company, type: 'permanent' }).catch(() => {});
       }
       showToast(isEdit ? 'Вакансия обновлена ✅' : 'Вакансия опубликована ✅', 'success');
       router.back();
+      refreshPermVacancies().catch(() => {});
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       showToast(`Ошибка: ${msg}`, 'error');

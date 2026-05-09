@@ -350,20 +350,25 @@ export async function dbGetChats(userId: string, role: 'worker' | 'employer'): P
   if (error) throwOnError('dbGetChats', error);
 
   const chatRows = data ?? [];
-  // Only fetch last message per chat (for preview). Chat room loads full history via polling.
-  const chats = await Promise.all(
-    chatRows.map(async (row: any) => {
-      const { data: lastMsgData } = await sb()
-        .from('jm_messages')
-        .select('*')
-        .eq('chat_id', row.id)
-        .order('created_at', { ascending: false })
-        .limit(1);
-      const msgs = (lastMsgData ?? []).map(rowToMessage);
-      return rowToChat(row, msgs);
-    })
-  );
-  return chats;
+  if (chatRows.length === 0) return [];
+
+  // Batch: one query for all last messages instead of N separate queries
+  const chatIds = chatRows.map((r: any) => r.id);
+  const { data: allMsgs } = await sb()
+    .from('jm_messages')
+    .select('*')
+    .in('chat_id', chatIds)
+    .order('created_at', { ascending: false });
+
+  const lastMsgByChat = new Map<string, any>();
+  for (const msg of (allMsgs ?? [])) {
+    if (!lastMsgByChat.has(msg.chat_id)) lastMsgByChat.set(msg.chat_id, msg);
+  }
+
+  return chatRows.map((row: any) => {
+    const lastMsg = lastMsgByChat.get(row.id);
+    return rowToChat(row, lastMsg ? [rowToMessage(lastMsg)] : []);
+  });
 }
 
 export async function dbGetChatById(chatId: string): Promise<Chat | null> {
