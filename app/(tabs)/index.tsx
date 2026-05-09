@@ -463,6 +463,7 @@ function WorkerFeed() {
   const [filterPicker, setFilterPicker] = useState(false);
 
   const pan = useRef(new Animated.ValueXY()).current;
+  const pendingLikeIds = useRef<Set<string>>(new Set());
 
   const wantOpacity = pan.x.interpolate({ inputRange: [0, SWIPE_THRESHOLD], outputRange: [0, 1], extrapolate: 'clamp' });
   const skipOpacity = pan.x.interpolate({ inputRange: [-SWIPE_THRESHOLD, 0], outputRange: [1, 0], extrapolate: 'clamp' });
@@ -491,6 +492,7 @@ function WorkerFeed() {
         if (v.status !== 'open') return false;
         if (v.date !== selectedDate) return false;
         if (!currentUser.workTypes?.includes(v.workType)) return false;
+        if (pendingLikeIds.current.has(v.id)) return false;
         const liked = likes.find(l => l.vacancyId === v.id && l.workerId === currentUser.id);
         if (liked) return false;
         if (filterLineId && v.metroLineId !== filterLineId) return false;
@@ -532,14 +534,14 @@ function WorkerFeed() {
     if (!currentCard || !currentUser || swiping) return;
     const card = currentCard;
     const date = selectedDate;
-    animateCard('left', vx, async () => {
-      await dbUpsertLike(card.id, currentUser.id, card.employerId, {
-        workerLiked: false,
-        workerSkipped: true,
-      });
-      await refreshLikes();
+    const user = currentUser;
+    pendingLikeIds.current.add(card.id);
+    animateCard('left', vx, () => {
       setHistory(h => ({ ...h, [date]: [card, ...(h[date] ?? []).slice(0, 9)] }));
       setCards(prev => prev.slice(1));
+      dbUpsertLike(card.id, user.id, card.employerId, { workerLiked: false, workerSkipped: true })
+        .then(() => refreshLikes(user))
+        .catch(() => { pendingLikeIds.current.delete(card.id); });
     });
   }, [currentCard, currentUser, swiping, selectedDate, animateCard, refreshLikes]);
 
@@ -547,37 +549,41 @@ function WorkerFeed() {
     if (!currentCard || !currentUser || swiping) return;
     const card = currentCard;
     const date = selectedDate;
-    animateCard('right', vx, async () => {
-      await dbUpsertLike(card.id, currentUser.id, card.employerId, {
-        workerLiked: true,
-        workerSkipped: false,
-      });
-
-      const result = await dbCheckAndCreateMatch(card.id, currentUser.id);
-      await refreshLikes();
-
-      if (result.matched) {
-        notifyEmployerGotMatch(card.employerId, `${currentUser.firstName} ${currentUser.lastName}`, card.title).catch(() => {});
-        setHistory(h => ({ ...h, [date]: [card, ...(h[date] ?? []).slice(0, 9)] }));
-        router.push({ pathname: '/match', params: { vacancyId: card.id, chatId: result.chatId } });
-      } else {
-        notifyEmployerNewApplicant(card.employerId, `${currentUser.firstName} ${currentUser.lastName}`, card.title).catch(() => {});
-        setHistory(h => ({ ...h, [date]: [card, ...(h[date] ?? []).slice(0, 9)] }));
-        setCards(prev => prev.slice(1));
-        showToast('Отклик отправлен! Ждём решения работодателя 👍', 'success');
-      }
+    const user = currentUser;
+    pendingLikeIds.current.add(card.id);
+    animateCard('right', vx, () => {
+      setHistory(h => ({ ...h, [date]: [card, ...(h[date] ?? []).slice(0, 9)] }));
+      setCards(prev => prev.slice(1));
+      (async () => {
+        try {
+          await dbUpsertLike(card.id, user.id, card.employerId, { workerLiked: true, workerSkipped: false });
+          const result = await dbCheckAndCreateMatch(card.id, user.id);
+          await refreshLikes(user);
+          if (result.matched) {
+            notifyEmployerGotMatch(card.employerId, `${user.firstName} ${user.lastName}`, card.title).catch(() => {});
+            router.push({ pathname: '/match', params: { vacancyId: card.id, chatId: result.chatId } });
+          } else {
+            notifyEmployerNewApplicant(card.employerId, `${user.firstName} ${user.lastName}`, card.title).catch(() => {});
+            showToast('Отклик отправлен! Ждём решения работодателя 👍', 'success');
+          }
+        } catch {
+          pendingLikeIds.current.delete(card.id);
+          showToast('Ошибка при отправке отклика', 'error');
+        }
+      })();
     });
   }, [currentCard, currentUser, swiping, selectedDate, animateCard, refreshLikes, router, showToast]);
 
-  const doUndo = useCallback(async () => {
+  const doUndo = useCallback(() => {
     if (!dateHistory.length || !currentUser || swiping) return;
     const last = dateHistory[0];
-    await dbRemoveLike(last.id, currentUser.id);
-    await refreshLikes();
+    const user = currentUser;
+    pendingLikeIds.current.delete(last.id);
     setHistory(h => ({ ...h, [selectedDate]: (h[selectedDate] ?? []).slice(1) }));
     setCards(prev => [last, ...prev]);
     pan.setValue({ x: -SW, y: 0 });
     Animated.spring(pan, { toValue: { x: 0, y: 0 }, tension: 200, friction: 20, useNativeDriver: false }).start();
+    dbRemoveLike(last.id, user.id).then(() => refreshLikes(user)).catch(() => {});
   }, [dateHistory, selectedDate, currentUser, swiping, refreshLikes, pan]);
 
   const doMessage = useCallback(async () => {
@@ -1241,6 +1247,8 @@ function EmployerHome() {
   const [refreshing, setRefreshing] = useState(false);
   const [workerListModal, setWorkerListModal] = useState<{ vacId: string; type: 'applicants' | 'hired' | 'rejected' } | null>(null);
   const didAutoClose = useRef(false);
+  const [closingIds, setClosingIds] = useState<Set<string>>(new Set());
+  const [closingPermIds, setClosingPermIds] = useState<Set<string>>(new Set());
 
   const onRefresh = async () => {
     if (refreshing) return;
@@ -1264,13 +1272,15 @@ function EmployerHome() {
   }, [vacancies]);
 
   const shown = myVacancies.filter(v => {
-    if (tab === 'active') return v.status === 'open' && v.date >= todayISO;
-    return v.status === 'closed' || (v.status === 'open' && v.date < todayISO);
+    const isClosing = closingIds.has(v.id);
+    if (tab === 'active') return !isClosing && v.status === 'open' && v.date >= todayISO;
+    return isClosing || v.status === 'closed' || (v.status === 'open' && v.date < todayISO);
   });
 
   const shownPerm = myPermVacancies.filter(v => {
-    if (tab === 'active') return v.status === 'open';
-    return v.status === 'closed';
+    const isClosing = closingPermIds.has(v.id);
+    if (tab === 'active') return !isClosing && v.status === 'open';
+    return isClosing || v.status === 'closed';
   });
 
   const applicantCount = (vacId: string) =>
@@ -1288,23 +1298,27 @@ function EmployerHome() {
 
   const closeVacancy = async (id: string) => {
     setConfirmClose(null);
+    setClosingIds(prev => new Set([...prev, id]));
     try {
       await dbUpdateVacancy(id, { status: 'closed' });
       showToast('Вакансия закрыта', 'success');
       refreshVacancies().catch(() => {});
     } catch (e) {
       console.error('[closeVacancy] error:', e);
+      setClosingIds(prev => { const s = new Set(prev); s.delete(id); return s; });
       showToast('Ошибка при закрытии вакансии', 'error');
     }
   };
 
   const closePermVacancy = async (id: string) => {
+    setClosingPermIds(prev => new Set([...prev, id]));
     try {
       await dbClosePermVacancy(id);
       showToast('Вакансия закрыта', 'success');
       refreshPermVacancies().catch(() => {});
     } catch (e) {
       console.error('[closePermVacancy] error:', e);
+      setClosingPermIds(prev => { const s = new Set(prev); s.delete(id); return s; });
       showToast('Ошибка при закрытии вакансии', 'error');
     }
   };

@@ -103,6 +103,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Boot
   useEffect(() => {
+    let settled = false;
+    const finish = () => { if (!settled) { settled = true; setLoading(false); } };
+    // Safety timeout — prevents infinite loading on devices with slow AsyncStorage
+    const timer = setTimeout(finish, 5000);
+
     (async () => {
       try {
         const sessionUser = await getSessionUser();
@@ -145,9 +150,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       } catch (e) {
         console.warn('[AppContext] boot error', e);
       } finally {
-        setLoading(false);
+        clearTimeout(timer);
+        finish();
       }
     })();
+    return () => { settled = true; clearTimeout(timer); };
   }, []);
 
   // Real-time subscriptions

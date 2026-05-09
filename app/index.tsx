@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Animated,
 } from 'react-native';
@@ -7,58 +7,61 @@ import { useRouter } from 'expo-router';
 import { useApp } from '@/hooks/useApp';
 import { Colors } from '@/constants/theme';
 
-function LoadingScreen() {
-  const progress = useRef(new Animated.Value(0)).current;
+const TRACK_W = 140;
 
-  useEffect(() => {
-    Animated.sequence([
-      Animated.timing(progress, {
-        toValue: 0.75,
-        duration: 500,
-        useNativeDriver: false,
-      }),
-      Animated.timing(progress, {
-        toValue: 0.92,
-        duration: 2500,
-        useNativeDriver: false,
-      }),
-    ]).start();
-  }, []);
-
-  const barWidth = progress.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0%', '100%'],
-  });
-
-  return (
-    <SafeAreaView style={styles.safe}>
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <Text style={styles.logo}>
-          <Text style={styles.logoBlack}>Job</Text>
-          <Text style={styles.logoOrange}>Too</Text>
-        </Text>
-        <View style={styles.progressTrack}>
-          <Animated.View style={[styles.progressFill, { width: barWidth }]} />
-        </View>
-      </View>
-    </SafeAreaView>
-  );
-}
-
-export default function Onboarding() {
+export default function RootScreen() {
   const router = useRouter();
   const { currentUser, loading } = useApp();
+  const progress = useRef(new Animated.Value(0)).current;
+  const slowAnim = useRef<Animated.CompositeAnimation | null>(null);
+  const finishing = useRef(false);
+  const [ready, setReady] = useState(false); // true = show onboarding
 
+  // Slow crawl animation while loading
   useEffect(() => {
-    if (!loading && currentUser) {
-      router.replace('/(tabs)');
-    }
-  }, [currentUser, loading]);
+    slowAnim.current = Animated.sequence([
+      Animated.timing(progress, { toValue: TRACK_W * 0.55, duration: 350, useNativeDriver: false }),
+      Animated.timing(progress, { toValue: TRACK_W * 0.88, duration: 3500, useNativeDriver: false }),
+    ]);
+    slowAnim.current.start();
+  }, []);
 
-  if (loading) {
-    return <LoadingScreen />;
+  // When loading ends, dash to 100% then navigate
+  useEffect(() => {
+    if (loading || finishing.current) return;
+    finishing.current = true;
+    slowAnim.current?.stop();
+    Animated.timing(progress, {
+      toValue: TRACK_W,
+      duration: 220,
+      useNativeDriver: false,
+    }).start(() => {
+      if (currentUser) {
+        router.replace('/(tabs)');
+      } else {
+        setReady(true);
+      }
+    });
+  }, [loading, currentUser]);
+
+  // Loading / transition screen
+  if (!ready) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.center}>
+          <Text style={styles.logo}>
+            <Text style={styles.logoBlack}>Job</Text>
+            <Text style={styles.logoOrange}>Too</Text>
+          </Text>
+          <View style={styles.track}>
+            <Animated.View style={[styles.fill, { width: progress }]} />
+          </View>
+        </View>
+      </SafeAreaView>
+    );
   }
 
+  // Onboarding (no user)
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.container}>
@@ -107,6 +110,25 @@ export default function Onboarding() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.bg },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  logo: { fontSize: 44 },
+  logoBlack: { fontWeight: '800', color: Colors.textPrimary },
+  logoOrange: { fontWeight: '800', color: Colors.primary },
+  track: {
+    width: TRACK_W,
+    height: 3,
+    backgroundColor: Colors.inputBorder,
+    borderRadius: 100,
+    overflow: 'hidden',
+    marginTop: 28,
+  },
+  fill: {
+    height: 3,
+    backgroundColor: Colors.primary,
+    borderRadius: 100,
+  },
+
+  // Onboarding styles
   container: {
     flex: 1,
     paddingHorizontal: 28,
@@ -114,11 +136,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   hero: { alignItems: 'center', marginBottom: 56 },
-  logo: { fontSize: 44 },
-  logoBlack: { fontWeight: '800', color: Colors.textPrimary },
-  logoOrange: { fontWeight: '800', color: Colors.primary },
   tagline: { fontSize: 15, color: Colors.textMuted, marginTop: 8 },
-
   btns: { width: '100%' },
   workerBtn: {
     backgroundColor: Colors.primary,
@@ -140,24 +158,8 @@ const styles = StyleSheet.create({
   },
   employerBtnMain: { color: Colors.textPrimary, fontSize: 16, fontWeight: '700' },
   employerBtnSub: { color: Colors.textMuted, fontSize: 12, marginTop: 3 },
-
   loginRow: { flexDirection: 'row', alignItems: 'center', marginTop: 32 },
   loginGray: { fontSize: 14, color: Colors.textMuted },
   loginLink: { fontSize: 14, fontWeight: '700', color: Colors.primary },
-
   version: { position: 'absolute', bottom: 20, fontSize: 11, color: Colors.textMuted },
-
-  progressTrack: {
-    width: 120,
-    height: 3,
-    backgroundColor: Colors.inputBorder,
-    borderRadius: 100,
-    overflow: 'hidden',
-    marginTop: 28,
-  },
-  progressFill: {
-    height: 3,
-    backgroundColor: Colors.primary,
-    borderRadius: 100,
-  },
 });
