@@ -19,7 +19,7 @@ const POLL_INTERVAL = 8000;
 export default function ChatRoom() {
   const router = useRouter();
   const { chatId } = useLocalSearchParams<{ chatId: string }>();
-  const { currentUser, users, chats, vacancies, refreshChats, refreshLikes, likes } = useApp();
+  const { currentUser, users, chats, vacancies, refreshChats, refreshLikes, likes, optimisticUpdateLike } = useApp();
 
   const chatRef = useRef(chats.find(c => c.id === chatId));
   const foundChat = chats.find(c => c.id === chatId);
@@ -161,6 +161,8 @@ export default function ChatRoom() {
         const safetyMsg: Message = { id: uid(), senderId: 'system_safety', text: '🔒 Рекомендуем не переводить общение в сторонние мессенджеры или почту, а продолжить его в чате JobToo: так у мошенников будет меньше шансов вас обмануть.\n\nГде бы вы ни общались — не сообщайте свой CVV-код, код из SMS и не вводите данные карты по ссылке.', timestamp: nowISO() };
         appendMessages([matchMsg, safetyMsg]);
         notifyWorkerGotMatch(chat.workerId, chat.companyName, chat.vacTitle).catch(() => {});
+        const existingLike = likes.find(l => l.vacancyId === vacId && l.workerId === workerId);
+        if (existingLike) optimisticUpdateLike({ ...existingLike, isMatch: true, employerLiked: true });
       }
       refreshLikes().catch(() => {});
       refreshChats().catch(() => {});

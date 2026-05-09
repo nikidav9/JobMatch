@@ -88,7 +88,7 @@ function WorkerListModal({
   onClose: () => void;
 }) {
   const router = useRouter();
-  const { currentUser, users, vacancies, chats, showToast, refreshLikes, refreshChats } = useApp();
+  const { currentUser, users, vacancies, chats, showToast, refreshLikes, refreshChats, optimisticUpdateLike } = useApp();
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [dataLoading, setDataLoading] = useState(true);
   const [localLikes, setLocalLikes] = useState<Like[]>([]);
@@ -188,6 +188,9 @@ function WorkerListModal({
     try {
       await dbUpsertLike(vacancyId, like.workerId, currentUser.id, { employerLiked: true });
       const result = await dbCheckAndCreateMatch(vacancyId, like.workerId);
+      if (result.matched) {
+        optimisticUpdateLike({ ...like, isMatch: true, employerLiked: true });
+      }
       refreshLikes().catch(() => {});
       notifyWorkerGotMatch(like.workerId, vacancy?.company ?? '', vacTitle).catch(() => {});
       showToast('🎉 Мэтч! Чат открыт', 'success');
@@ -262,9 +265,14 @@ function WorkerListModal({
         0,
       );
 
-      const text = worker
-        ? `Здравствуйте, ${worker.firstName}! Вы были отклонены по вакансии «${vacTitle}». Я бы хотел обсудить причину и, возможно, найти решение.`
-        : `Здравствуйте! Я хотел бы обсудить вашу заявку на вакансию «${vacTitle}».`;
+      const rejectedByWorker = like.workerLiked === false && like.workerSkipped === true;
+      const text = rejectedByWorker
+        ? (worker
+          ? `Здравствуйте, ${worker.firstName}! Вы отказались от вакансии «${vacTitle}». Хотелось бы узнать причину — может, сможем найти решение?`
+          : `Здравствуйте! Вы отказались от вакансии «${vacTitle}». Хотелось бы узнать причину — может, сможем найти решение?`)
+        : (worker
+          ? `Здравствуйте, ${worker.firstName}! Хотелось бы обсудить вашу заявку на вакансию «${vacTitle}».`
+          : `Здравствуйте! Хотелось бы обсудить вашу заявку на вакансию «${vacTitle}».`);
       await dbInsertMessage(chatId, currentUser.id, text);
       dbIncrementUnread(chatId, 'worker').catch(() => {});
       refreshChats().catch(() => {});
