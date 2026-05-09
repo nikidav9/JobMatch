@@ -193,7 +193,7 @@ function WorkerListModal({
       const result = await dbCheckAndCreateMatch(vacancyId, like.workerId);
       await refreshLikes();
       notifyWorkerGotMatch(like.workerId, vacancy?.company ?? '', vacTitle).catch(() => {});
-      showToast('🎉 Мэтч! Чат открыт', 'match');
+      showToast('🎉 Мэтч! Чат открыт', 'success');
       onClose();
       if (result.chatId) {
         router.push({ pathname: '/chat-room', params: { chatId: result.chatId } });
@@ -441,7 +441,7 @@ function WorkerFeed() {
   const router = useRouter();
   const {
     currentUser, users, vacancies, likes, chats,
-    refreshAll, refreshLikes,
+    refreshAll, refreshLikes, refreshChats,
     showToast,
   } = useApp();
   const [refreshing, setRefreshing] = useState(false);

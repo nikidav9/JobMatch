@@ -333,7 +333,7 @@ function EmployerMatches() {
       await refreshAll();
 
       notifyWorkerGotMatch(like.workerId, vac?.company ?? currentUser.company ?? '', vac?.title ?? '').catch(() => {});
-      showToast(`🎉 Мэтч с ${workerName}!`, 'match');
+      showToast(`🎉 Мэтч с ${workerName}!`, 'success');
 
       // Step 4: navigate to chat
       if (result.chatId) {

@@ -5,8 +5,6 @@ import {
   getSessionUser,
   saveSessionUser,
   clearSessionUser,
-  localDateStr,
-  getVirtualStartDate,
   extractPhoneDigits,
 } from '@/services/storage';
 import {
@@ -35,6 +33,7 @@ export interface AppContextValue {
   vacancies: Vacancy[];
   likes: Like[];
   chats: Chat[];
+  unreadCount: number;
   permVacancies: PermVacancy[];
   permApplications: PermApplication[];
   savedWorkers: User[];
@@ -100,28 +99,31 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Boot
   useEffect(() => {
-    const bootTimeout = setTimeout(() => setLoading(false), 8000);
     (async () => {
       try {
         const sessionUser = await getSessionUser();
         if (sessionUser) {
           _setCurrentUser(sessionUser);
-          dbUpsertUser(sessionUser).catch(() => {});
-          await Promise.all([
-            refreshUsers(),
-            refreshVacancies(),
-            refreshLikes(),
-            refreshChats(sessionUser),
-            refreshSaved(sessionUser),
-            refreshPermVacancies(sessionUser),
-            refreshPermApplications(sessionUser),
-            refreshPermSaved(sessionUser),
-          ]);
+          // Fire refreshes in background — don't block loading screen
+          (async () => {
+            try {
+              dbUpsertUser(sessionUser).catch(() => {});
+              await Promise.all([
+                refreshUsers(),
+                refreshVacancies(),
+                refreshLikes(),
+                refreshChats(sessionUser),
+                refreshSaved(sessionUser),
+                refreshPermVacancies(sessionUser),
+                refreshPermApplications(sessionUser),
+                refreshPermSaved(sessionUser),
+              ]);
+            } catch {}
+          })();
         }
       } catch (e) {
         console.warn('[AppContext] boot error', e);
       } finally {
-        clearTimeout(bootTimeout);
         setLoading(false);
       }
     })();
@@ -211,8 +213,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const refreshVacancies = async () => {
     const data = await dbGetVacancies();
-    const today = localDateStr(getVirtualStartDate());
-    setVacancies(data.filter(v => v.date === today));
+    setVacancies(data);
   };
 
   const refreshLikes = async () => {
@@ -229,10 +230,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const refreshAll = useCallback(async () => {
     if (!currentUser) return;
+    const user = currentUser;
     await Promise.all([
       refreshVacancies(),
       refreshLikes(),
-      refreshPermVacancies(currentUser),
+      refreshPermVacancies(user),
+      refreshChats(user),
     ]);
   }, [currentUser]);
 
@@ -276,6 +279,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
+  const unreadCount = chats.reduce((sum, c) => {
+    if (currentUser?.role === 'worker') return sum + (c.unreadWorker ?? 0);
+    if (currentUser?.role === 'employer') return sum + (c.unreadEmployer ?? 0);
+    return sum;
+  }, 0);
+
   return (
     <AppContext.Provider
       value={{
@@ -287,6 +296,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         vacancies,
         likes,
         chats,
+        unreadCount,
         permVacancies,
         permApplications,
         savedWorkers,

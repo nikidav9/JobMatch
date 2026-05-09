@@ -1,7 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { TextInput, StyleSheet, View, Text } from 'react-native';
 import { Colors } from '@/constants/theme';
-import { formatPhoneDisplay, isPhoneComplete } from '@/services/storage';
+import { isPhoneComplete } from '@/services/storage';
 
 interface Props {
   value: string; // formatted string like "+7 (999) 123-45-67"
