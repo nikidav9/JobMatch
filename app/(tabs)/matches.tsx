@@ -321,24 +321,24 @@ function EmployerMatches() {
       // Step 1: set employerLiked=true in DB
       await dbUpsertLike(like.vacancyId, like.workerId, currentUser.id, { employerLiked: true });
 
-      // Step 2: retry loop — wait until DB confirms employer_liked=true before creating match
+      // Step 2: check/create match — upsert is already committed, check immediately
       let result: { matched: boolean; chatId?: string } = { matched: false };
-      for (let attempt = 0; attempt < 5; attempt++) {
-        await new Promise(r => setTimeout(r, 250));
+      result = await dbCheckAndCreateMatch(like.vacancyId, like.workerId);
+      if (!result.matched && !result.chatId) {
+        // Small delay then one retry (in case of Supabase connection pool lag)
+        await new Promise(r => setTimeout(r, 400));
         result = await dbCheckAndCreateMatch(like.vacancyId, like.workerId);
-        if (result.matched || result.chatId) break;
       }
 
       // Step 3: refresh context in background — navigate immediately
       refreshAll().catch(() => {});
 
-      notifyWorkerGotMatch(like.workerId, vac?.company ?? currentUser.company ?? '', vac?.title ?? '').catch(() => {});
-      showToast(`🎉 Мэтч с ${workerName}!`, 'success');
-
-      // Step 4: navigate to chat
-      if (result.chatId) {
+      if (result.matched || result.chatId) {
+        notifyWorkerGotMatch(like.workerId, vac?.company ?? currentUser.company ?? '', vac?.title ?? '').catch(() => {});
+        showToast(`🎉 Мэтч с ${workerName}!`, 'success');
         router.push({ pathname: '/chat-room', params: { chatId: result.chatId } });
       } else {
+        showToast(`✅ Подтверждено — ждём создания чата`, 'info');
         router.push({ pathname: '/(tabs)/chats' });
       }
     } catch {
