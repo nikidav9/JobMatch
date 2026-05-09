@@ -1240,6 +1240,7 @@ function EmployerHome() {
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [workerListModal, setWorkerListModal] = useState<{ vacId: string; type: 'applicants' | 'hired' | 'rejected' } | null>(null);
+  const didAutoClose = useRef(false);
 
   const onRefresh = async () => {
     if (refreshing) return;
@@ -1253,8 +1254,10 @@ function EmployerHome() {
   const myPermVacancies = permVacancies.filter(v => v.employerId === currentUser?.id);
 
   useEffect(() => {
+    if (didAutoClose.current) return;
     const pastOpen = myVacancies.filter(v => v.status === 'open' && v.date < todayISO);
     if (pastOpen.length === 0) return;
+    didAutoClose.current = true;
     Promise.all(pastOpen.map(v => dbUpdateVacancy(v.id, { status: 'closed' })))
       .then(() => refreshVacancies())
       .catch(e => console.warn('[EmployerHome] auto-close past vacancies error', e));
@@ -1284,24 +1287,25 @@ function EmployerHome() {
     permApplications.filter(a => a.vacancyId === vacId).length;
 
   const closeVacancy = async (id: string) => {
+    setConfirmClose(null);
     try {
       await dbUpdateVacancy(id, { status: 'closed' });
-      await refreshVacancies();
       showToast('Вакансия закрыта', 'success');
+      refreshVacancies().catch(() => {});
     } catch (e) {
+      console.error('[closeVacancy] error:', e);
       showToast('Ошибка при закрытии вакансии', 'error');
-    } finally {
-      setConfirmClose(null);
     }
   };
 
   const closePermVacancy = async (id: string) => {
     try {
       await dbClosePermVacancy(id);
-      await refreshPermVacancies();
       showToast('Вакансия закрыта', 'success');
-    } catch {
-      showToast('Ошибка', 'error');
+      refreshPermVacancies().catch(() => {});
+    } catch (e) {
+      console.error('[closePermVacancy] error:', e);
+      showToast('Ошибка при закрытии вакансии', 'error');
     }
   };
 
