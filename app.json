@@ -1,7 +1,8 @@
 {
   "expo": {
     "name": "JobToo",
-    "slug": "jobtoo",
+    "slug": "onspace-app",
+    "owner": "nikidav23",
     "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/jt-logo.jpg",
