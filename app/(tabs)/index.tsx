@@ -618,6 +618,7 @@ function WorkerFeed() {
       router.push({ pathname: '/chat-room', params: { chatId } });
     } catch (e) {
       showToast('Ошибка при открытии чата', 'error');
+    } finally {
       messagingRef.current = false;
     }
   }, [currentCard, currentUser, chats, refreshChats, router, showToast]);
