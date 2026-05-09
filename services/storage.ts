@@ -113,3 +113,28 @@ export function extractPhoneDigits(formatted: string): string {
   if (digits.startsWith('7') || digits.startsWith('8')) return '7' + digits.slice(1, 11);
   return '7' + digits.slice(0, 10);
 }
+
+// ─── AsyncStorage cache (stale-while-revalidate) ──────────────────────────────
+
+export const CACHE_KEYS = {
+  vacancies:  'jm_c1_vac',
+  likes:      (uid: string) => `jm_c1_likes_${uid}`,
+  chats:      (uid: string) => `jm_c1_chats_${uid}`,
+  permVac:    (uid: string) => `jm_c1_pvac_${uid}`,
+  permApps:   (uid: string) => `jm_c1_papps_${uid}`,
+};
+
+export async function loadCache<T>(key: string): Promise<T | null> {
+  try {
+    const raw = await AsyncStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveCache(key: string, data: unknown): Promise<void> {
+  try {
+    await AsyncStorage.setItem(key, JSON.stringify(data));
+  } catch {}
+}

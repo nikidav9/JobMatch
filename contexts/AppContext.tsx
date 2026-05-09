@@ -6,6 +6,9 @@ import {
   saveSessionUser,
   clearSessionUser,
   extractPhoneDigits,
+  loadCache,
+  saveCache,
+  CACHE_KEYS,
 } from '@/services/storage';
 import {
   dbGetUsers,
@@ -13,6 +16,7 @@ import {
   dbGetUserByPhone,
   dbGetVacancies,
   dbGetLikes,
+  dbGetLikesForUser,
   dbGetChats,
   dbGetSaved,
   dbGetPermVacancies,
@@ -46,7 +50,7 @@ export interface AppContextValue {
   logout: () => Promise<void>;
   refreshUsers: () => Promise<void>;
   refreshVacancies: () => Promise<void>;
-  refreshLikes: () => Promise<void>;
+  refreshLikes: (u?: User) => Promise<void>;
   refreshChats: (u?: User) => Promise<void>;
   refreshAll: () => Promise<void>;
   refreshSaved: (u?: User) => Promise<void>;
@@ -104,14 +108,31 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const sessionUser = await getSessionUser();
         if (sessionUser) {
           _setCurrentUser(sessionUser);
-          // Fire refreshes in background — don't block loading screen
+
+          // Load all caches in parallel — AsyncStorage reads < 50ms total
+          const [cachedVac, cachedLikes, cachedChats, cachedPermVac, cachedPermApps] = await Promise.all([
+            loadCache<Vacancy[]>(CACHE_KEYS.vacancies),
+            loadCache<Like[]>(CACHE_KEYS.likes(sessionUser.id)),
+            loadCache<Chat[]>(CACHE_KEYS.chats(sessionUser.id)),
+            loadCache<PermVacancy[]>(CACHE_KEYS.permVac(sessionUser.id)),
+            loadCache<PermApplication[]>(CACHE_KEYS.permApps(sessionUser.id)),
+          ]);
+
+          // Show cached data instantly — user sees their screen right away
+          if (cachedVac) setVacancies(cachedVac);
+          if (cachedLikes) setLikes(cachedLikes);
+          if (cachedChats) setChats(cachedChats);
+          if (cachedPermVac) setPermVacancies(cachedPermVac);
+          if (cachedPermApps) setPermApplications(cachedPermApps);
+
+          // Refresh from Supabase in background — silently updates UI when done
           (async () => {
             try {
               dbUpsertUser(sessionUser).catch(() => {});
               await Promise.all([
                 refreshUsers(),
                 refreshVacancies(),
-                refreshLikes(),
+                refreshLikes(sessionUser),
                 refreshChats(sessionUser),
                 refreshSaved(sessionUser),
                 refreshPermVacancies(sessionUser),
@@ -134,7 +155,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const sb = getSupabaseClient();
     const usersSub = sb.channel('jm_users_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_users' }, () => refreshUsers()).subscribe();
     const vacSub = sb.channel('jm_vacancies_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_vacancies' }, () => refreshVacancies()).subscribe();
-    const likesSub = sb.channel('jm_likes_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_likes' }, () => refreshLikes()).subscribe();
+    const likesSub = sb.channel('jm_likes_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_likes' }, () => { if (currentUser) refreshLikes(currentUser); }).subscribe();
     const chatsSub = sb.channel('jm_chats_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_chats' }, () => { if (currentUser) refreshChats(currentUser); }).subscribe();
     const permVacSub = sb.channel('jm_perm_vacancies_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_vacancies' }, () => { if (currentUser) refreshPermVacancies(currentUser); }).subscribe();
     const permAppSub = sb.channel('jm_perm_applications_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_applications' }, () => { if (currentUser) refreshPermApplications(currentUser); }).subscribe();
@@ -151,13 +172,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const registerUser = async (u: User) => {
     _setCurrentUser(u);
     await saveSessionUser(u);
-    setLoading(false); // ← критично для разблокировки AuthGuard
+    setLoading(false);
     registerForPushNotifications(u.id).catch(() => {});
-    // Все запросы к БД в фоне
     dbUpsertUser(u).catch(e => console.warn('[registerUser] db write error', e));
     refreshUsers().catch(() => {});
     refreshVacancies().catch(() => {});
-    refreshLikes().catch(() => {});
+    refreshLikes(u).catch(() => {});
     refreshChats(u).catch(() => {});
     refreshSaved(u).catch(() => {});
     refreshPermVacancies(u).catch(() => {});
@@ -175,7 +195,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     registerForPushNotifications(found.id).catch(() => {});
     refreshUsers().catch(() => {});
     refreshVacancies().catch(() => {});
-    refreshLikes().catch(() => {});
+    refreshLikes(found).catch(() => {});
     refreshChats(found).catch(() => {});
     refreshSaved(found).catch(() => {});
     refreshPermVacancies(found).catch(() => {});
@@ -214,11 +234,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const refreshVacancies = async () => {
     const data = await dbGetVacancies();
     setVacancies(data);
+    saveCache(CACHE_KEYS.vacancies, data).catch(() => {});
   };
 
-  const refreshLikes = async () => {
-    const data = await dbGetLikes();
+  const refreshLikes = async (u?: User) => {
+    const user = u ?? currentUser;
+    if (!user) {
+      const data = await dbGetLikes();
+      setLikes(data);
+      return;
+    }
+    const data = await dbGetLikesForUser(user.id, user.role);
     setLikes(data);
+    saveCache(CACHE_KEYS.likes(user.id), data).catch(() => {});
   };
 
   const refreshChats = async (u?: User) => {
@@ -226,6 +254,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (!user) return;
     const data = await dbGetChats(user.id, user.role);
     setChats(data);
+    saveCache(CACHE_KEYS.chats(user.id), data).catch(() => {});
   };
 
   const refreshAll = useCallback(async () => {
@@ -233,7 +262,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const user = currentUser;
     await Promise.all([
       refreshVacancies(),
-      refreshLikes(),
+      refreshLikes(user),
       refreshPermVacancies(user),
       refreshChats(user),
     ]);
@@ -251,13 +280,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const refreshPermVacancies = async (u?: User) => {
     const user = u ?? currentUser;
     if (!user) return;
-    if (user.role === 'employer') {
-      const data = await dbGetPermVacanciesByEmployer(user.id);
-      setPermVacancies(data);
-    } else {
-      const data = await dbGetPermVacancies();
-      setPermVacancies(data);
-    }
+    const data = user.role === 'employer'
+      ? await dbGetPermVacanciesByEmployer(user.id)
+      : await dbGetPermVacancies();
+    setPermVacancies(data);
+    saveCache(CACHE_KEYS.permVac(user.id), data).catch(() => {});
   };
 
   const refreshPermApplications = async (u?: User) => {
@@ -265,6 +292,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (!user) return;
     const data = await dbGetPermApplications(user.id, user.role);
     setPermApplications(data);
+    saveCache(CACHE_KEYS.permApps(user.id), data).catch(() => {});
   };
 
   const refreshPermSaved = async (u?: User) => {

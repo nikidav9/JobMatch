@@ -203,6 +203,13 @@ export async function dbGetLikes(): Promise<Like[]> {
   return (data ?? []).map(rowToLike);
 }
 
+export async function dbGetLikesForUser(userId: string, role: 'worker' | 'employer'): Promise<Like[]> {
+  const field = role === 'worker' ? 'worker_id' : 'employer_id';
+  const { data, error } = await sb().from('jm_likes').select('*').eq(field, userId);
+  if (error) throwOnError('dbGetLikesForUser', error);
+  return (data ?? []).map(rowToLike);
+}
+
 export async function dbGetLikeByVacancyWorker(vacancyId: string, workerId: string): Promise<Like | null> {
   const { data } = await sb().from('jm_likes').select('*').eq('vacancy_id', vacancyId).eq('worker_id', workerId).maybeSingle();
   return data ? rowToLike(data) : null;

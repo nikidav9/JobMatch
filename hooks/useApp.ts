@@ -15,7 +15,7 @@ export function useApp() {
       refreshVacancies: async () => {},
       likes: [],
       setLikes: () => {},
-      refreshLikes: async () => {},
+      refreshLikes: async (_u?: any) => {},
       chats: [],
       unreadCount: 0,
       refreshChats: async () => {},
