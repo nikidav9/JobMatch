@@ -462,6 +462,7 @@ function WorkerFeed() {
   const pan = useRef(new Animated.ValueXY()).current;
   const pendingLikeIds = useRef<Set<string>>(new Set());
   const swipingRef = useRef(false);
+  const messagingRef = useRef(false);
 
   const wantOpacity = pan.x.interpolate({ inputRange: [0, SWIPE_THRESHOLD], outputRange: [0, 1], extrapolate: 'clamp' });
   const skipOpacity = pan.x.interpolate({ inputRange: [-SWIPE_THRESHOLD, 0], outputRange: [1, 0], extrapolate: 'clamp' });
@@ -558,7 +559,7 @@ function WorkerFeed() {
         try {
           await dbUpsertLike(card.id, user.id, card.employerId, { workerLiked: true, workerSkipped: false });
           const result = await dbCheckAndCreateMatch(card.id, user.id);
-          await refreshLikes(user);
+          refreshLikes(user).catch(() => {});
           if (result.matched) {
             notifyEmployerGotMatch(card.employerId, `${user.firstName} ${user.lastName}`, card.title).catch(() => {});
             router.push({ pathname: '/match', params: { vacancyId: card.id, chatId: result.chatId } });
@@ -567,8 +568,10 @@ function WorkerFeed() {
             showToast('Отклик отправлен! Ждём решения работодателя 👍', 'success');
           }
         } catch {
+          // Restore card to front of deck on failure
           pendingLikeIds.current.delete(card.id);
-          showToast('Ошибка при отправке отклика', 'error');
+          setCards(prev => [card, ...prev.filter(v => v.id !== card.id)]);
+          showToast('Ошибка при отправке отклика — попробуй ещё раз', 'error');
         }
       })();
     });
@@ -587,7 +590,7 @@ function WorkerFeed() {
   }, [dateHistory, selectedDate, currentUser, swiping, refreshLikes, pan]);
 
   const doMessage = useCallback(async () => {
-    if (!currentCard || !currentUser) return;
+    if (!currentCard || !currentUser || messagingRef.current) return;
     const existingChat = chats.find(
       c => c.vacancyId === currentCard.id && c.workerId === currentUser.id
     );
@@ -595,6 +598,7 @@ function WorkerFeed() {
       router.push({ pathname: '/chat-room', params: { chatId: existingChat.id } });
       return;
     }
+    messagingRef.current = true;
     try {
       await dbUpsertLike(currentCard.id, currentUser.id, currentCard.employerId, {
         workerLiked: true,
@@ -614,6 +618,7 @@ function WorkerFeed() {
       router.push({ pathname: '/chat-room', params: { chatId } });
     } catch (e) {
       showToast('Ошибка при открытии чата', 'error');
+      messagingRef.current = false;
     }
   }, [currentCard, currentUser, chats, refreshChats, router, showToast]);
 

@@ -272,7 +272,6 @@ export default function CreateVacancy() {
       const msg = e instanceof Error ? e.message : String(e);
       showToast(`Ошибка: ${msg}`, 'error');
       console.error('[CreateVacancy] submit error', e);
-    } finally {
       setSaving(false);
     }
   };
