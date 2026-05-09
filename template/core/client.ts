@@ -44,10 +44,9 @@ class SupabaseManager {
       this.instance = createClient(supabaseUrl, supabaseAnonKey, {
         auth: {
           storage: this.createStorageAdapter(),
-          autoRefreshToken: true,
-          persistSession: true,
-          detectSessionInUrl: Platform.OS === 'web',
-          flowType: 'pkce',
+          autoRefreshToken: false,
+          persistSession: false,
+          detectSessionInUrl: false,
         },
       });
       

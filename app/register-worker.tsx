@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
@@ -13,7 +13,7 @@ import { MetroPicker } from '@/components/feature/MetroPicker';
 import { WorkTypeSelector } from '@/components/feature/WorkTypeSelector';
 import { useApp } from '@/hooks/useApp';
 import { uid, nowISO, isPhoneComplete, extractPhoneDigits } from '@/services/storage';
-import { dbCheckPhoneExists } from '@/services/db';
+import { dbCheckPhoneExists, dbWarmup } from '@/services/db';
 import { WorkType } from '@/constants/types';
 import { METRO_LINES } from '@/constants/metro';
 
@@ -41,6 +41,9 @@ export default function RegisterWorker() {
   const [passError, setPassError] = useState('');
   const [agreed, setAgreed] = useState(false);
 
+  // Warm up the Supabase connection so the first phone-check doesn't hang
+  useEffect(() => { dbWarmup(); }, []);
+
   const toggleWork = (t: WorkType) => {
     setWorkTypes([t]);
   };
@@ -54,14 +57,20 @@ export default function RegisterWorker() {
     setChecking(true);
     try {
       const digits = extractPhoneDigits(phone);
-      const exists = await dbCheckPhoneExists(digits);
+      // On timeout or network error — assume phone is free and let the user through.
+      // A real duplicate will be rejected by the DB unique constraint on final submit.
+      const timeout = new Promise<boolean>(resolve =>
+        setTimeout(() => resolve(false), 12000)
+      );
+      const exists = await Promise.race([dbCheckPhoneExists(digits), timeout]);
       if (exists) {
         setPhoneError('Аккаунт с этим номером уже существует. Войдите в систему.');
         return;
       }
       setStep(2);
     } catch {
-      setPhoneError('Ошибка проверки номера. Попробуйте ещё раз.');
+      // Any unexpected error — let the user through, DB will enforce uniqueness
+      setStep(2);
     } finally {
       setChecking(false);
     }

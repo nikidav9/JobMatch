@@ -85,15 +85,27 @@ export async function dbDeleteUser(id: string): Promise<void> {
   if (error) console.error('dbDeleteUser', error.message);
 }
 
+// Пинг-прогрев соединения — вызывается при открытии экранов регистрации,
+// чтобы Supabase успел проснуться до нажатия кнопки
+export function dbWarmup(): void {
+  try {
+    void sb().from('jm_users').select('id').limit(1);
+  } catch {}
+}
+
 // Быстрая проверка номера — не тянет всех пользователей
 export async function dbCheckPhoneExists(phone: string): Promise<boolean> {
-  const { data, error } = await sb()
-    .from('jm_users')
-    .select('id')
-    .eq('phone', phone)
-    .maybeSingle();
-  if (error) return false;
-  return !!data;
+  try {
+    const { data, error } = await sb()
+      .from('jm_users')
+      .select('id')
+      .eq('phone', phone)
+      .maybeSingle();
+    if (error) return false;
+    return !!data;
+  } catch {
+    return false;
+  }
 }
 
 // Логин: одна строка по телефону + пароль

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
@@ -11,7 +11,7 @@ import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { PhoneInput } from '@/components/feature/PhoneInput';
 import { useApp } from '@/hooks/useApp';
 import { uid, nowISO, isPhoneComplete, extractPhoneDigits } from '@/services/storage';
-import { dbCheckPhoneExists } from '@/services/db';
+import { dbCheckPhoneExists, dbWarmup } from '@/services/db';
 
 // Steps: 1-Phone, 2-Password, 3-Name, 4-Legal
 const TOTAL = 4;
@@ -32,6 +32,9 @@ export default function RegisterEmployer() {
   const [phoneError, setPhoneError] = useState('');
   const [passError, setPassError] = useState('');
 
+  // Warm up the Supabase connection so the first phone-check doesn't hang
+  useEffect(() => { dbWarmup(); }, []);
+
   const back = () => { if (step === 1) router.back(); else setStep(s => s - 1); };
   const next = () => setStep(s => s + 1);
 
@@ -41,14 +44,20 @@ export default function RegisterEmployer() {
     setChecking(true);
     try {
       const digits = extractPhoneDigits(phone);
-      const exists = await dbCheckPhoneExists(digits);
+      // On timeout or network error — assume phone is free and let the user through.
+      // A real duplicate will be rejected by the DB unique constraint on final submit.
+      const timeout = new Promise<boolean>(resolve =>
+        setTimeout(() => resolve(false), 12000)
+      );
+      const exists = await Promise.race([dbCheckPhoneExists(digits), timeout]);
       if (exists) {
         setPhoneError('Аккаунт с этим номером уже существует. Войдите в систему.');
         return;
       }
       setStep(2);
     } catch {
-      setPhoneError('Ошибка проверки номера. Попробуйте ещё раз.');
+      // Any unexpected error — let the user through, DB will enforce uniqueness
+      setStep(2);
     } finally {
       setChecking(false);
     }
