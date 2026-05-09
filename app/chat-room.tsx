@@ -13,6 +13,7 @@ import { Message, Chat } from '@/constants/types';
 import { nameColorFromString, getInitials, formatDate, uid, nowISO } from '@/services/storage';
 import { dbGetMessages, dbInsertMessage, dbMarkRead, dbIncrementUnread, dbGetLikeByVacancyWorker, dbUpsertLike, dbCheckAndCreateMatch, dbGetLikes, dbGetChatById } from '@/services/db';
 import { notifyWorkerGotMatch, notifyWorkerNewMessage, notifyEmployerNewMessage } from '@/services/notifications';
+import { getSupabaseClient } from '@/template';
 
 const POLL_INTERVAL = 8000;
 
@@ -126,6 +127,50 @@ export default function ChatRoom() {
     poll();
     const interval = setInterval(poll, POLL_INTERVAL);
     return () => clearInterval(interval);
+  }, [chat?.id]);
+
+  // Real-time subscription for new messages in this chat
+  useEffect(() => {
+    if (!chatId || !currentUser) return;
+    const userId = currentUser.id;
+    const role = currentUser.role;
+    const sb = getSupabaseClient();
+    const channel = sb
+      .channel(`messages:${chatId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'jm_messages', filter: `chat_id=eq.${chatId}` }, (payload: any) => {
+        const r = payload.new;
+        const msg: Message = { id: r.id, senderId: r.sender_id, text: r.text, timestamp: r.created_at };
+        setMessages(prev => {
+          if (prev.some(m => m.id === msg.id)) return prev;
+          lastCountRef.current = prev.length + 1;
+          return [...prev, msg];
+        });
+        setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
+        if (r.sender_id !== userId) {
+          dbMarkRead(chatId, role).catch(() => {});
+          refreshChats().catch(() => {});
+        }
+      })
+      .subscribe();
+    return () => { channel.unsubscribe(); };
+  }, [chatId, currentUser?.id]);
+
+  // Real-time subscription for like status changes (match / reject)
+  useEffect(() => {
+    if (!chat) return;
+    const { vacancyId, workerId } = chat;
+    const sb = getSupabaseClient();
+    const channel = sb
+      .channel(`like:${vacancyId}:${workerId}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'jm_likes', filter: `vacancy_id=eq.${vacancyId}` }, (payload: any) => {
+        const r = payload.new;
+        if (r.worker_id !== workerId) return;
+        if (r.is_match || r.employer_liked === true) setLikeStatus('approved');
+        else if (r.employer_liked === false) setLikeStatus('rejected');
+        else setLikeStatus('pending');
+      })
+      .subscribe();
+    return () => { channel.unsubscribe(); };
   }, [chat?.id]);
 
   // Scroll to bottom when messages load
