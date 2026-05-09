@@ -1,11 +1,49 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity,
+  View, Text, StyleSheet, TouchableOpacity, Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useApp } from '@/hooks/useApp';
 import { Colors } from '@/constants/theme';
+
+function LoadingScreen() {
+  const progress = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.sequence([
+      Animated.timing(progress, {
+        toValue: 0.75,
+        duration: 500,
+        useNativeDriver: false,
+      }),
+      Animated.timing(progress, {
+        toValue: 0.92,
+        duration: 2500,
+        useNativeDriver: false,
+      }),
+    ]).start();
+  }, []);
+
+  const barWidth = progress.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0%', '100%'],
+  });
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        <Text style={styles.logo}>
+          <Text style={styles.logoBlack}>Job</Text>
+          <Text style={styles.logoOrange}>Too</Text>
+        </Text>
+        <View style={styles.progressTrack}>
+          <Animated.View style={[styles.progressFill, { width: barWidth }]} />
+        </View>
+      </View>
+    </SafeAreaView>
+  );
+}
 
 export default function Onboarding() {
   const router = useRouter();
@@ -18,16 +56,7 @@ export default function Onboarding() {
   }, [currentUser, loading]);
 
   if (loading) {
-    return (
-      <SafeAreaView style={styles.safe}>
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={styles.logo}>
-            <Text style={styles.logoBlack}>Job</Text>
-            <Text style={styles.logoOrange}>Too</Text>
-          </Text>
-        </View>
-      </SafeAreaView>
-    );
+    return <LoadingScreen />;
   }
 
   return (
@@ -117,4 +146,18 @@ const styles = StyleSheet.create({
   loginLink: { fontSize: 14, fontWeight: '700', color: Colors.primary },
 
   version: { position: 'absolute', bottom: 20, fontSize: 11, color: Colors.textMuted },
+
+  progressTrack: {
+    width: 120,
+    height: 3,
+    backgroundColor: Colors.inputBorder,
+    borderRadius: 100,
+    overflow: 'hidden',
+    marginTop: 28,
+  },
+  progressFill: {
+    height: 3,
+    backgroundColor: Colors.primary,
+    borderRadius: 100,
+  },
 });
