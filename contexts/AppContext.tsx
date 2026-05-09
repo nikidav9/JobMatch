@@ -157,6 +157,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return () => { settled = true; clearTimeout(timer); };
   }, []);
 
+  // Keep Supabase warm while app is open — ping every 4 minutes
+  useEffect(() => {
+    const sb = getSupabaseClient();
+    const interval = setInterval(() => {
+      sb.from('jm_users').select('id').limit(1).then(() => {}).catch(() => {});
+    }, 4 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Real-time subscriptions
   useEffect(() => {
     const sb = getSupabaseClient();
