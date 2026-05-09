@@ -27,7 +27,13 @@
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/jt-logo.jpg"
+      "favicon": "./assets/images/jt-logo.jpg",
+      "name": "JobToo",
+      "shortName": "JobToo",
+      "description": "Подработки на складе в Москве",
+      "themeColor": "#FF6B1A",
+      "backgroundColor": "#ffffff",
+      "preferRelatedApplications": false
     },
     "plugins": [
       "expo-router",
