@@ -265,8 +265,16 @@ export async function dbUpsertLike(
     shift_completed: updates.shiftCompleted ?? base.shift_completed,
   };
 
-  const { error } = await sb().from('jm_likes').upsert(row, { onConflict: 'vacancy_id,worker_id' });
+  const { data: written, error } = await sb()
+    .from('jm_likes')
+    .upsert(row, { onConflict: 'vacancy_id,worker_id' })
+    .select();
   if (error) throwOnError('dbUpsertLike', error);
+  // If data is empty the write was silently blocked (RLS or missing permission)
+  if (!written || written.length === 0) {
+    console.error('[dbUpsertLike] Write silently ignored — check RLS policies on jm_likes');
+    throw new Error('Like not saved: permission denied');
+  }
   return rowToLike(row);
 }
 
