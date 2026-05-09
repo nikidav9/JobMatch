@@ -11,6 +11,7 @@ import { useApp } from '@/hooks/useApp';
 import { METRO_LINES } from '@/constants/metro';
 import { nameColorFromString, getInitials } from '@/services/storage';
 import { dbGetRatingsForUser, UserRating } from '@/services/db';
+import { getSupabaseClient } from '@/template';
 
 function StarRow({ rating, count }: { rating: number; count: number }) {
   return (
@@ -68,13 +69,30 @@ export default function UserProfileScreen() {
 
   const user = users.find(u => u.id === userId);
 
-  useEffect(() => {
-    if (!userId) return;
+  const fetchRatings = (id: string) => {
     setLoadingRatings(true);
-    dbGetRatingsForUser(userId)
+    dbGetRatingsForUser(id)
       .then(setRatings)
       .catch(() => {})
       .finally(() => setLoadingRatings(false));
+  };
+
+  useEffect(() => {
+    if (!userId) return;
+    fetchRatings(userId);
+  }, [userId]);
+
+  // Real-time: refresh ratings list when a new rating is submitted for this user
+  useEffect(() => {
+    if (!userId) return;
+    const sb = getSupabaseClient();
+    const channel = sb
+      .channel(`ratings:${userId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'jm_ratings', filter: `to_user_id=eq.${userId}` }, () => {
+        fetchRatings(userId);
+      })
+      .subscribe();
+    return () => { channel.unsubscribe(); };
   }, [userId]);
 
   if (!user) {

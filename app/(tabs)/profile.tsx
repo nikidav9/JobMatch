@@ -62,11 +62,23 @@ function RatingsModal({ userId, users, onClose }: { userId: string; users: any[]
   const [ratings, setRatings] = useState<UserRating[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const fetchRatings = () => {
     dbGetRatingsForUser(userId)
       .then(setRatings)
       .catch(() => {})
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { fetchRatings(); }, [userId]);
+
+  // Real-time: new rating arrives while modal is open → refresh instantly
+  useEffect(() => {
+    const sb = getSupabaseClient();
+    const channel = sb
+      .channel(`ratings_modal:${userId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'jm_ratings', filter: `to_user_id=eq.${userId}` }, fetchRatings)
+      .subscribe();
+    return () => { channel.unsubscribe(); };
   }, [userId]);
 
   const avg = ratings.length > 0

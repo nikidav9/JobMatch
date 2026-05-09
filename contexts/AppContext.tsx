@@ -202,12 +202,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Real-time subscriptions
   useEffect(() => {
     const sb = getSupabaseClient();
-    const usersSub = sb.channel('jm_users_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_users' }, () => refreshUsers()).subscribe();
-    const vacSub = sb.channel('jm_vacancies_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_vacancies' }, () => refreshVacancies()).subscribe();
-    const likesSub = sb.channel('jm_likes_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_likes' }, () => { if (currentUser) refreshLikes(currentUser); }).subscribe();
-    const chatsSub = sb.channel('jm_chats_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_chats' }, () => { if (currentUser) refreshChats(currentUser); }).subscribe();
-    const permVacSub = sb.channel('jm_perm_vacancies_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_vacancies' }, () => { if (currentUser) refreshPermVacancies(currentUser); }).subscribe();
-    const permAppSub = sb.channel('jm_perm_applications_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_applications' }, () => { if (currentUser) refreshPermApplications(currentUser); }).subscribe();
+    const usersSub    = sb.channel('jm_users_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_users' }, () => refreshUsers()).subscribe();
+    const vacSub      = sb.channel('jm_vacancies_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_vacancies' }, () => refreshVacancies()).subscribe();
+    const likesSub    = sb.channel('jm_likes_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_likes' }, () => { if (currentUser) refreshLikes(currentUser); }).subscribe();
+    const chatsSub    = sb.channel('jm_chats_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_chats' }, () => { if (currentUser) refreshChats(currentUser); }).subscribe();
+    const permVacSub  = sb.channel('jm_perm_vacancies_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_vacancies' }, () => { if (currentUser) refreshPermVacancies(currentUser); }).subscribe();
+    const permAppSub  = sb.channel('jm_perm_applications_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_applications' }, () => { if (currentUser) refreshPermApplications(currentUser); }).subscribe();
+    // New message in any chat → refresh chats list (preview + unread badge)
+    const msgSub      = sb.channel('jm_messages_changes').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'jm_messages' }, () => { if (currentUser) refreshChats(currentUser); }).subscribe();
+    // Saved vacancies
+    const savedSub    = sb.channel('jm_saved_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_saved' }, () => { if (currentUser) refreshSaved(currentUser); }).subscribe();
+    const permSavedSub = sb.channel('jm_perm_saved_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_saved' }, () => { if (currentUser) refreshPermSaved(currentUser); }).subscribe();
+    // New rating → also covered by jm_users update, but this fires first so stars update sooner
+    const ratingsSub  = sb.channel('jm_ratings_changes').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'jm_ratings' }, () => refreshUsers()).subscribe();
     return () => {
       usersSub.unsubscribe();
       vacSub.unsubscribe();
@@ -215,6 +222,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       chatsSub.unsubscribe();
       permVacSub.unsubscribe();
       permAppSub.unsubscribe();
+      msgSub.unsubscribe();
+      savedSub.unsubscribe();
+      permSavedSub.unsubscribe();
+      ratingsSub.unsubscribe();
     };
   }, [currentUser?.id]);
 
