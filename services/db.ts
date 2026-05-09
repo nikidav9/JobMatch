@@ -752,11 +752,8 @@ export async function dbSubmitRatingAndMaybeDelete(params: {
     .eq('id', likeId)
     .maybeSingle();
 
-  if (likeRow?.worker_rated && likeRow?.employer_rated) {
-    await sb().from('jm_likes').delete().eq('id', likeId);
-    return { bothRated: true };
-  }
-  return { bothRated: false };
+  const bothRated = !!(likeRow?.worker_rated && likeRow?.employer_rated);
+  return { bothRated };
 }
 
 // ─── Push tokens ──────────────────────────────────────────────────────────────

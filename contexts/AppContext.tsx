@@ -310,6 +310,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (!currentUser) return;
     const user = currentUser;
     await Promise.all([
+      refreshUsers(),
       refreshVacancies(),
       refreshLikes(user),
       refreshPermVacancies(user),
