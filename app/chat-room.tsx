@@ -83,8 +83,8 @@ export default function ChatRoom() {
           const newMsgs = msgs.slice(lastCountRef.current);
           const fromOther = newMsgs.filter(m => m.senderId !== userId && m.senderId !== 'system');
           if (fromOther.length > 0) {
-            await dbMarkRead(localChatId, role);
-            await refreshChats();
+            dbMarkRead(localChatId, role).catch(() => {});
+            refreshChats().catch(() => {});
           }
           lastCountRef.current = msgs.length;
           setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
@@ -128,11 +128,11 @@ export default function ChatRoom() {
         notifyWorkerGotMatch(chat.workerId, chat.companyName, chat.vacTitle).catch(() => {});
       }
       // Refresh likes so the Matches tab updates for both parties
-      await refreshLikes();
+      refreshLikes().catch(() => {});
       const newMsgs = await dbGetMessages(chat.id);
       setMessages(newMsgs);
       lastCountRef.current = newMsgs.length;
-      await refreshChats();
+      refreshChats().catch(() => {});
       setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
     } catch (e) {
       console.error('[ChatRoom] handleApprove error', e);
@@ -152,12 +152,12 @@ export default function ChatRoom() {
       await dbUpsertLike(vacId, workerId, currentUser.id, { employerLiked: false });
       const rejectMsg = 'Вы не подошли по данной вакансии. Чат закрыт.';
       await dbInsertMessage(chat.id, 'system', rejectMsg);
-      await dbIncrementUnread(chat.id, 'worker');
+      dbIncrementUnread(chat.id, 'worker').catch(() => {});
       setLikeStatus('rejected');
       const newMsgs = await dbGetMessages(chat.id);
       setMessages(newMsgs);
       lastCountRef.current = newMsgs.length;
-      await refreshChats();
+      refreshChats().catch(() => {});
       setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
     } catch (e) {
       console.error('[ChatRoom] handleRejectConfirmed error', e);
@@ -179,14 +179,14 @@ export default function ChatRoom() {
       setMessages(prev => [...prev, msg]);
       lastCountRef.current += 1;
       const forRole = currentUser.role === 'worker' ? 'employer' : 'worker';
-      await dbIncrementUnread(chat.id, forRole);
+      dbIncrementUnread(chat.id, forRole).catch(() => {});
       const senderName = `${currentUser.firstName} ${currentUser.lastName}`;
       if (currentUser.role === 'worker') {
         notifyEmployerNewMessage(chat.employerId, senderName, text).catch(() => {});
       } else {
         notifyWorkerNewMessage(chat.workerId, senderName, text).catch(() => {});
       }
-      await refreshChats();
+      refreshChats().catch(() => {});
       setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
     } catch (e) {
       console.error('[ChatRoom] sendMessage error', e);

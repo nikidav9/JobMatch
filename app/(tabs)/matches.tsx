@@ -329,8 +329,8 @@ function EmployerMatches() {
         if (result.matched || result.chatId) break;
       }
 
-      // Step 3: refresh context so UI reflects new state
-      await refreshAll();
+      // Step 3: refresh context in background — navigate immediately
+      refreshAll().catch(() => {});
 
       notifyWorkerGotMatch(like.workerId, vac?.company ?? currentUser.company ?? '', vac?.title ?? '').catch(() => {});
       showToast(`🎉 Мэтч с ${workerName}!`, 'success');
@@ -353,7 +353,7 @@ function EmployerMatches() {
     setLoading(key);
     try {
       await dbUpsertLike(like.vacancyId, like.workerId, currentUser.id, { employerLiked: false });
-      await refreshAll();
+      refreshAll().catch(() => {});
       showToast('Отклонено', 'success');
     } catch {
       showToast('Ошибка', 'error');
@@ -368,7 +368,7 @@ function EmployerMatches() {
     setLoading(key);
     try {
       await dbConfirmShift(like.id, 'employer');
-      await refreshAll();
+      refreshAll().catch(() => {});
       const worker = getWorker(like.workerId);
       const vac = getVacancy(like.vacancyId);
       const workerName = worker ? `${worker.firstName} ${worker.lastName}` : 'Работник';

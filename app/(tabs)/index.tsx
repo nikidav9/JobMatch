@@ -174,7 +174,7 @@ function WorkerListModal({
         1,
         0,
       );
-      await refreshChats();
+      refreshChats().catch(() => {});
       onClose();
       router.push({ pathname: '/chat-room', params: { chatId } });
     } catch {
@@ -191,7 +191,7 @@ function WorkerListModal({
     try {
       await dbUpsertLike(vacancyId, like.workerId, currentUser.id, { employerLiked: true });
       const result = await dbCheckAndCreateMatch(vacancyId, like.workerId);
-      await refreshLikes();
+      refreshLikes().catch(() => {});
       notifyWorkerGotMatch(like.workerId, vacancy?.company ?? '', vacTitle).catch(() => {});
       showToast('🎉 Мэтч! Чат открыт', 'success');
       onClose();
@@ -229,7 +229,7 @@ function WorkerListModal({
         0,
         0,
       );
-      await refreshChats();
+      refreshChats().catch(() => {});
       onClose();
       router.push({ pathname: '/chat-room', params: { chatId: newChatId } });
     } catch {
@@ -269,8 +269,8 @@ function WorkerListModal({
         ? `Здравствуйте, ${worker.firstName}! Вы были отклонены по вакансии «${vacTitle}». Я бы хотел обсудить причину и, возможно, найти решение.`
         : `Здравствуйте! Я хотел бы обсудить вашу заявку на вакансию «${vacTitle}».`;
       await dbInsertMessage(chatId, currentUser.id, text);
-      await dbIncrementUnread(chatId, 'worker');
-      await refreshChats();
+      dbIncrementUnread(chatId, 'worker').catch(() => {});
+      refreshChats().catch(() => {});
 
       showToast('Сообщение отправлено. Открываем чат...', 'success');
       onClose();
@@ -464,6 +464,7 @@ function WorkerFeed() {
 
   const pan = useRef(new Animated.ValueXY()).current;
   const pendingLikeIds = useRef<Set<string>>(new Set());
+  const swipingRef = useRef(false);
 
   const wantOpacity = pan.x.interpolate({ inputRange: [0, SWIPE_THRESHOLD], outputRange: [0, 1], extrapolate: 'clamp' });
   const skipOpacity = pan.x.interpolate({ inputRange: [-SWIPE_THRESHOLD, 0], outputRange: [1, 0], extrapolate: 'clamp' });
@@ -500,7 +501,7 @@ function WorkerFeed() {
       })
       .sort((a, b) => scoreVacancy(b, currentUser) - scoreVacancy(a, currentUser));
     setCards(filtered);
-    pan.setValue({ x: 0, y: 0 });
+    if (!swipingRef.current) pan.setValue({ x: 0, y: 0 });
   }, [selectedDate, vacancies, likes, currentUser, filterLineId]);
 
   const currentCard = cards[0];
@@ -510,12 +511,14 @@ function WorkerFeed() {
   const animateCard = useCallback((dir: 'left' | 'right', velocity: number, cb: () => void) => {
     const targetX = dir === 'right' ? SW * 1.5 : -SW * 1.5;
     const duration = Math.max(180, Math.min(300, 250 / (Math.abs(velocity) + 0.5)));
+    swipingRef.current = true;
     setSwiping(true);
     Animated.parallel([
       Animated.timing(pan.x, { toValue: targetX, duration, useNativeDriver: false }),
       Animated.timing(pan.y, { toValue: dir === 'right' ? -40 : 40, duration, useNativeDriver: false }),
     ]).start(() => {
       pan.setValue({ x: 0, y: 0 });
+      swipingRef.current = false;
       setSwiping(false);
       cb();
     });
@@ -610,7 +613,7 @@ function WorkerFeed() {
         0,
         1,
       );
-      await refreshChats();
+      refreshChats().catch(() => {});
       router.push({ pathname: '/chat-room', params: { chatId } });
     } catch (e) {
       showToast('Ошибка при открытии чата', 'error');
@@ -972,19 +975,15 @@ function WorkerPermMode() {
     tab === 'rejected' ? rejectedVacancies :
     savedVacancies;
 
-  const applyTo = async (v: PermVacancy) => {
+  const applyTo = (v: PermVacancy) => {
     if (!currentUser) return;
-    if (myAppVacIds.has(v.id)) { showToast('Уже откликнулись', 'success'); return; }
+    if (myAppVacIds.has(v.id) || applying === v.id) { showToast('Уже откликнулись', 'success'); return; }
     setApplying(v.id);
-    try {
-      await dbApplyPermVacancy(v.id, currentUser.id, v.employerId);
-      await refreshPermApplications();
-      showToast('Отклик отправлен! 📨', 'success');
-    } catch {
-      showToast('Ошибка', 'error');
-    } finally {
-      setApplying(null);
-    }
+    showToast('Отклик отправлен! 📨', 'success');
+    dbApplyPermVacancy(v.id, currentUser.id, v.employerId)
+      .then(() => refreshPermApplications().catch(() => {}))
+      .catch(e => console.warn('[applyTo]', e))
+      .finally(() => setApplying(null));
   };
 
   const toggleSave = async (v: PermVacancy) => {
@@ -1296,31 +1295,23 @@ function EmployerHome() {
   const permApplicantCount = (vacId: string) =>
     permApplications.filter(a => a.vacancyId === vacId).length;
 
-  const closeVacancy = async (id: string) => {
+  const closeVacancy = (id: string) => {
+    if (closingIds.has(id)) return;
     setConfirmClose(null);
     setClosingIds(prev => new Set([...prev, id]));
-    try {
-      await dbUpdateVacancy(id, { status: 'closed' });
-      showToast('Вакансия закрыта', 'success');
-      refreshVacancies().catch(() => {});
-    } catch (e) {
-      console.error('[closeVacancy] error:', e);
-      setClosingIds(prev => { const s = new Set(prev); s.delete(id); return s; });
-      showToast('Ошибка при закрытии вакансии', 'error');
-    }
+    showToast('Вакансия закрыта', 'success');
+    dbUpdateVacancy(id, { status: 'closed' })
+      .then(() => refreshVacancies().catch(() => {}))
+      .catch(e => console.warn('[closeVacancy]', e));
   };
 
-  const closePermVacancy = async (id: string) => {
+  const closePermVacancy = (id: string) => {
+    if (closingPermIds.has(id)) return;
     setClosingPermIds(prev => new Set([...prev, id]));
-    try {
-      await dbClosePermVacancy(id);
-      showToast('Вакансия закрыта', 'success');
-      refreshPermVacancies().catch(() => {});
-    } catch (e) {
-      console.error('[closePermVacancy] error:', e);
-      setClosingPermIds(prev => { const s = new Set(prev); s.delete(id); return s; });
-      showToast('Ошибка при закрытии вакансии', 'error');
-    }
+    showToast('Вакансия закрыта', 'success');
+    dbClosePermVacancy(id)
+      .then(() => refreshPermVacancies().catch(() => {}))
+      .catch(e => console.warn('[closePermVacancy]', e));
   };
 
   return (
