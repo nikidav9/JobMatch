@@ -73,7 +73,10 @@ export async function dbGetUsers(): Promise<User[]> {
 }
 
 export async function dbUpsertUser(u: User): Promise<void> {
-  const { error } = await sb().from('jm_users').upsert(userToRow(u), { onConflict: 'id' });
+  // avg_rating and rating_count are managed by dbSubmitRatingAndMaybeDelete —
+  // never overwrite them here or boot-time stale session data zeros them out.
+  const { avg_rating, rating_count, ...row } = userToRow(u);
+  const { error } = await sb().from('jm_users').upsert(row, { onConflict: 'id' });
   if (error) throwOnError('dbUpsertUser', error);
 }
 
