@@ -19,7 +19,7 @@ import { WorkTypeSelector, WORK_TYPE_META } from '@/components/feature/WorkTypeS
 export default function CreatePermVacancy() {
   const router = useRouter();
   const { editId } = useLocalSearchParams<{ editId?: string }>();
-  const { currentUser, permVacancies, refreshPermVacancies, showToast } = useApp();
+  const { currentUser, permVacancies, refreshPermVacancies, showToast, optimisticAddPermVacancy, optimisticUpdatePermVacancy } = useApp();
 
   const existing = editId ? permVacancies.find(v => v.id === editId) : undefined;
   const isEdit = !!existing;
@@ -77,6 +77,7 @@ export default function CreatePermVacancy() {
         createdAt: existing?.createdAt ?? nowISO(),
       };
       await dbUpsertPermVacancy(vac);
+      if (isEdit) optimisticUpdatePermVacancy(vac); else optimisticAddPermVacancy(vac);
       if (!isEdit && metroStation) {
         notifyWorkersNearVacancy({ metroStation, title: title.trim(), company: vac.company, type: 'permanent' }).catch(() => {});
       }

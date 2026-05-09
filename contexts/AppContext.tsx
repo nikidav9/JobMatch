@@ -45,6 +45,14 @@ export interface AppContextValue {
   savedIds: string[];
   optimisticAddSaved: (vacancyId: string) => void;
   optimisticRemoveSaved: (vacancyId: string) => void;
+  optimisticAddVacancy: (v: Vacancy) => void;
+  optimisticUpdateVacancy: (v: Vacancy) => void;
+  optimisticAddPermVacancy: (v: PermVacancy) => void;
+  optimisticUpdatePermVacancy: (v: PermVacancy) => void;
+  optimisticAddChat: (c: Chat) => void;
+  optimisticUpdateChat: (c: Chat) => void;
+  optimisticAddLike: (l: Like) => void;
+  optimisticUpdateLike: (l: Like) => void;
   registerUser: (u: User) => Promise<void>;
   loginUser: (phone: string, password: string) => Promise<User | null>;
   logout: () => Promise<void>;
@@ -99,6 +107,31 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, []);
   const optimisticRemovePermSaved = useCallback((vacancyId: string) => {
     setPermSavedIds(prev => prev.filter(id => id !== vacancyId));
+  }, []);
+
+  const optimisticAddVacancy = useCallback((v: Vacancy) => {
+    setVacancies(prev => [v, ...prev.filter(x => x.id !== v.id)]);
+  }, []);
+  const optimisticUpdateVacancy = useCallback((v: Vacancy) => {
+    setVacancies(prev => prev.map(x => x.id === v.id ? v : x));
+  }, []);
+  const optimisticAddPermVacancy = useCallback((v: PermVacancy) => {
+    setPermVacancies(prev => [v, ...prev.filter(x => x.id !== v.id)]);
+  }, []);
+  const optimisticUpdatePermVacancy = useCallback((v: PermVacancy) => {
+    setPermVacancies(prev => prev.map(x => x.id === v.id ? v : x));
+  }, []);
+  const optimisticAddChat = useCallback((c: Chat) => {
+    setChats(prev => [c, ...prev.filter(x => x.id !== c.id)]);
+  }, []);
+  const optimisticUpdateChat = useCallback((c: Chat) => {
+    setChats(prev => prev.map(x => x.id === c.id ? c : x));
+  }, []);
+  const optimisticAddLike = useCallback((l: Like) => {
+    setLikes(prev => [l, ...prev.filter(x => x.id !== l.id)]);
+  }, []);
+  const optimisticUpdateLike = useCallback((l: Like) => {
+    setLikes(prev => prev.map(x => x.id === l.id ? l : x));
   }, []);
 
   // Boot
@@ -161,7 +194,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   useEffect(() => {
     const sb = getSupabaseClient();
     const interval = setInterval(() => {
-      sb.from('jm_users').select('id').limit(1).then(() => {}).catch(() => {});
+      Promise.resolve(sb.from('jm_users').select('id').limit(1)).then(() => {}).catch(() => {});
     }, 4 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
@@ -348,6 +381,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         savedIds,
         optimisticAddSaved,
         optimisticRemoveSaved,
+        optimisticAddVacancy,
+        optimisticUpdateVacancy,
+        optimisticAddPermVacancy,
+        optimisticUpdatePermVacancy,
+        optimisticAddChat,
+        optimisticUpdateChat,
+        optimisticAddLike,
+        optimisticUpdateLike,
         permSavedIds,
         optimisticAddPermSaved,
         optimisticRemovePermSaved,

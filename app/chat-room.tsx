@@ -10,7 +10,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Colors, Radius, Shadow } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
 import { Message, Chat } from '@/constants/types';
-import { nameColorFromString, getInitials, formatDate } from '@/services/storage';
+import { nameColorFromString, getInitials, formatDate, uid, nowISO } from '@/services/storage';
 import { dbGetMessages, dbInsertMessage, dbMarkRead, dbIncrementUnread, dbGetLikeByVacancyWorker, dbUpsertLike, dbCheckAndCreateMatch, dbGetLikes, dbGetChatById } from '@/services/db';
 import { notifyWorkerGotMatch, notifyWorkerNewMessage, notifyEmployerNewMessage } from '@/services/notifications';
 
@@ -135,6 +135,17 @@ export default function ChatRoom() {
     }
   }, [messages.length]);
 
+  const appendMessages = (newMsgs: Message[]) => {
+    setMessages(prev => {
+      const ids = new Set(prev.map(m => m.id));
+      const toAdd = newMsgs.filter(m => !ids.has(m.id));
+      const next = toAdd.length > 0 ? [...prev, ...toAdd] : prev;
+      lastCountRef.current = next.length;
+      return next;
+    });
+    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
+  };
+
   // Employer: approve candidate
   const handleApprove = async () => {
     if (!chat || !currentUser || !isEmployer) return;
@@ -144,19 +155,15 @@ export default function ChatRoom() {
       const vacId = chat.vacancyId;
       await dbUpsertLike(vacId, workerId, currentUser.id, { employerLiked: true });
       const result = await dbCheckAndCreateMatch(vacId, workerId);
-      const worker = users.find(u => u.id === workerId);
-      const workerName = worker ? `${worker.firstName} ${worker.lastName}` : 'Работник';
       setLikeStatus('approved');
       if (result.matched) {
+        const matchMsg: Message = { id: uid(), senderId: 'system', text: '🎉 У вас мэтч! Вы подошли друг другу. Познакомьтесь и обсудите детали!', timestamp: nowISO() };
+        const safetyMsg: Message = { id: uid(), senderId: 'system_safety', text: '🔒 Рекомендуем не переводить общение в сторонние мессенджеры или почту, а продолжить его в чате JobToo: так у мошенников будет меньше шансов вас обмануть.\n\nГде бы вы ни общались — не сообщайте свой CVV-код, код из SMS и не вводите данные карты по ссылке.', timestamp: nowISO() };
+        appendMessages([matchMsg, safetyMsg]);
         notifyWorkerGotMatch(chat.workerId, chat.companyName, chat.vacTitle).catch(() => {});
       }
-      // Refresh likes so the Matches tab updates for both parties
       refreshLikes().catch(() => {});
-      const newMsgs = await dbGetMessages(chat.id);
-      setMessages(newMsgs);
-      lastCountRef.current = newMsgs.length;
       refreshChats().catch(() => {});
-      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
     } catch (e) {
       console.error('[ChatRoom] handleApprove error', e);
     } finally {
@@ -172,16 +179,14 @@ export default function ChatRoom() {
     try {
       const workerId = chat.workerId;
       const vacId = chat.vacancyId;
-      await dbUpsertLike(vacId, workerId, currentUser.id, { employerLiked: false });
       const rejectMsg = 'Вы не подошли по данной вакансии. Чат закрыт.';
-      await dbInsertMessage(chat.id, 'system', rejectMsg);
-      dbIncrementUnread(chat.id, 'worker').catch(() => {});
+      const optimisticMsg: Message = { id: uid(), senderId: 'system', text: rejectMsg, timestamp: nowISO() };
       setLikeStatus('rejected');
-      const newMsgs = await dbGetMessages(chat.id);
-      setMessages(newMsgs);
-      lastCountRef.current = newMsgs.length;
+      appendMessages([optimisticMsg]);
+      await dbUpsertLike(vacId, workerId, currentUser.id, { employerLiked: false });
+      dbInsertMessage(chat.id, 'system', rejectMsg).catch(() => {});
+      dbIncrementUnread(chat.id, 'worker').catch(() => {});
       refreshChats().catch(() => {});
-      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
     } catch (e) {
       console.error('[ChatRoom] handleRejectConfirmed error', e);
     } finally {

@@ -70,7 +70,7 @@ type PickerMode = 'date' | 'endDate' | 'timeStart' | 'timeEnd' | null;
 export default function CreateVacancy() {
   const router = useRouter();
   const { editId } = useLocalSearchParams<{ editId?: string }>();
-  const { currentUser, vacancies, refreshVacancies, showToast } = useApp();
+  const { currentUser, vacancies, refreshVacancies, showToast, optimisticAddVacancy, optimisticUpdateVacancy } = useApp();
 
   const existing = editId ? vacancies.find(v => v.id === editId) : undefined;
   const isEdit = !!existing;
@@ -232,20 +232,20 @@ export default function CreateVacancy() {
           createdAt: existing.createdAt,
         };
         await dbUpsertVacancy(vac);
+        optimisticUpdateVacancy(vac);
         showToast('Вакансия обновлена ✅', 'success');
       } else if (multiDay) {
         const dates = getDatesBetween(selectedDate, selectedEndDate);
-        await Promise.all(dates.map(d => {
-          const vac: Vacancy = {
-            ...base,
-            id: uid(),
-            date: formatISODate(d),
-            workersFound: 0,
-            status: 'open',
-            createdAt: nowISO(),
-          };
-          return dbUpsertVacancy(vac);
+        const vacs: Vacancy[] = dates.map(d => ({
+          ...base,
+          id: uid(),
+          date: formatISODate(d),
+          workersFound: 0,
+          status: 'open' as const,
+          createdAt: nowISO(),
         }));
+        await Promise.all(vacs.map(v => dbUpsertVacancy(v)));
+        vacs.forEach(v => optimisticAddVacancy(v));
         if (metroStation) {
           notifyWorkersNearVacancy({ metroStation, title: meta.label, company: base.company, type: 'shift' }).catch(() => {});
         }
@@ -260,6 +260,7 @@ export default function CreateVacancy() {
           createdAt: nowISO(),
         };
         await dbUpsertVacancy(vac);
+        optimisticAddVacancy(vac);
         if (metroStation) {
           notifyWorkersNearVacancy({ metroStation, title: meta.label, company: base.company, type: 'shift' }).catch(() => {});
         }
