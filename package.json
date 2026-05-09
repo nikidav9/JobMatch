@@ -155,6 +155,22 @@
     "typescript": "~5.8.3"
   },
   "private": true,
+  "expo": {
+    "doctor": {
+      "reactNativeDirectoryCheck": {
+        "listUnknownPackages": false,
+        "exclude": [
+          "react-native-chart-kit",
+          "react-native-keyboard-aware-scroll-view",
+          "react-native-webrtc",
+          "expo-av",
+          "react-native-dynamic",
+          "react-native-fade-in-image",
+          "react-native-infinite-scroll-view"
+        ]
+      }
+    }
+  },
   "resolutions": {
     "metro": "0.82.0",
     "metro-resolver": "0.82.0",
