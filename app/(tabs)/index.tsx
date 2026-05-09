@@ -24,7 +24,7 @@ import {
   dbRemovePermSaved,
   dbClosePermVacancy,
   dbGetUserById,
-  dbGetLikes,
+  dbGetLikesByVacancy,
 } from '@/services/db';
 import { notifyEmployerNewApplicant, notifyEmployerGotMatch, notifyWorkerGotMatch } from '@/services/notifications';
 import { Image } from 'expo-image';
@@ -96,17 +96,14 @@ function WorkerListModal({
 
   const vacancy = vacancies.find(v => v.id === vacancyId);
 
-  // Fetch fresh likes + all workers for this vacancy directly from DB on mount
+  // Fetch likes for this vacancy + all referenced workers in parallel
   useEffect(() => {
     const init = async () => {
       setDataLoading(true);
       try {
-        // 1. Fetch ALL likes from DB fresh (bypass stale context)
-        const allLikes = await dbGetLikes();
-        const vacLikes = allLikes.filter(l => l.vacancyId === vacancyId);
+        const vacLikes = await dbGetLikesByVacancy(vacancyId);
         setLocalLikes(vacLikes);
 
-        // 2. Fetch every worker referenced in those likes
         const workerIds = [...new Set(vacLikes.map(l => l.workerId))];
         if (workerIds.length > 0) {
           const fetched = await Promise.all(workerIds.map(id => dbGetUserById(id)));

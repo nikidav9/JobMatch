@@ -9,9 +9,9 @@ import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Colors, Radius, Shadow } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
-import { Message } from '@/constants/types';
+import { Message, Chat } from '@/constants/types';
 import { nameColorFromString, getInitials, formatDate } from '@/services/storage';
-import { dbGetMessages, dbInsertMessage, dbMarkRead, dbIncrementUnread, dbGetLikeByVacancyWorker, dbUpsertLike, dbCheckAndCreateMatch, dbGetLikes } from '@/services/db';
+import { dbGetMessages, dbInsertMessage, dbMarkRead, dbIncrementUnread, dbGetLikeByVacancyWorker, dbUpsertLike, dbCheckAndCreateMatch, dbGetLikes, dbGetChatById } from '@/services/db';
 import { notifyWorkerGotMatch, notifyWorkerNewMessage, notifyEmployerNewMessage } from '@/services/notifications';
 
 const POLL_INTERVAL = 4000;
@@ -24,17 +24,36 @@ export default function ChatRoom() {
   const chatRef = useRef(chats.find(c => c.id === chatId));
   const foundChat = chats.find(c => c.id === chatId);
   if (foundChat) chatRef.current = foundChat;
-  const chat = foundChat ?? chatRef.current;
+  const [dbChat, setDbChat] = useState<Chat | null>(null);
+  const chat = foundChat ?? chatRef.current ?? dbChat;
 
+  // Declare state/refs before effects that reference them
   const [messages, setMessages] = useState<Message[]>(chat?.messages ?? []);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [decidingLike, setDecidingLike] = useState(false);
   const [showRejectConfirm, setShowRejectConfirm] = useState(false);
-  // 'pending' | 'approved' | 'rejected' | null
   const [likeStatus, setLikeStatus] = useState<'pending' | 'approved' | 'rejected' | null>(null);
   const listRef = useRef<FlatList<Message>>(null);
   const lastCountRef = useRef(messages.length);
+
+  // If chat is not in context (freshly created, or navigated from push notification),
+  // fetch it directly from DB so the chat room is fully functional immediately.
+  useEffect(() => {
+    if (!chatId || foundChat) return;
+    dbGetChatById(chatId).then(c => {
+      if (c) {
+        setDbChat(c);
+        setMessages(c.messages);
+        lastCountRef.current = c.messages.length;
+      }
+    }).catch(() => {});
+  }, [chatId]);
+
+  // Clear dbChat once context has the chat (avoid stale fallback)
+  useEffect(() => {
+    if (foundChat) setDbChat(null);
+  }, [foundChat?.id]);
 
   const isEmployer = currentUser?.role === 'employer';
 

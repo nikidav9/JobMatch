@@ -210,6 +210,12 @@ export async function dbGetLikesForUser(userId: string, role: 'worker' | 'employ
   return (data ?? []).map(rowToLike);
 }
 
+export async function dbGetLikesByVacancy(vacancyId: string): Promise<Like[]> {
+  const { data, error } = await sb().from('jm_likes').select('*').eq('vacancy_id', vacancyId);
+  if (error) throwOnError('dbGetLikesByVacancy', error);
+  return (data ?? []).map(rowToLike);
+}
+
 export async function dbGetLikeByVacancyWorker(vacancyId: string, workerId: string): Promise<Like | null> {
   const { data } = await sb().from('jm_likes').select('*').eq('vacancy_id', vacancyId).eq('worker_id', workerId).maybeSingle();
   return data ? rowToLike(data) : null;
@@ -336,13 +342,27 @@ export async function dbGetChats(userId: string, role: 'worker' | 'employer'): P
   if (error) throwOnError('dbGetChats', error);
 
   const chatRows = data ?? [];
+  // Only fetch last message per chat (for preview). Chat room loads full history via polling.
   const chats = await Promise.all(
     chatRows.map(async (row: any) => {
-      const msgs = await dbGetMessages(row.id);
+      const { data: lastMsgData } = await sb()
+        .from('jm_messages')
+        .select('*')
+        .eq('chat_id', row.id)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      const msgs = (lastMsgData ?? []).map(rowToMessage);
       return rowToChat(row, msgs);
     })
   );
   return chats;
+}
+
+export async function dbGetChatById(chatId: string): Promise<Chat | null> {
+  const { data } = await sb().from('jm_chats').select('*').eq('id', chatId).maybeSingle();
+  if (!data) return null;
+  const msgs = await dbGetMessages(chatId);
+  return rowToChat(data, msgs);
 }
 
 export async function dbCreateChat(
@@ -474,13 +494,11 @@ export async function dbCheckAndCreateMatch(
   }
   if (!likeRow.worker_liked || likeRow.employer_liked !== true) return { matched: false };
 
-  await sb()
-    .from('jm_likes')
-    .update({ is_match: true, matched_at: nowISO() })
-    .eq('vacancy_id', vacancyId)
-    .eq('worker_id', workerId);
-
-  const { data: vac } = await sb().from('jm_vacancies').select('*').eq('id', vacancyId).maybeSingle();
+  // Parallel: mark match + fetch vacancy data
+  const [, { data: vac }] = await Promise.all([
+    sb().from('jm_likes').update({ is_match: true, matched_at: nowISO() }).eq('vacancy_id', vacancyId).eq('worker_id', workerId),
+    sb().from('jm_vacancies').select('*').eq('id', vacancyId).maybeSingle(),
+  ]);
 
   const matchMsg = '🎉 У вас мэтч! Вы подошли друг другу. Познакомьтесь и обсудите детали!';
   const safetyMsg = '🔒 Рекомендуем не переводить общение в сторонние мессенджеры или почту, а продолжить его в чате JobToo: так у мошенников будет меньше шансов вас обмануть.\n\nГде бы вы ни общались — не сообщайте свой CVV-код, код из SMS и не вводите данные карты по ссылке.';
@@ -496,17 +514,16 @@ export async function dbCheckAndCreateMatch(
     1
   );
 
-  await dbInsertMessage(chatId, 'system', matchMsg);
-  await dbInsertMessage(chatId, 'system_safety', safetyMsg);
-
-  if (vac) {
-    const newWorkersFound = (vac.workers_found || 0) + 1;
-    const newStatus = newWorkersFound >= vac.workers_needed ? 'closed' : 'open';
-    await sb()
-      .from('jm_vacancies')
-      .update({ workers_found: newWorkersFound, status: newStatus })
-      .eq('id', vacancyId);
-  }
+  // Parallel: insert both system messages + update vacancy workers_found
+  const newWorkersFound = (vac?.workers_found || 0) + 1;
+  const newStatus = newWorkersFound >= (vac?.workers_needed ?? 999) ? 'closed' : 'open';
+  await Promise.all([
+    dbInsertMessage(chatId, 'system', matchMsg),
+    dbInsertMessage(chatId, 'system_safety', safetyMsg),
+    vac
+      ? sb().from('jm_vacancies').update({ workers_found: newWorkersFound, status: newStatus }).eq('id', vacancyId)
+      : Promise.resolve(),
+  ]);
 
   return { matched: true, chatId };
 }
