@@ -18,7 +18,7 @@ export default function RateScreen() {
     vacancyId: string;
     role: 'worker' | 'employer';
   }>();
-  const { currentUser, setCurrentUser, refreshAll, showToast } = useApp();
+  const { currentUser, refreshAll, showToast } = useApp();
   const [rating, setRating] = useState(0);
   const [review, setReview] = useState('');
   const [loading, setLoading] = useState(false);

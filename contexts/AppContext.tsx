@@ -278,6 +278,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const refreshUsers = async () => {
     const data = await dbGetUsers();
     setUsers(data);
+    _setCurrentUser(prev => {
+      if (!prev) return prev;
+      const fresh = data.find(u => u.id === prev.id);
+      if (!fresh) return prev;
+      saveSessionUser(fresh).catch(() => {});
+      return fresh;
+    });
   };
 
   const refreshVacancies = async () => {
