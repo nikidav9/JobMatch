@@ -239,13 +239,22 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     await saveSessionUser(u);
     setLoading(false);
     registerForPushNotifications(u.id).catch(() => {});
-    // DB write + refreshes in background — не блокируем навигацию.
-    // Если запись зависнет (типично для новой архитектуры Android), пользователь
-    // всё равно сразу попадёт на табы. Retry через 5 с если первая попытка упала.
-    dbUpsertUser(u).catch((e) => {
-      console.warn('[registerUser] db write failed, retrying in 5 s', e);
-      setTimeout(() => dbUpsertUser(u).catch(() => {}), 5000);
-    });
+    // DB write в фоне — не блокируем навигацию.
+    // Exponential backoff: попытки через 0, 3, 7, 15 с. Если все упали —
+    // boot-time recovery (строка ~174) повторит при следующем запуске.
+    (async () => {
+      const delays = [0, 3000, 7000, 15000];
+      for (let i = 0; i < delays.length; i++) {
+        if (delays[i] > 0) await new Promise(r => setTimeout(r, delays[i]));
+        try {
+          await dbUpsertUser(u);
+          if (i > 0) refreshUsers().catch(() => {});
+          return;
+        } catch (e) {
+          console.warn(`[registerUser] db write attempt ${i + 1} failed`, e);
+        }
+      }
+    })();
     refreshUsers().catch(() => {});
     refreshVacancies().catch(() => {});
     refreshLikes(u).catch(() => {});
