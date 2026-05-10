@@ -196,6 +196,15 @@ export default function CreateVacancy() {
     return Object.keys(e).length === 0;
   };
 
+  // Wraps any upsert with a 15 s timeout so the save button never spins forever.
+  const upsertWithTimeout = <T,>(p: Promise<T>): Promise<T> =>
+    Promise.race([
+      p,
+      new Promise<T>((_, rej) =>
+        setTimeout(() => rej(new Error('Превышено время ожидания. Проверьте интернет.')), 15000)
+      ),
+    ]);
+
   const submit = async () => {
     if (!validate() || !currentUser || saving) return;
     setSaving(true);
@@ -231,7 +240,7 @@ export default function CreateVacancy() {
           status: existing.status,
           createdAt: existing.createdAt,
         };
-        await dbUpsertVacancy(vac);
+        await upsertWithTimeout(dbUpsertVacancy(vac));
         optimisticUpdateVacancy(vac);
         showToast('Вакансия обновлена ✅', 'success');
       } else if (multiDay) {
@@ -244,7 +253,7 @@ export default function CreateVacancy() {
           status: 'open' as const,
           createdAt: nowISO(),
         }));
-        await Promise.all(vacs.map(v => dbUpsertVacancy(v)));
+        await upsertWithTimeout(Promise.all(vacs.map(v => dbUpsertVacancy(v))));
         vacs.forEach(v => optimisticAddVacancy(v));
         if (metroStation) {
           notifyWorkersNearVacancy({ metroStation, title: meta.label, company: base.company, type: 'shift' }).catch(() => {});
@@ -259,7 +268,7 @@ export default function CreateVacancy() {
           status: 'open',
           createdAt: nowISO(),
         };
-        await dbUpsertVacancy(vac);
+        await upsertWithTimeout(dbUpsertVacancy(vac));
         optimisticAddVacancy(vac);
         if (metroStation) {
           notifyWorkersNearVacancy({ metroStation, title: meta.label, company: base.company, type: 'shift' }).catch(() => {});

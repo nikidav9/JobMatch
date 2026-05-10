@@ -293,7 +293,7 @@ export default function RegisterWorker() {
               <Text style={styles.subtitle}>Выбери специализацию</Text>
               <WorkTypeSelector selected={workTypes} onToggle={toggleWork} />
               <View style={{ marginTop: 28 }}>
-                <PrimaryButton label="Начать поиск →" onPress={finish} disabled={workTypes.length === 0 || finishing} />
+                <PrimaryButton label="Начать поиск →" onPress={finish} loading={finishing} disabled={workTypes.length === 0 || finishing} />
               </View>
             </View>
           )}

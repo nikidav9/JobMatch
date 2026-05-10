@@ -47,6 +47,11 @@ class SupabaseManager {
           persistSession: false,
           detectSessionInUrl: false,
         },
+        global: {
+          // Explicitly bind React Native's native fetch so POST/PATCH writes
+          // don't hang on the new architecture (JSI-based networking).
+          fetch: (...args) => fetch(...args),
+        },
       });
       
       console.log('[Template:Client] Supabase client created successfully');

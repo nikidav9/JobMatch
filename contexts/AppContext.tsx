@@ -140,10 +140,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const finish = () => { if (!settled) { settled = true; setLoading(false); } };
     // Safety timeout — prevents infinite loading on devices with slow AsyncStorage
     const timer = setTimeout(finish, 5000);
+    // Minimum splash display so the loading bar is always visible (parity with web).
+    const MIN_SPLASH_MS = 1200;
 
     (async () => {
       try {
-        const sessionUser = await getSessionUser();
+        const [sessionUser] = await Promise.all([
+          getSessionUser().catch(() => null),
+          new Promise<void>(r => setTimeout(r, MIN_SPLASH_MS)),
+        ]);
         if (sessionUser) {
           _setCurrentUser(sessionUser);
 
@@ -234,7 +239,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     await saveSessionUser(u);
     setLoading(false);
     registerForPushNotifications(u.id).catch(() => {});
-    dbUpsertUser(u).catch(e => console.warn('[registerUser] db write error', e));
+    // Await DB write so the account actually exists before the caller navigates.
+    // 10 s timeout guards against a hung request; on failure we retry silently.
+    try {
+      await Promise.race([
+        dbUpsertUser(u),
+        new Promise<void>((_, rej) => setTimeout(() => rej(new Error('timeout')), 10000)),
+      ]);
+    } catch (e) {
+      console.warn('[registerUser] db write failed, retrying in background', e);
+      setTimeout(() => dbUpsertUser(u).catch(() => {}), 3000);
+    }
     refreshUsers().catch(() => {});
     refreshVacancies().catch(() => {});
     refreshLikes(u).catch(() => {});

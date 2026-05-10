@@ -229,7 +229,7 @@ export default function RegisterEmployer() {
               </TouchableOpacity>
 
               <View style={{ marginTop: 16 }}>
-                <PrimaryButton label="Начать работу →" onPress={finish} disabled={!agreed || finishing} />
+                <PrimaryButton label="Начать работу →" onPress={finish} loading={finishing} disabled={!agreed || finishing} />
               </View>
             </View>
           )}
