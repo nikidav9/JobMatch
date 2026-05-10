@@ -47,7 +47,7 @@ export default function RegisterEmployer() {
       // On timeout or network error — assume phone is free and let the user through.
       // A real duplicate will be rejected by the DB unique constraint on final submit.
       const timeout = new Promise<boolean>(resolve =>
-        setTimeout(() => resolve(false), 12000)
+        setTimeout(() => resolve(false), 5000)
       );
       const exists = await Promise.race([dbCheckPhoneExists(digits), timeout]);
       if (exists) {
