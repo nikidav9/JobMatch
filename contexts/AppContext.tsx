@@ -31,6 +31,7 @@ export interface ToastMessage { message: string; type: 'success' | 'error' | 'in
 export interface AppContextValue {
   currentUser: User | null;
   loading: boolean;
+  vacanciesLoading: boolean;
   toast: ToastMessage | null;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   users: User[];
@@ -76,6 +77,7 @@ export const AppContext = createContext<AppContextValue | null>(null);
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [currentUser, _setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [vacanciesLoading, setVacanciesLoading] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -308,9 +310,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const refreshVacancies = async () => {
-    const data = await dbGetVacancies();
-    setVacancies(data);
-    saveCache(CACHE_KEYS.vacancies, data).catch(() => {});
+    setVacanciesLoading(true);
+    try {
+      const data = await dbGetVacancies();
+      setVacancies(data);
+      saveCache(CACHE_KEYS.vacancies, data).catch(() => {});
+    } finally {
+      setVacanciesLoading(false);
+    }
   };
 
   const refreshLikes = async (u?: User) => {
@@ -395,6 +402,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       value={{
         currentUser,
         loading,
+        vacanciesLoading,
         toast,
         showToast,
         users,

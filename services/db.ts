@@ -99,12 +99,13 @@ export async function dbDeleteUser(id: string): Promise<void> {
 
 // Пинг-прогрев соединения — вызывается при открытии экранов регистрации,
 // чтобы Supabase успел проснуться до нажатия кнопки.
+// Free-tier Supabase может спать до 15с — берём 20с чтобы точно успеть.
 export function dbWarmup(): void {
   (async () => {
     try {
       await withTimeout(
         sb().from('jm_users').select('id').limit(1),
-        3_000
+        20_000
       );
     } catch {}
   })();
@@ -125,11 +126,12 @@ export async function dbCheckPhoneExists(phone: string): Promise<boolean> {
 
 // Логин: одна строка по телефону + пароль
 export async function dbGetUserByPhone(phone: string): Promise<User | null> {
-  const { data } = await sb()
+  const { data, error } = await sb()
     .from('jm_users')
     .select('*')
     .eq('phone', phone)
     .maybeSingle();
+  if (error) throwOnError('dbGetUserByPhone', error);
   return data ? rowToUser(data) : null;
 }
 

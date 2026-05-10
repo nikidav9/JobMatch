@@ -447,7 +447,7 @@ function WorkerFeed() {
   const {
     currentUser, users, vacancies, likes, chats,
     refreshAll, refreshLikes, refreshChats,
-    showToast,
+    showToast, vacanciesLoading,
   } = useApp();
   const [refreshing, setRefreshing] = useState(false);
 
@@ -725,11 +725,18 @@ function WorkerFeed() {
       {/* Card area */}
       <View style={styles.cardArea}>
         {!currentCard ? (
-          <View style={styles.emptyState}>
-            <Text style={{ fontSize: 52 }}>😔</Text>
-            <Text style={styles.emptyTitle}>Новых вакансий пока нет</Text>
-            <Text style={styles.emptySubtitle}>Попробуй другую дату или дождись новых объявлений</Text>
-          </View>
+          vacanciesLoading ? (
+            <View style={styles.emptyState}>
+              <ActivityIndicator size="large" color={Colors.primary} />
+              <Text style={styles.emptySubtitle}>Загружаем вакансии...</Text>
+            </View>
+          ) : (
+            <View style={styles.emptyState}>
+              <Text style={{ fontSize: 52 }}>😔</Text>
+              <Text style={styles.emptyTitle}>Новых вакансий пока нет</Text>
+              <Text style={styles.emptySubtitle}>Попробуй другую дату или дождись новых объявлений</Text>
+            </View>
+          )
         ) : (
           <>
             {cards[2] ? <View style={styles.ghost2} /> : null}
