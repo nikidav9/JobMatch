@@ -88,19 +88,16 @@ export async function dbDeleteUser(id: string): Promise<void> {
 // Пинг-прогрев соединения — вызывается при открытии экранов регистрации,
 // чтобы Supabase успел проснуться до нажатия кнопки
 export function dbWarmup(): void {
-  try {
-    void sb().from('jm_users').select('id').limit(1);
-  } catch {}
+  (async () => { try { await sb().from('jm_users').select('id').limit(1); } catch {} })();
 }
 
-// Быстрая проверка номера — не тянет всех пользователей
-export async function dbCheckPhoneExists(phone: string): Promise<boolean> {
+// Быстрая проверка номера — не тянет всех пользователей.
+// Принимает AbortSignal чтобы отменить зависший запрос и не блокировать следующие.
+export async function dbCheckPhoneExists(phone: string, signal?: AbortSignal): Promise<boolean> {
   try {
-    const { data, error } = await sb()
-      .from('jm_users')
-      .select('id')
-      .eq('phone', phone)
-      .maybeSingle();
+    let query = sb().from('jm_users').select('id').eq('phone', phone).maybeSingle();
+    if (signal) query = (query as any).abortSignal(signal);
+    const { data, error } = await query;
     if (error) return false;
     return !!data;
   } catch {

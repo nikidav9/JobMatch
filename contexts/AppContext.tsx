@@ -239,17 +239,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     await saveSessionUser(u);
     setLoading(false);
     registerForPushNotifications(u.id).catch(() => {});
-    // Await DB write so the account actually exists before the caller navigates.
-    // 10 s timeout guards against a hung request; on failure we retry silently.
-    try {
-      await Promise.race([
-        dbUpsertUser(u),
-        new Promise<void>((_, rej) => setTimeout(() => rej(new Error('timeout')), 10000)),
-      ]);
-    } catch (e) {
-      console.warn('[registerUser] db write failed, retrying in background', e);
-      setTimeout(() => dbUpsertUser(u).catch(() => {}), 3000);
-    }
+    // DB write + refreshes in background — не блокируем навигацию.
+    // Если запись зависнет (типично для новой архитектуры Android), пользователь
+    // всё равно сразу попадёт на табы. Retry через 5 с если первая попытка упала.
+    dbUpsertUser(u).catch((e) => {
+      console.warn('[registerUser] db write failed, retrying in 5 s', e);
+      setTimeout(() => dbUpsertUser(u).catch(() => {}), 5000);
+    });
     refreshUsers().catch(() => {});
     refreshVacancies().catch(() => {});
     refreshLikes(u).catch(() => {});

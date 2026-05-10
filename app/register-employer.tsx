@@ -42,23 +42,23 @@ export default function RegisterEmployer() {
   const continueFromPhone = async () => {
     setPhoneError('');
     setChecking(true);
+    // AbortController прерывает зависший запрос — иначе он висит в фоне
+    // и блокирует следующие Supabase-запросы на Android новой архитектуры.
+    const controller = new AbortController();
+    const abortTimer = setTimeout(() => controller.abort(), 5000);
     try {
       const digits = extractPhoneDigits(phone);
-      // On timeout or network error — assume phone is free and let the user through.
-      // A real duplicate will be rejected by the DB unique constraint on final submit.
-      const timeout = new Promise<boolean>(resolve =>
-        setTimeout(() => resolve(false), 5000)
-      );
-      const exists = await Promise.race([dbCheckPhoneExists(digits), timeout]);
+      const exists = await dbCheckPhoneExists(digits, controller.signal);
       if (exists) {
         setPhoneError('Аккаунт с этим номером уже существует. Войдите в систему.');
         return;
       }
       setStep(2);
     } catch {
-      // Any unexpected error — let the user through, DB will enforce uniqueness
+      // Таймаут или сетевая ошибка — пропускаем, БД проверит уникальность при регистрации
       setStep(2);
     } finally {
+      clearTimeout(abortTimer);
       setChecking(false);
     }
   };
