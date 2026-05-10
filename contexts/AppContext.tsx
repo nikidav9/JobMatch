@@ -242,25 +242,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     await saveSessionUser(u);
     setLoading(false);
     registerForPushNotifications(u.id).catch(() => {});
-    // DB write в фоне — не блокируем навигацию.
-    // dbUpsertUser теперь имеет таймаут 10 с: если POST зависает на новой
-    // архитектуре RN, он выбросит AbortError, цикл перейдёт к следующей
-    // попытке. Раньше зависание блокировало первую попытку навсегда.
-    (async () => {
-      const delays = [0, 3000, 7000, 15000];
-      for (let i = 0; i < delays.length; i++) {
-        if (delays[i] > 0) await new Promise(r => setTimeout(r, delays[i]));
-        try {
-          await dbUpsertUser(u);
-          if (i > 0) refreshUsers().catch(() => {});
-          return;
-        } catch (e) {
-          console.warn(`[registerUser] db write attempt ${i + 1} failed`, e);
-        }
+
+    // Await DB write with retries before returning so the caller can be sure
+    // the user exists in the DB before navigating to the home screen.
+    const delays = [0, 3_000, 7_000];
+    let lastError: unknown;
+    for (let i = 0; i < delays.length; i++) {
+      if (delays[i] > 0) await new Promise(r => setTimeout(r, delays[i]));
+      try {
+        await dbUpsertUser(u);
+        lastError = undefined;
+        break;
+      } catch (e) {
+        lastError = e;
+        console.warn(`[registerUser] db write attempt ${i + 1} failed`, e);
       }
-    })();
-    // Задержка 1.5 с: даём upsert стартовать до лавины GET-запросов,
-    // чтобы не перегружать HTTP/2 stream на нативе в момент регистрации.
+    }
+    if (lastError) throw lastError;
+
     setTimeout(() => {
       refreshUsers().catch(() => {});
       refreshVacancies().catch(() => {});
@@ -270,7 +269,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       refreshPermVacancies(u).catch(() => {});
       refreshPermApplications(u).catch(() => {});
       refreshPermSaved(u).catch(() => {});
-    }, 1500);
+    }, 500);
   };
 
   const loginUser = async (phone: string, password: string): Promise<User | null> => {

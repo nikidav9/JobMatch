@@ -1,11 +1,20 @@
 /**
  * Supabase data layer — replaces AsyncStorage for persistent data.
  */
-import { getSupabaseClient } from '@/template';
+import { getSupabaseClient, configManager } from '@/template';
 import { User, Vacancy, Like, Chat, Message, PermVacancy, PermApplication, PermApplicationStatus } from '@/constants/types';
 import { uid, nowISO } from '@/services/storage';
 
 const sb = () => getSupabaseClient();
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function withTimeout<T>(promise: PromiseLike<T>, ms: number): Promise<T> {
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
+  ]);
+}
 
 // ─── Error helper ────────────────────────────────────────────────────────────
 
@@ -76,17 +85,30 @@ export async function dbUpsertUser(u: User): Promise<void> {
   // avg_rating and rating_count are managed by dbSubmitRatingAndMaybeDelete —
   // never overwrite them here or boot-time stale session data zeros them out.
   const { avg_rating, rating_count, ...row } = userToRow(u);
-  // AbortController ensures the request doesn't hang forever on RN new arch —
-  // without a timeout the POST hangs, the retry loop never advances, and the
-  // user is never written to DB (even though registration appears successful).
+
+  // Route through Edge Function so the write happens server-side.
+  // On RN new arch the Supabase SDK fetch hangs indefinitely; native fetch
+  // to a plain HTTPS endpoint with AbortController works reliably.
+  const sbConfig = configManager.getSupabaseConfig();
+  if (!sbConfig) throw new Error('Supabase config not available');
+
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10_000);
+  const timer = setTimeout(() => controller.abort(), 15_000);
   try {
-    const { error } = await (sb()
-      .from('jm_users')
-      .upsert(row, { onConflict: 'id' }) as any)
-      .abortSignal(controller.signal);
-    if (error) throwOnError('dbUpsertUser', error);
+    const res = await fetch(`${sbConfig.url}/functions/v1/upsert-user`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${sbConfig.anonKey}`,
+        'apikey': sbConfig.anonKey,
+      },
+      body: JSON.stringify(row),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throwOnError('dbUpsertUser', body.error ?? `HTTP ${res.status}`);
+    }
   } finally {
     clearTimeout(timer);
   }
@@ -99,27 +121,25 @@ export async function dbDeleteUser(id: string): Promise<void> {
 
 // Пинг-прогрев соединения — вызывается при открытии экранов регистрации,
 // чтобы Supabase успел проснуться до нажатия кнопки.
-// Таймаут 3 с — warmup не должен бесконечно занимать слот соединения.
 export function dbWarmup(): void {
-  const controller = new AbortController();
-  setTimeout(() => controller.abort(), 3_000);
   (async () => {
     try {
-      await (sb().from('jm_users').select('id').limit(1) as any)
-        .abortSignal(controller.signal);
+      await withTimeout(
+        sb().from('jm_users').select('id').limit(1),
+        3_000
+      );
     } catch {}
   })();
 }
 
 // Быстрая проверка номера — не тянет всех пользователей.
-// Принимает AbortSignal чтобы отменить зависший запрос и не блокировать следующие.
-export async function dbCheckPhoneExists(phone: string, signal?: AbortSignal): Promise<boolean> {
+export async function dbCheckPhoneExists(phone: string): Promise<boolean> {
   try {
-    let query = sb().from('jm_users').select('id').eq('phone', phone).maybeSingle();
-    if (signal) query = (query as any).abortSignal(signal);
-    const { data, error } = await query;
-    if (error) return false;
-    return !!data;
+    const result = await withTimeout(
+      sb().from('jm_users').select('id').eq('phone', phone).maybeSingle(),
+      5_000
+    );
+    return !!result.data;
   } catch {
     return false;
   }

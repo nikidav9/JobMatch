@@ -55,23 +55,17 @@ export default function RegisterWorker() {
   const continueFromPhone = async () => {
     setPhoneError('');
     setChecking(true);
-    // AbortController прерывает зависший запрос — иначе он висит в фоне
-    // и блокирует следующие Supabase-запросы на Android новой архитектуры.
-    const controller = new AbortController();
-    const abortTimer = setTimeout(() => controller.abort(), 5000);
     try {
       const digits = extractPhoneDigits(phone);
-      const exists = await dbCheckPhoneExists(digits, controller.signal);
+      const exists = await dbCheckPhoneExists(digits);
       if (exists) {
         setPhoneError('Аккаунт с этим номером уже существует. Войдите в систему.');
         return;
       }
       setStep(2);
     } catch {
-      // Таймаут или сетевая ошибка — пропускаем, БД проверит уникальность при регистрации
       setStep(2);
     } finally {
-      clearTimeout(abortTimer);
       setChecking(false);
     }
   };
