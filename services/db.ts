@@ -76,8 +76,20 @@ export async function dbUpsertUser(u: User): Promise<void> {
   // avg_rating and rating_count are managed by dbSubmitRatingAndMaybeDelete —
   // never overwrite them here or boot-time stale session data zeros them out.
   const { avg_rating, rating_count, ...row } = userToRow(u);
-  const { error } = await sb().from('jm_users').upsert(row, { onConflict: 'id' });
-  if (error) throwOnError('dbUpsertUser', error);
+  // AbortController ensures the request doesn't hang forever on RN new arch —
+  // without a timeout the POST hangs, the retry loop never advances, and the
+  // user is never written to DB (even though registration appears successful).
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const { error } = await (sb()
+      .from('jm_users')
+      .upsert(row, { onConflict: 'id' }) as any)
+      .abortSignal(controller.signal);
+    if (error) throwOnError('dbUpsertUser', error);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function dbDeleteUser(id: string): Promise<void> {
@@ -86,9 +98,17 @@ export async function dbDeleteUser(id: string): Promise<void> {
 }
 
 // Пинг-прогрев соединения — вызывается при открытии экранов регистрации,
-// чтобы Supabase успел проснуться до нажатия кнопки
+// чтобы Supabase успел проснуться до нажатия кнопки.
+// Таймаут 3 с — warmup не должен бесконечно занимать слот соединения.
 export function dbWarmup(): void {
-  (async () => { try { await sb().from('jm_users').select('id').limit(1); } catch {} })();
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), 3_000);
+  (async () => {
+    try {
+      await (sb().from('jm_users').select('id').limit(1) as any)
+        .abortSignal(controller.signal);
+    } catch {}
+  })();
 }
 
 // Быстрая проверка номера — не тянет всех пользователей.

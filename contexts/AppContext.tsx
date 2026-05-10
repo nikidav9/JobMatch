@@ -168,10 +168,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           if (cachedPermVac) setPermVacancies(cachedPermVac);
           if (cachedPermApps) setPermApplications(cachedPermApps);
 
-          // Refresh from Supabase in background — silently updates UI when done
+          // Refresh from Supabase in background — silently updates UI when done.
+          // Upsert is awaited first so the POST completes before 8 concurrent GETs
+          // start — avoids HTTP/2 stream contention on RN new arch that previously
+          // caused the upsert to be silently dropped.
           (async () => {
+            try { await dbUpsertUser(sessionUser); } catch {}
             try {
-              dbUpsertUser(sessionUser).catch(() => {});
               await Promise.all([
                 refreshUsers(),
                 refreshVacancies(),
@@ -240,8 +243,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setLoading(false);
     registerForPushNotifications(u.id).catch(() => {});
     // DB write в фоне — не блокируем навигацию.
-    // Exponential backoff: попытки через 0, 3, 7, 15 с. Если все упали —
-    // boot-time recovery (строка ~174) повторит при следующем запуске.
+    // dbUpsertUser теперь имеет таймаут 10 с: если POST зависает на новой
+    // архитектуре RN, он выбросит AbortError, цикл перейдёт к следующей
+    // попытке. Раньше зависание блокировало первую попытку навсегда.
     (async () => {
       const delays = [0, 3000, 7000, 15000];
       for (let i = 0; i < delays.length; i++) {
@@ -255,14 +259,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         }
       }
     })();
-    refreshUsers().catch(() => {});
-    refreshVacancies().catch(() => {});
-    refreshLikes(u).catch(() => {});
-    refreshChats(u).catch(() => {});
-    refreshSaved(u).catch(() => {});
-    refreshPermVacancies(u).catch(() => {});
-    refreshPermApplications(u).catch(() => {});
-    refreshPermSaved(u).catch(() => {});
+    // Задержка 1.5 с: даём upsert стартовать до лавины GET-запросов,
+    // чтобы не перегружать HTTP/2 stream на нативе в момент регистрации.
+    setTimeout(() => {
+      refreshUsers().catch(() => {});
+      refreshVacancies().catch(() => {});
+      refreshLikes(u).catch(() => {});
+      refreshChats(u).catch(() => {});
+      refreshSaved(u).catch(() => {});
+      refreshPermVacancies(u).catch(() => {});
+      refreshPermApplications(u).catch(() => {});
+      refreshPermSaved(u).catch(() => {});
+    }, 1500);
   };
 
   const loginUser = async (phone: string, password: string): Promise<User | null> => {
