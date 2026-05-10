@@ -243,22 +243,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setLoading(false);
     registerForPushNotifications(u.id).catch(() => {});
 
-    // Await DB write with retries before returning so the caller can be sure
-    // the user exists in the DB before navigating to the home screen.
-    const delays = [0, 3_000, 7_000];
-    let lastError: unknown;
-    for (let i = 0; i < delays.length; i++) {
-      if (delays[i] > 0) await new Promise(r => setTimeout(r, delays[i]));
-      try {
-        await dbUpsertUser(u);
-        lastError = undefined;
-        break;
-      } catch (e) {
-        lastError = e;
-        console.warn(`[registerUser] db write attempt ${i + 1} failed`, e);
+    // DB write is best-effort — user is already saved locally so navigation
+    // proceeds regardless. Boot sequence will re-sync on next app open.
+    (async () => {
+      const delays = [0, 3_000, 7_000];
+      for (let i = 0; i < delays.length; i++) {
+        if (delays[i] > 0) await new Promise(r => setTimeout(r, delays[i]));
+        try {
+          await dbUpsertUser(u);
+          return;
+        } catch (e) {
+          console.warn(`[registerUser] db write attempt ${i + 1} failed`, e);
+        }
       }
-    }
-    if (lastError) throw lastError;
+    })();
 
     setTimeout(() => {
       refreshUsers().catch(() => {});
