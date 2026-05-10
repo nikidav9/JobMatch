@@ -169,11 +169,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           if (cachedPermApps) setPermApplications(cachedPermApps);
 
           // Refresh from Supabase in background — silently updates UI when done.
-          // Upsert is awaited first so the POST completes before 8 concurrent GETs
-          // start — avoids HTTP/2 stream contention on RN new arch that previously
-          // caused the upsert to be silently dropped.
           (async () => {
-            try { await dbUpsertUser(sessionUser); } catch {}
+            dbUpsertUser(sessionUser).catch(() => {});
             try {
               await Promise.all([
                 refreshUsers(),
@@ -243,20 +240,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setLoading(false);
     registerForPushNotifications(u.id).catch(() => {});
 
-    // DB write is best-effort — user is already saved locally so navigation
-    // proceeds regardless. Boot sequence will re-sync on next app open.
-    (async () => {
-      const delays = [0, 3_000, 7_000];
-      for (let i = 0; i < delays.length; i++) {
-        if (delays[i] > 0) await new Promise(r => setTimeout(r, delays[i]));
-        try {
-          await dbUpsertUser(u);
-          return;
-        } catch (e) {
-          console.warn(`[registerUser] db write attempt ${i + 1} failed`, e);
-        }
-      }
-    })();
+    dbUpsertUser(u).catch(e => console.warn('[registerUser] db write failed', e));
 
     setTimeout(() => {
       refreshUsers().catch(() => {});

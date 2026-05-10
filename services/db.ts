@@ -1,7 +1,7 @@
 /**
  * Supabase data layer — replaces AsyncStorage for persistent data.
  */
-import { getSupabaseClient, configManager } from '@/template';
+import { getSupabaseClient } from '@/template';
 import { User, Vacancy, Like, Chat, Message, PermVacancy, PermApplication, PermApplicationStatus } from '@/constants/types';
 import { uid, nowISO } from '@/services/storage';
 
@@ -85,33 +85,11 @@ export async function dbUpsertUser(u: User): Promise<void> {
   // avg_rating and rating_count are managed by dbSubmitRatingAndMaybeDelete —
   // never overwrite them here or boot-time stale session data zeros them out.
   const { avg_rating, rating_count, ...row } = userToRow(u);
-
-  // Route through Edge Function so the write happens server-side.
-  // On RN new arch the Supabase SDK fetch hangs indefinitely; native fetch
-  // to a plain HTTPS endpoint with AbortController works reliably.
-  const sbConfig = configManager.getSupabaseConfig();
-  if (!sbConfig) throw new Error('Supabase config not available');
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15_000);
-  try {
-    const res = await fetch(`${sbConfig.url}/functions/v1/upsert-user`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${sbConfig.anonKey}`,
-        'apikey': sbConfig.anonKey,
-      },
-      body: JSON.stringify(row),
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throwOnError('dbUpsertUser', body.error ?? `HTTP ${res.status}`);
-    }
-  } finally {
-    clearTimeout(timer);
-  }
+  const { error } = await withTimeout(
+    sb().from('jm_users').upsert(row, { onConflict: 'id' }),
+    10_000
+  );
+  if (error) throwOnError('dbUpsertUser', error);
 }
 
 export async function dbDeleteUser(id: string): Promise<void> {
