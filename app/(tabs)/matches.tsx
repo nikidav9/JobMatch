@@ -220,7 +220,7 @@ function WorkerMatches() {
   ] as const;
 
   return (
-    <SafeAreaView style={s.safe}>
+    <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
       <View style={s.header}>
         <Text style={s.title}>Мои отклики</Text>
       </View>
@@ -554,7 +554,7 @@ function EmployerMatches() {
   };
 
   return (
-    <SafeAreaView style={s.safe}>
+    <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
       <View style={s.header}>
         <Text style={s.title}>Мэтчи</Text>
         {needsConfirm > 0 ? (

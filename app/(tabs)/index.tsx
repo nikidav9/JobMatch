@@ -1333,7 +1333,7 @@ function EmployerHome() {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <Text style={styles.logo}>
           <Text style={styles.logoB}>Job</Text>
@@ -1531,7 +1531,7 @@ function WorkerHome() {
   if (!currentUser) return <View style={{ flex: 1, backgroundColor: '#FFFFFF' }} />;
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <Text style={styles.logo}>
           <Text style={styles.logoB}>Job</Text>
