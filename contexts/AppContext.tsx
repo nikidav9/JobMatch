@@ -1,4 +1,5 @@
 import React, { createContext, useState, useEffect, useRef, useCallback, ReactNode } from 'react';
+import { Platform } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { User, Vacancy, Like, Chat, PermVacancy, PermApplication } from '@/constants/types';
 import {
@@ -201,18 +202,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return () => { cancelled = true; clearTimeout(safetyTimer); };
   }, []);
 
-  // ─── Keep connection alive ─────────────────────────────────────────────────
+  // ─── Keep connection alive (web only) ─────────────────────────────────────
 
   useEffect(() => {
+    if (Platform.OS !== 'web') return;
     const interval = setInterval(() => {
       Promise.resolve(supabase.from('jm_users').select('id').limit(1)).catch(() => {});
     }, 4 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
 
-  // ─── Realtime subscriptions ────────────────────────────────────────────────
+  // ─── Realtime subscriptions (web only — native uses API proxy) ────────────
 
   useEffect(() => {
+    if (Platform.OS !== 'web') return;
     const subs = [
       supabase.channel('rt_users').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_users' }, () => refreshUsers()).subscribe(),
       supabase.channel('rt_vacancies').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_vacancies' }, () => refreshVacancies()).subscribe(),

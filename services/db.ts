@@ -1,8 +1,27 @@
+import { Platform } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { User, Vacancy, Like, Chat, Message, PermVacancy, PermApplication, PermApplicationStatus } from '@/constants/types';
 import { uid, nowISO } from '@/services/storage';
 
 const DB_TIMEOUT = 12_000;
+
+// ─── Native API proxy ────────────────────────────────────────────────────────
+// On Android/iOS the supabase-js client has connectivity issues.
+// All DB calls go through the web API endpoint instead.
+
+const IS_NATIVE = Platform.OS !== 'web';
+const API_BASE = IS_NATIVE ? (process.env.EXPO_PUBLIC_API_URL ?? '') : '';
+
+async function proxy<T>(fn: string, args: unknown[] = []): Promise<T> {
+  const res = await fetch(`${API_BASE}/api/db`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fn, args }),
+  });
+  const body = await res.json() as { data?: T; error?: string };
+  if (body.error) throw new Error(body.error);
+  return body.data as T;
+}
 
 function withTimeout<T>(promise: PromiseLike<T>, ms = DB_TIMEOUT): Promise<T> {
   return Promise.race([
@@ -66,6 +85,7 @@ function userToRow(u: User) {
 }
 
 export async function dbGetUserById(id: string): Promise<User | null> {
+  if (IS_NATIVE) { const d = await proxy<any>('dbGetUserById', [id]); return d ? rowToUser(d) : null; }
   const { data } = await withTimeout(
     supabase.from('jm_users').select('*').eq('id', id).maybeSingle()
   );
@@ -73,6 +93,7 @@ export async function dbGetUserById(id: string): Promise<User | null> {
 }
 
 export async function dbGetUsers(): Promise<User[]> {
+  if (IS_NATIVE) { const d = await proxy<any[]>('dbGetUsers'); return d.map(rowToUser); }
   const { data, error } = await withTimeout(
     supabase.from('jm_users').select('*').order('created_at', { ascending: true })
   );
@@ -82,6 +103,7 @@ export async function dbGetUsers(): Promise<User[]> {
 
 export async function dbUpsertUser(u: User): Promise<void> {
   const { avg_rating, rating_count, ...row } = userToRow(u);
+  if (IS_NATIVE) { await proxy('dbUpsertUser', [row]); return; }
   const { error } = await withTimeout(
     supabase.from('jm_users').upsert(row, { onConflict: 'id' })
   );
@@ -89,11 +111,13 @@ export async function dbUpsertUser(u: User): Promise<void> {
 }
 
 export async function dbDeleteUser(id: string): Promise<void> {
+  if (IS_NATIVE) { await proxy('dbDeleteUser', [id]); return; }
   const { error } = await supabase.from('jm_users').delete().eq('id', id);
   if (error) console.error('dbDeleteUser', error.message);
 }
 
 export function dbWarmup(): void {
+  if (IS_NATIVE) return; // skip on native — connection warmup not needed for API proxy
   withTimeout(
     supabase.from('jm_users').select('id').limit(1),
     20_000
@@ -101,6 +125,9 @@ export function dbWarmup(): void {
 }
 
 export async function dbCheckPhoneExists(phone: string): Promise<boolean> {
+  if (IS_NATIVE) {
+    try { return await proxy<boolean>('dbCheckPhoneExists', [phone]); } catch { return false; }
+  }
   try {
     const { data } = await withTimeout(
       supabase.from('jm_users').select('id').eq('phone', phone).maybeSingle(),
@@ -113,6 +140,7 @@ export async function dbCheckPhoneExists(phone: string): Promise<boolean> {
 }
 
 export async function dbGetUserByPhone(phone: string): Promise<User | null> {
+  if (IS_NATIVE) { const d = await proxy<any>('dbGetUserByPhone', [phone]); return d ? rowToUser(d) : null; }
   const { data, error } = await withTimeout(
     supabase.from('jm_users').select('*').eq('phone', phone).maybeSingle()
   );
@@ -175,6 +203,7 @@ function vacancyToRow(v: Vacancy) {
 }
 
 export async function dbGetVacancies(): Promise<Vacancy[]> {
+  if (IS_NATIVE) { const d = await proxy<any[]>('dbGetVacancies'); return d.map(rowToVacancy); }
   const { data, error } = await withTimeout(
     supabase.from('jm_vacancies').select('*').order('created_at', { ascending: false })
   );
@@ -183,6 +212,7 @@ export async function dbGetVacancies(): Promise<Vacancy[]> {
 }
 
 export async function dbUpsertVacancy(v: Vacancy): Promise<void> {
+  if (IS_NATIVE) { await proxy('dbUpsertVacancy', [vacancyToRow(v)]); return; }
   const { error } = await withTimeout(
     supabase.from('jm_vacancies').upsert(vacancyToRow(v), { onConflict: 'id' })
   );
@@ -190,6 +220,7 @@ export async function dbUpsertVacancy(v: Vacancy): Promise<void> {
 }
 
 export async function dbUpdateVacancy(id: string, patch: Partial<{ status: string; workers_found: number }>): Promise<void> {
+  if (IS_NATIVE) { await proxy('dbUpdateVacancy', [id, patch]); return; }
   const { error } = await withTimeout(
     supabase.from('jm_vacancies').update(patch).eq('id', id)
   );
@@ -218,14 +249,14 @@ function rowToLike(r: any): Like {
 }
 
 export async function dbGetLikes(): Promise<Like[]> {
-  const { data, error } = await withTimeout(
-    supabase.from('jm_likes').select('*')
-  );
+  if (IS_NATIVE) { const d = await proxy<any[]>('dbGetLikes'); return d.map(rowToLike); }
+  const { data, error } = await withTimeout(supabase.from('jm_likes').select('*'));
   if (error) throwOnError('dbGetLikes', error);
   return (data ?? []).map(rowToLike);
 }
 
 export async function dbGetLikesForUser(userId: string, role: 'worker' | 'employer'): Promise<Like[]> {
+  if (IS_NATIVE) { const d = await proxy<any[]>('dbGetLikesForUser', [userId, role]); return d.map(rowToLike); }
   const field = role === 'worker' ? 'worker_id' : 'employer_id';
   const { data, error } = await withTimeout(
     supabase.from('jm_likes').select('*').eq(field, userId)
@@ -235,6 +266,7 @@ export async function dbGetLikesForUser(userId: string, role: 'worker' | 'employ
 }
 
 export async function dbGetLikesByVacancy(vacancyId: string): Promise<Like[]> {
+  if (IS_NATIVE) { const d = await proxy<any[]>('dbGetLikesByVacancy', [vacancyId]); return d.map(rowToLike); }
   const { data, error } = await withTimeout(
     supabase.from('jm_likes').select('*').eq('vacancy_id', vacancyId)
   );
@@ -243,6 +275,7 @@ export async function dbGetLikesByVacancy(vacancyId: string): Promise<Like[]> {
 }
 
 export async function dbGetLikeByVacancyWorker(vacancyId: string, workerId: string): Promise<Like | null> {
+  if (IS_NATIVE) { const d = await proxy<any>('dbGetLikeByVacancyWorker', [vacancyId, workerId]); return d ? rowToLike(d) : null; }
   const { data } = await withTimeout(
     supabase.from('jm_likes').select('*').eq('vacancy_id', vacancyId).eq('worker_id', workerId).maybeSingle()
   );
@@ -255,6 +288,7 @@ export async function dbUpsertLike(
   employerId: string,
   updates: Partial<Like>
 ): Promise<Like> {
+  if (IS_NATIVE) { const d = await proxy<any>('dbUpsertLike', [vacancyId, workerId, employerId, updates]); return rowToLike(d); }
   const { data: existing } = await withTimeout(
     supabase.from('jm_likes').select('*').eq('vacancy_id', vacancyId).eq('worker_id', workerId).maybeSingle()
   );
@@ -301,6 +335,7 @@ export async function dbUpsertLike(
 }
 
 export async function dbRemoveLike(vacancyId: string, workerId: string): Promise<void> {
+  if (IS_NATIVE) { await proxy('dbRemoveLike', [vacancyId, workerId]); return; }
   const { error } = await withTimeout(
     supabase.from('jm_likes').delete().eq('vacancy_id', vacancyId).eq('worker_id', workerId)
   );
@@ -308,9 +343,8 @@ export async function dbRemoveLike(vacancyId: string, workerId: string): Promise
 }
 
 export async function dbDeleteMatch(likeId: string): Promise<void> {
-  const { error } = await withTimeout(
-    supabase.from('jm_likes').delete().eq('id', likeId)
-  );
+  if (IS_NATIVE) { await proxy('dbDeleteMatch', [likeId]); return; }
+  const { error } = await withTimeout(supabase.from('jm_likes').delete().eq('id', likeId));
   if (error) throwOnError('dbDeleteMatch', error);
 }
 
@@ -326,6 +360,7 @@ function rowToMessage(r: any): Message {
 }
 
 export async function dbGetMessages(chatId: string): Promise<Message[]> {
+  if (IS_NATIVE) { const d = await proxy<any[]>('dbGetMessages', [chatId]); return d.map(rowToMessage); }
   const { data, error } = await withTimeout(
     supabase.from('jm_messages').select('*').eq('chat_id', chatId).order('created_at', { ascending: true })
   );
@@ -334,10 +369,9 @@ export async function dbGetMessages(chatId: string): Promise<Message[]> {
 }
 
 export async function dbInsertMessage(chatId: string, senderId: string, text: string): Promise<Message> {
+  if (IS_NATIVE) { const d = await proxy<any>('dbInsertMessage', [chatId, senderId, text]); return rowToMessage(d); }
   const msg = { id: uid(), chat_id: chatId, sender_id: senderId, text, created_at: nowISO() };
-  const { error } = await withTimeout(
-    supabase.from('jm_messages').insert(msg)
-  );
+  const { error } = await withTimeout(supabase.from('jm_messages').insert(msg));
   if (error) throwOnError('dbInsertMessage', error);
   return rowToMessage(msg);
 }
@@ -360,6 +394,13 @@ function rowToChat(r: any, messages: Message[] = []): Chat {
 }
 
 export async function dbGetChats(userId: string, role: 'worker' | 'employer'): Promise<Chat[]> {
+  if (IS_NATIVE) {
+    const rows = await proxy<any[]>('dbGetChats', [userId, role]);
+    return rows.map(row => {
+      const last = row._last_msg;
+      return rowToChat(row, last ? [rowToMessage(last)] : []);
+    });
+  }
   const field = role === 'worker' ? 'worker_id' : 'employer_id';
   const { data, error } = await withTimeout(
     supabase.from('jm_chats').select('*').eq(field, userId).order('created_at', { ascending: false })
@@ -386,6 +427,12 @@ export async function dbGetChats(userId: string, role: 'worker' | 'employer'): P
 }
 
 export async function dbGetChatById(chatId: string): Promise<Chat | null> {
+  if (IS_NATIVE) {
+    const result = await proxy<any>('dbGetChatById', [chatId]);
+    if (!result) return null;
+    const { _messages, ...row } = result;
+    return rowToChat(row, (_messages ?? []).map(rowToMessage));
+  }
   const { data } = await withTimeout(
     supabase.from('jm_chats').select('*').eq('id', chatId).maybeSingle()
   );
@@ -404,6 +451,12 @@ export async function dbCreateChat(
   initialUnreadWorker = 0,
   initialUnreadEmployer = 0
 ): Promise<string> {
+  if (IS_NATIVE) {
+    return proxy<string>('dbCreateChat', [
+      workerId, employerId, vacancyId, vacTitle, companyName,
+      systemMessage, initialUnreadWorker, initialUnreadEmployer,
+    ]);
+  }
   const { data: existing } = await withTimeout(
     supabase.from('jm_chats').select('id').eq('vacancy_id', vacancyId).eq('worker_id', workerId).maybeSingle()
   );
@@ -432,6 +485,7 @@ export async function dbCreateChat(
 }
 
 export async function dbMarkRead(chatId: string, role: 'worker' | 'employer'): Promise<void> {
+  if (IS_NATIVE) { await proxy('dbMarkRead', [chatId, role]); return; }
   const field = role === 'worker' ? 'unread_worker' : 'unread_employer';
   const { error } = await withTimeout(
     supabase.from('jm_chats').update({ [field]: 0 }).eq('id', chatId)
@@ -440,6 +494,7 @@ export async function dbMarkRead(chatId: string, role: 'worker' | 'employer'): P
 }
 
 export async function dbIncrementUnread(chatId: string, forRole: 'worker' | 'employer'): Promise<void> {
+  if (IS_NATIVE) { await proxy('dbIncrementUnread', [chatId, forRole]); return; }
   const { data } = await withTimeout(
     supabase.from('jm_chats').select('unread_worker,unread_employer').eq('id', chatId).maybeSingle()
   );
@@ -450,6 +505,7 @@ export async function dbIncrementUnread(chatId: string, forRole: 'worker' | 'emp
 }
 
 export async function dbDeleteChat(chatId: string): Promise<void> {
+  if (IS_NATIVE) { await proxy('dbDeleteChat', [chatId]); return; }
   await withTimeout(supabase.from('jm_messages').delete().eq('chat_id', chatId));
   await withTimeout(supabase.from('jm_chats').delete().eq('id', chatId));
 }
@@ -457,6 +513,7 @@ export async function dbDeleteChat(chatId: string): Promise<void> {
 // ─── Saved ────────────────────────────────────────────────────────────────────
 
 export async function dbGetSaved(userId: string): Promise<string[]> {
+  if (IS_NATIVE) { return proxy<string[]>('dbGetSaved', [userId]); }
   const { data, error } = await withTimeout(
     supabase.from('jm_saved').select('vacancy_id').eq('user_id', userId)
   );
@@ -465,6 +522,7 @@ export async function dbGetSaved(userId: string): Promise<string[]> {
 }
 
 export async function dbAddSaved(userId: string, vacancyId: string): Promise<void> {
+  if (IS_NATIVE) { await proxy('dbAddSaved', [userId, vacancyId]); return; }
   const { error } = await withTimeout(
     supabase.from('jm_saved').upsert({ user_id: userId, vacancy_id: vacancyId })
   );
@@ -472,6 +530,7 @@ export async function dbAddSaved(userId: string, vacancyId: string): Promise<voi
 }
 
 export async function dbRemoveSaved(userId: string, vacancyId: string): Promise<void> {
+  if (IS_NATIVE) { await proxy('dbRemoveSaved', [userId, vacancyId]); return; }
   const { error } = await withTimeout(
     supabase.from('jm_saved').delete().eq('user_id', userId).eq('vacancy_id', vacancyId)
   );
@@ -490,6 +549,7 @@ export async function dbFileComplaint(params: {
   complaintType: 'worker' | 'employer';
   description?: string;
 }): Promise<void> {
+  if (IS_NATIVE) { await proxy('dbFileComplaint', [params]); return; }
   const { error } = await withTimeout(
     supabase.from('jm_complaints').insert({
       id: uid(),
@@ -513,6 +573,7 @@ export async function dbCheckAndCreateMatch(
   vacancyId: string,
   workerId: string
 ): Promise<{ matched: boolean; chatId?: string }> {
+  if (IS_NATIVE) { return proxy<{ matched: boolean; chatId?: string }>('dbCheckAndCreateMatch', [vacancyId, workerId]); }
   const { data: likeRow } = await withTimeout(
     supabase.from('jm_likes').select('*').eq('vacancy_id', vacancyId).eq('worker_id', workerId).maybeSingle()
   );
@@ -579,6 +640,7 @@ function rowToPermVacancy(r: any): PermVacancy {
 }
 
 export async function dbGetPermVacancies(): Promise<PermVacancy[]> {
+  if (IS_NATIVE) { const d = await proxy<any[]>('dbGetPermVacancies'); return d.map(rowToPermVacancy); }
   const { data, error } = await withTimeout(
     supabase.from('jm_perm_vacancies').select('*').eq('status', 'open').order('created_at', { ascending: false })
   );
@@ -587,6 +649,7 @@ export async function dbGetPermVacancies(): Promise<PermVacancy[]> {
 }
 
 export async function dbGetPermVacanciesByEmployer(employerId: string): Promise<PermVacancy[]> {
+  if (IS_NATIVE) { const d = await proxy<any[]>('dbGetPermVacanciesByEmployer', [employerId]); return d.map(rowToPermVacancy); }
   const { data, error } = await withTimeout(
     supabase.from('jm_perm_vacancies').select('*').eq('employer_id', employerId).order('created_at', { ascending: false })
   );
@@ -595,27 +658,22 @@ export async function dbGetPermVacanciesByEmployer(employerId: string): Promise<
 }
 
 export async function dbUpsertPermVacancy(v: PermVacancy): Promise<void> {
+  const permRow = {
+    id: v.id, employer_id: v.employerId, company: v.company, title: v.title,
+    work_type: v.workType ?? null, metro_line_id: v.metroLineId ?? null,
+    metro_station: v.metroStation ?? null, address: v.address ?? null,
+    salary: v.salary, schedule: v.schedule, description: v.description ?? null,
+    status: v.status, created_at: v.createdAt,
+  };
+  if (IS_NATIVE) { await proxy('dbUpsertPermVacancy', [permRow]); return; }
   const { error } = await withTimeout(
-    supabase.from('jm_perm_vacancies').upsert({
-      id: v.id,
-      employer_id: v.employerId,
-      company: v.company,
-      title: v.title,
-      work_type: v.workType ?? null,
-      metro_line_id: v.metroLineId ?? null,
-      metro_station: v.metroStation ?? null,
-      address: v.address ?? null,
-      salary: v.salary,
-      schedule: v.schedule,
-      description: v.description ?? null,
-      status: v.status,
-      created_at: v.createdAt,
-    }, { onConflict: 'id' })
+    supabase.from('jm_perm_vacancies').upsert(permRow, { onConflict: 'id' })
   );
   if (error) throwOnError('dbUpsertPermVacancy', error);
 }
 
 export async function dbClosePermVacancy(id: string): Promise<void> {
+  if (IS_NATIVE) { await proxy('dbClosePermVacancy', [id]); return; }
   const { error } = await withTimeout(
     supabase.from('jm_perm_vacancies').update({ status: 'closed' }).eq('id', id)
   );
@@ -636,6 +694,7 @@ function rowToPermApp(r: any): PermApplication {
 }
 
 export async function dbGetPermApplications(userId: string, role: 'worker' | 'employer'): Promise<PermApplication[]> {
+  if (IS_NATIVE) { const d = await proxy<any[]>('dbGetPermApplications', [userId, role]); return d.map(rowToPermApp); }
   const field = role === 'worker' ? 'worker_id' : 'employer_id';
   const { data, error } = await withTimeout(
     supabase.from('jm_perm_applications').select('*').eq(field, userId).order('created_at', { ascending: false })
@@ -645,6 +704,7 @@ export async function dbGetPermApplications(userId: string, role: 'worker' | 'em
 }
 
 export async function dbGetPermApplicationsForVacancy(vacancyId: string): Promise<PermApplication[]> {
+  if (IS_NATIVE) { const d = await proxy<any[]>('dbGetPermApplicationsForVacancy', [vacancyId]); return d.map(rowToPermApp); }
   const { data, error } = await withTimeout(
     supabase.from('jm_perm_applications').select('*').eq('vacancy_id', vacancyId).order('created_at', { ascending: false })
   );
@@ -653,6 +713,7 @@ export async function dbGetPermApplicationsForVacancy(vacancyId: string): Promis
 }
 
 export async function dbApplyPermVacancy(vacancyId: string, workerId: string, employerId: string): Promise<void> {
+  if (IS_NATIVE) { await proxy('dbApplyPermVacancy', [vacancyId, workerId, employerId]); return; }
   const { error } = await withTimeout(
     supabase.from('jm_perm_applications').upsert({
       id: uid(),
@@ -667,6 +728,7 @@ export async function dbApplyPermVacancy(vacancyId: string, workerId: string, em
 }
 
 export async function dbSetPermApplicationStatus(appId: string, status: PermApplicationStatus): Promise<void> {
+  if (IS_NATIVE) { await proxy('dbSetPermApplicationStatus', [appId, status]); return; }
   const { error } = await withTimeout(
     supabase.from('jm_perm_applications').update({ status }).eq('id', appId)
   );
@@ -676,6 +738,7 @@ export async function dbSetPermApplicationStatus(appId: string, status: PermAppl
 // ─── Permanent saved ──────────────────────────────────────────────────────────
 
 export async function dbGetPermSaved(userId: string): Promise<string[]> {
+  if (IS_NATIVE) { return proxy<string[]>('dbGetPermSaved', [userId]); }
   const { data, error } = await withTimeout(
     supabase.from('jm_perm_saved').select('vacancy_id').eq('user_id', userId)
   );
@@ -684,6 +747,7 @@ export async function dbGetPermSaved(userId: string): Promise<string[]> {
 }
 
 export async function dbAddPermSaved(userId: string, vacancyId: string): Promise<void> {
+  if (IS_NATIVE) { await proxy('dbAddPermSaved', [userId, vacancyId]); return; }
   const { error } = await withTimeout(
     supabase.from('jm_perm_saved').upsert({ user_id: userId, vacancy_id: vacancyId })
   );
@@ -691,6 +755,7 @@ export async function dbAddPermSaved(userId: string, vacancyId: string): Promise
 }
 
 export async function dbRemovePermSaved(userId: string, vacancyId: string): Promise<void> {
+  if (IS_NATIVE) { await proxy('dbRemovePermSaved', [userId, vacancyId]); return; }
   const { error } = await withTimeout(
     supabase.from('jm_perm_saved').delete().eq('user_id', userId).eq('vacancy_id', vacancyId)
   );
@@ -710,6 +775,10 @@ export interface UserRating {
 }
 
 export async function dbGetRatingsForUser(toUserId: string): Promise<UserRating[]> {
+  if (IS_NATIVE) {
+    const d = await proxy<any[]>('dbGetRatingsForUser', [toUserId]);
+    return d.map((r: any) => ({ id: r.id, fromUserId: r.from_user_id, rating: r.rating, reviewText: r.review_text ?? undefined, role: r.role, createdAt: r.created_at, vacancyId: r.vacancy_id }));
+  }
   const { data, error } = await withTimeout(
     supabase.from('jm_ratings').select('*').eq('to_user_id', toUserId).order('created_at', { ascending: false })
   );
@@ -728,6 +797,7 @@ export async function dbGetRatingsForUser(toUserId: string): Promise<UserRating[
 // ─── Shift confirmation ───────────────────────────────────────────────────────
 
 export async function dbConfirmShift(likeId: string, _role: 'employer'): Promise<{ bothConfirmed: boolean }> {
+  if (IS_NATIVE) { return proxy<{ bothConfirmed: boolean }>('dbConfirmShift', [likeId]); }
   await withTimeout(
     supabase.from('jm_likes').update({
       employer_confirmed: true,
@@ -749,6 +819,7 @@ export async function dbSubmitRatingAndMaybeDelete(params: {
   role: 'worker' | 'employer';
   reviewText?: string;
 }): Promise<{ bothRated: boolean }> {
+  if (IS_NATIVE) { return proxy<{ bothRated: boolean }>('dbSubmitRatingAndMaybeDelete', [params]); }
   const { likeId, fromUserId, toUserId, vacancyId, rating, role, reviewText } = params;
 
   await withTimeout(
@@ -791,10 +862,12 @@ export async function dbSubmitRatingAndMaybeDelete(params: {
 // ─── Push tokens ──────────────────────────────────────────────────────────────
 
 export async function dbSavePushToken(userId: string, token: string): Promise<void> {
+  if (IS_NATIVE) { await proxy('dbSavePushToken', [userId, token]); return; }
   await withTimeout(supabase.from('jm_users').update({ push_token: token }).eq('id', userId));
 }
 
 export async function dbGetPushToken(userId: string): Promise<string | null> {
+  if (IS_NATIVE) { return proxy<string | null>('dbGetPushToken', [userId]); }
   const { data } = await withTimeout(
     supabase.from('jm_users').select('push_token').eq('id', userId).maybeSingle()
   );
@@ -802,6 +875,7 @@ export async function dbGetPushToken(userId: string): Promise<string | null> {
 }
 
 export async function dbGetWorkerTokensByMetro(metroStation: string): Promise<{ id: string; push_token: string }[]> {
+  if (IS_NATIVE) { return proxy<{ id: string; push_token: string }[]>('dbGetWorkerTokensByMetro', [metroStation]); }
   const { data } = await withTimeout(
     supabase
       .from('jm_users')
