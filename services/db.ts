@@ -1,22 +1,17 @@
-/**
- * Supabase data layer — replaces AsyncStorage for persistent data.
- */
-import { getSupabaseClient } from '@/template';
+import { supabase } from '@/lib/supabase';
 import { User, Vacancy, Like, Chat, Message, PermVacancy, PermApplication, PermApplicationStatus } from '@/constants/types';
 import { uid, nowISO } from '@/services/storage';
 
-const sb = () => getSupabaseClient();
+const DB_TIMEOUT = 12_000;
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function withTimeout<T>(promise: PromiseLike<T>, ms: number): Promise<T> {
+function withTimeout<T>(promise: PromiseLike<T>, ms = DB_TIMEOUT): Promise<T> {
   return Promise.race([
     Promise.resolve(promise),
-    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Нет ответа от сервера. Проверьте соединение.')), ms)
+    ),
   ]);
 }
-
-// ─── Error helper ────────────────────────────────────────────────────────────
 
 function throwOnError(label: string, error: any): never {
   const msg = error?.message ?? String(error);
@@ -71,66 +66,56 @@ function userToRow(u: User) {
 }
 
 export async function dbGetUserById(id: string): Promise<User | null> {
-  const { data } = await sb().from('jm_users').select('*').eq('id', id).maybeSingle();
+  const { data } = await withTimeout(
+    supabase.from('jm_users').select('*').eq('id', id).maybeSingle()
+  );
   return data ? rowToUser(data) : null;
 }
 
 export async function dbGetUsers(): Promise<User[]> {
-  const { data, error } = await sb().from('jm_users').select('*').order('created_at', { ascending: true });
+  const { data, error } = await withTimeout(
+    supabase.from('jm_users').select('*').order('created_at', { ascending: true })
+  );
   if (error) throwOnError('dbGetUsers', error);
   return (data ?? []).map(rowToUser);
 }
 
 export async function dbUpsertUser(u: User): Promise<void> {
-  // avg_rating and rating_count are managed by dbSubmitRatingAndMaybeDelete —
-  // never overwrite them here or boot-time stale session data zeros them out.
   const { avg_rating, rating_count, ...row } = userToRow(u);
   const { error } = await withTimeout(
-    sb().from('jm_users').upsert(row, { onConflict: 'id' }),
-    10_000
+    supabase.from('jm_users').upsert(row, { onConflict: 'id' })
   );
   if (error) throwOnError('dbUpsertUser', error);
 }
 
 export async function dbDeleteUser(id: string): Promise<void> {
-  const { error } = await sb().from('jm_users').delete().eq('id', id);
+  const { error } = await supabase.from('jm_users').delete().eq('id', id);
   if (error) console.error('dbDeleteUser', error.message);
 }
 
-// Пинг-прогрев соединения — вызывается при открытии экранов регистрации,
-// чтобы Supabase успел проснуться до нажатия кнопки.
-// Free-tier Supabase может спать до 15с — берём 20с чтобы точно успеть.
 export function dbWarmup(): void {
-  (async () => {
-    try {
-      await withTimeout(
-        sb().from('jm_users').select('id').limit(1),
-        20_000
-      );
-    } catch {}
-  })();
+  withTimeout(
+    supabase.from('jm_users').select('id').limit(1),
+    20_000
+  ).catch(() => {});
 }
 
-// Быстрая проверка номера — не тянет всех пользователей.
 export async function dbCheckPhoneExists(phone: string): Promise<boolean> {
   try {
-    const result = await withTimeout(
-      sb().from('jm_users').select('id').eq('phone', phone).maybeSingle(),
-      5_000
+    const { data } = await withTimeout(
+      supabase.from('jm_users').select('id').eq('phone', phone).maybeSingle(),
+      8_000
     );
-    return !!result.data;
+    return !!data;
   } catch {
     return false;
   }
 }
 
-// Логин: одна строка по телефону + пароль
 export async function dbGetUserByPhone(phone: string): Promise<User | null> {
-  const { data, error } = await sb()
-    .from('jm_users')
-    .select('*')
-    .eq('phone', phone)
-    .maybeSingle();
+  const { data, error } = await withTimeout(
+    supabase.from('jm_users').select('*').eq('phone', phone).maybeSingle()
+  );
   if (error) throwOnError('dbGetUserByPhone', error);
   return data ? rowToUser(data) : null;
 }
@@ -190,21 +175,24 @@ function vacancyToRow(v: Vacancy) {
 }
 
 export async function dbGetVacancies(): Promise<Vacancy[]> {
-  const { data, error } = await sb().from('jm_vacancies').select('*').order('created_at', { ascending: false });
+  const { data, error } = await withTimeout(
+    supabase.from('jm_vacancies').select('*').order('created_at', { ascending: false })
+  );
   if (error) throwOnError('dbGetVacancies', error);
   return (data ?? []).map(rowToVacancy);
 }
 
 export async function dbUpsertVacancy(v: Vacancy): Promise<void> {
-  const { error } = await sb().from('jm_vacancies').upsert(vacancyToRow(v), { onConflict: 'id' });
-  if (error) {
-    console.error('dbUpsertVacancy', error.message);
-    throw new Error(error.message);
-  }
+  const { error } = await withTimeout(
+    supabase.from('jm_vacancies').upsert(vacancyToRow(v), { onConflict: 'id' })
+  );
+  if (error) throwOnError('dbUpsertVacancy', error);
 }
 
 export async function dbUpdateVacancy(id: string, patch: Partial<{ status: string; workers_found: number }>): Promise<void> {
-  const { error } = await sb().from('jm_vacancies').update(patch).eq('id', id);
+  const { error } = await withTimeout(
+    supabase.from('jm_vacancies').update(patch).eq('id', id)
+  );
   if (error) throwOnError('dbUpdateVacancy', error);
 }
 
@@ -230,26 +218,34 @@ function rowToLike(r: any): Like {
 }
 
 export async function dbGetLikes(): Promise<Like[]> {
-  const { data, error } = await sb().from('jm_likes').select('*');
+  const { data, error } = await withTimeout(
+    supabase.from('jm_likes').select('*')
+  );
   if (error) throwOnError('dbGetLikes', error);
   return (data ?? []).map(rowToLike);
 }
 
 export async function dbGetLikesForUser(userId: string, role: 'worker' | 'employer'): Promise<Like[]> {
   const field = role === 'worker' ? 'worker_id' : 'employer_id';
-  const { data, error } = await sb().from('jm_likes').select('*').eq(field, userId);
+  const { data, error } = await withTimeout(
+    supabase.from('jm_likes').select('*').eq(field, userId)
+  );
   if (error) throwOnError('dbGetLikesForUser', error);
   return (data ?? []).map(rowToLike);
 }
 
 export async function dbGetLikesByVacancy(vacancyId: string): Promise<Like[]> {
-  const { data, error } = await sb().from('jm_likes').select('*').eq('vacancy_id', vacancyId);
+  const { data, error } = await withTimeout(
+    supabase.from('jm_likes').select('*').eq('vacancy_id', vacancyId)
+  );
   if (error) throwOnError('dbGetLikesByVacancy', error);
   return (data ?? []).map(rowToLike);
 }
 
 export async function dbGetLikeByVacancyWorker(vacancyId: string, workerId: string): Promise<Like | null> {
-  const { data } = await sb().from('jm_likes').select('*').eq('vacancy_id', vacancyId).eq('worker_id', workerId).maybeSingle();
+  const { data } = await withTimeout(
+    supabase.from('jm_likes').select('*').eq('vacancy_id', vacancyId).eq('worker_id', workerId).maybeSingle()
+  );
   return data ? rowToLike(data) : null;
 }
 
@@ -259,12 +255,9 @@ export async function dbUpsertLike(
   employerId: string,
   updates: Partial<Like>
 ): Promise<Like> {
-  const { data: existing } = await sb()
-    .from('jm_likes')
-    .select('*')
-    .eq('vacancy_id', vacancyId)
-    .eq('worker_id', workerId)
-    .maybeSingle();
+  const { data: existing } = await withTimeout(
+    supabase.from('jm_likes').select('*').eq('vacancy_id', vacancyId).eq('worker_id', workerId).maybeSingle()
+  );
 
   const base: any = existing ?? {
     id: uid(),
@@ -297,30 +290,27 @@ export async function dbUpsertLike(
     shift_completed: updates.shiftCompleted ?? base.shift_completed,
   };
 
-  const { data: written, error } = await sb()
-    .from('jm_likes')
-    .upsert(row, { onConflict: 'vacancy_id,worker_id' })
-    .select();
+  const { data: written, error } = await withTimeout(
+    supabase.from('jm_likes').upsert(row, { onConflict: 'vacancy_id,worker_id' }).select()
+  );
   if (error) throwOnError('dbUpsertLike', error);
-  // If data is empty the write was silently blocked (RLS or missing permission)
   if (!written || written.length === 0) {
-    console.error('[dbUpsertLike] Write silently ignored — check RLS policies on jm_likes');
     throw new Error('Like not saved: permission denied');
   }
   return rowToLike(row);
 }
 
 export async function dbRemoveLike(vacancyId: string, workerId: string): Promise<void> {
-  const { error } = await sb()
-    .from('jm_likes')
-    .delete()
-    .eq('vacancy_id', vacancyId)
-    .eq('worker_id', workerId);
+  const { error } = await withTimeout(
+    supabase.from('jm_likes').delete().eq('vacancy_id', vacancyId).eq('worker_id', workerId)
+  );
   if (error) throwOnError('dbRemoveLike', error);
 }
 
 export async function dbDeleteMatch(likeId: string): Promise<void> {
-  const { error } = await sb().from('jm_likes').delete().eq('id', likeId);
+  const { error } = await withTimeout(
+    supabase.from('jm_likes').delete().eq('id', likeId)
+  );
   if (error) throwOnError('dbDeleteMatch', error);
 }
 
@@ -336,22 +326,19 @@ function rowToMessage(r: any): Message {
 }
 
 export async function dbGetMessages(chatId: string): Promise<Message[]> {
-  const { data, error } = await sb()
-    .from('jm_messages')
-    .select('*')
-    .eq('chat_id', chatId)
-    .order('created_at', { ascending: true });
+  const { data, error } = await withTimeout(
+    supabase.from('jm_messages').select('*').eq('chat_id', chatId).order('created_at', { ascending: true })
+  );
   if (error) throwOnError('dbGetMessages', error);
   return (data ?? []).map(rowToMessage);
 }
 
 export async function dbInsertMessage(chatId: string, senderId: string, text: string): Promise<Message> {
   const msg = { id: uid(), chat_id: chatId, sender_id: senderId, text, created_at: nowISO() };
-  const { error } = await sb().from('jm_messages').insert(msg);
-  if (error) {
-    console.error('dbInsertMessage', error.message);
-    throw new Error(error.message);
-  }
+  const { error } = await withTimeout(
+    supabase.from('jm_messages').insert(msg)
+  );
+  if (error) throwOnError('dbInsertMessage', error);
   return rowToMessage(msg);
 }
 
@@ -374,23 +361,18 @@ function rowToChat(r: any, messages: Message[] = []): Chat {
 
 export async function dbGetChats(userId: string, role: 'worker' | 'employer'): Promise<Chat[]> {
   const field = role === 'worker' ? 'worker_id' : 'employer_id';
-  const { data, error } = await sb()
-    .from('jm_chats')
-    .select('*')
-    .eq(field, userId)
-    .order('created_at', { ascending: false });
+  const { data, error } = await withTimeout(
+    supabase.from('jm_chats').select('*').eq(field, userId).order('created_at', { ascending: false })
+  );
   if (error) throwOnError('dbGetChats', error);
 
   const chatRows = data ?? [];
   if (chatRows.length === 0) return [];
 
-  // Batch: one query for all last messages instead of N separate queries
   const chatIds = chatRows.map((r: any) => r.id);
-  const { data: allMsgs } = await sb()
-    .from('jm_messages')
-    .select('*')
-    .in('chat_id', chatIds)
-    .order('created_at', { ascending: false });
+  const { data: allMsgs } = await withTimeout(
+    supabase.from('jm_messages').select('*').in('chat_id', chatIds).order('created_at', { ascending: false })
+  );
 
   const lastMsgByChat = new Map<string, any>();
   for (const msg of (allMsgs ?? [])) {
@@ -404,7 +386,9 @@ export async function dbGetChats(userId: string, role: 'worker' | 'employer'): P
 }
 
 export async function dbGetChatById(chatId: string): Promise<Chat | null> {
-  const { data } = await sb().from('jm_chats').select('*').eq('id', chatId).maybeSingle();
+  const { data } = await withTimeout(
+    supabase.from('jm_chats').select('*').eq('id', chatId).maybeSingle()
+  );
   if (!data) return null;
   const msgs = await dbGetMessages(chatId);
   return rowToChat(data, msgs);
@@ -420,12 +404,9 @@ export async function dbCreateChat(
   initialUnreadWorker = 0,
   initialUnreadEmployer = 0
 ): Promise<string> {
-  const { data: existing } = await sb()
-    .from('jm_chats')
-    .select('id')
-    .eq('vacancy_id', vacancyId)
-    .eq('worker_id', workerId)
-    .maybeSingle();
+  const { data: existing } = await withTimeout(
+    supabase.from('jm_chats').select('id').eq('vacancy_id', vacancyId).eq('worker_id', workerId).maybeSingle()
+  );
   if (existing) return existing.id;
 
   const chatId = uid();
@@ -440,7 +421,7 @@ export async function dbCreateChat(
     unread_employer: initialUnreadEmployer,
     created_at: nowISO(),
   };
-  const { error } = await sb().from('jm_chats').insert(row);
+  const { error } = await withTimeout(supabase.from('jm_chats').insert(row));
   if (error) throwOnError('dbCreateChat', error);
 
   if (systemMessage) {
@@ -452,38 +433,48 @@ export async function dbCreateChat(
 
 export async function dbMarkRead(chatId: string, role: 'worker' | 'employer'): Promise<void> {
   const field = role === 'worker' ? 'unread_worker' : 'unread_employer';
-  const { error } = await sb().from('jm_chats').update({ [field]: 0 }).eq('id', chatId);
+  const { error } = await withTimeout(
+    supabase.from('jm_chats').update({ [field]: 0 }).eq('id', chatId)
+  );
   if (error) throwOnError('dbMarkRead', error);
 }
 
 export async function dbIncrementUnread(chatId: string, forRole: 'worker' | 'employer'): Promise<void> {
-  const { data } = await sb().from('jm_chats').select('unread_worker,unread_employer').eq('id', chatId).maybeSingle();
+  const { data } = await withTimeout(
+    supabase.from('jm_chats').select('unread_worker,unread_employer').eq('id', chatId).maybeSingle()
+  );
   if (!data) return;
   const field = forRole === 'worker' ? 'unread_worker' : 'unread_employer';
   const cur = forRole === 'worker' ? data.unread_worker : data.unread_employer;
-  await sb().from('jm_chats').update({ [field]: (cur ?? 0) + 1 }).eq('id', chatId);
+  await withTimeout(supabase.from('jm_chats').update({ [field]: (cur ?? 0) + 1 }).eq('id', chatId));
 }
 
 export async function dbDeleteChat(chatId: string): Promise<void> {
-  await sb().from('jm_messages').delete().eq('chat_id', chatId);
-  await sb().from('jm_chats').delete().eq('id', chatId);
+  await withTimeout(supabase.from('jm_messages').delete().eq('chat_id', chatId));
+  await withTimeout(supabase.from('jm_chats').delete().eq('id', chatId));
 }
 
 // ─── Saved ────────────────────────────────────────────────────────────────────
 
 export async function dbGetSaved(userId: string): Promise<string[]> {
-  const { data, error } = await sb().from('jm_saved').select('vacancy_id').eq('user_id', userId);
+  const { data, error } = await withTimeout(
+    supabase.from('jm_saved').select('vacancy_id').eq('user_id', userId)
+  );
   if (error) throwOnError('dbGetSaved', error);
   return (data ?? []).map((r: any) => r.vacancy_id);
 }
 
 export async function dbAddSaved(userId: string, vacancyId: string): Promise<void> {
-  const { error } = await sb().from('jm_saved').upsert({ user_id: userId, vacancy_id: vacancyId });
+  const { error } = await withTimeout(
+    supabase.from('jm_saved').upsert({ user_id: userId, vacancy_id: vacancyId })
+  );
   if (error) throwOnError('dbAddSaved', error);
 }
 
 export async function dbRemoveSaved(userId: string, vacancyId: string): Promise<void> {
-  const { error } = await sb().from('jm_saved').delete().eq('user_id', userId).eq('vacancy_id', vacancyId);
+  const { error } = await withTimeout(
+    supabase.from('jm_saved').delete().eq('user_id', userId).eq('vacancy_id', vacancyId)
+  );
   if (error) throwOnError('dbRemoveSaved', error);
 }
 
@@ -499,18 +490,20 @@ export async function dbFileComplaint(params: {
   complaintType: 'worker' | 'employer';
   description?: string;
 }): Promise<void> {
-  const { error } = await sb().from('jm_complaints').insert({
-    id: uid(),
-    reporter_id: params.reporterId,
-    reporter_phone: params.reporterPhone,
-    reporter_company: params.reporterCompany ?? null,
-    target_id: params.targetId,
-    target_phone: params.targetPhone,
-    target_company: params.targetCompany ?? null,
-    complaint_type: params.complaintType,
-    description: params.description ?? null,
-    created_at: nowISO(),
-  });
+  const { error } = await withTimeout(
+    supabase.from('jm_complaints').insert({
+      id: uid(),
+      reporter_id: params.reporterId,
+      reporter_phone: params.reporterPhone,
+      reporter_company: params.reporterCompany ?? null,
+      target_id: params.targetId,
+      target_phone: params.targetPhone,
+      target_company: params.targetCompany ?? null,
+      complaint_type: params.complaintType,
+      description: params.description ?? null,
+      created_at: nowISO(),
+    })
+  );
   if (error) throwOnError('dbFileComplaint', error);
 }
 
@@ -520,29 +513,22 @@ export async function dbCheckAndCreateMatch(
   vacancyId: string,
   workerId: string
 ): Promise<{ matched: boolean; chatId?: string }> {
-  const { data: likeRow } = await sb()
-    .from('jm_likes')
-    .select('*')
-    .eq('vacancy_id', vacancyId)
-    .eq('worker_id', workerId)
-    .maybeSingle();
+  const { data: likeRow } = await withTimeout(
+    supabase.from('jm_likes').select('*').eq('vacancy_id', vacancyId).eq('worker_id', workerId).maybeSingle()
+  );
 
   if (!likeRow) return { matched: false };
   if (likeRow.is_match) {
-    const { data: existingChat } = await sb()
-      .from('jm_chats')
-      .select('id')
-      .eq('vacancy_id', vacancyId)
-      .eq('worker_id', workerId)
-      .maybeSingle();
+    const { data: existingChat } = await withTimeout(
+      supabase.from('jm_chats').select('id').eq('vacancy_id', vacancyId).eq('worker_id', workerId).maybeSingle()
+    );
     return { matched: false, chatId: existingChat?.id };
   }
   if (!likeRow.worker_liked || likeRow.employer_liked !== true) return { matched: false };
 
-  // Parallel: mark match + fetch vacancy data
   const [, { data: vac }] = await Promise.all([
-    sb().from('jm_likes').update({ is_match: true, matched_at: nowISO() }).eq('vacancy_id', vacancyId).eq('worker_id', workerId),
-    sb().from('jm_vacancies').select('*').eq('id', vacancyId).maybeSingle(),
+    withTimeout(supabase.from('jm_likes').update({ is_match: true, matched_at: nowISO() }).eq('vacancy_id', vacancyId).eq('worker_id', workerId)),
+    withTimeout(supabase.from('jm_vacancies').select('*').eq('id', vacancyId).maybeSingle()),
   ]);
 
   const matchMsg = '🎉 У вас мэтч! Вы подошли друг другу. Познакомьтесь и обсудите детали!';
@@ -559,14 +545,13 @@ export async function dbCheckAndCreateMatch(
     1
   );
 
-  // Parallel: insert both system messages + update vacancy workers_found
   const newWorkersFound = (vac?.workers_found || 0) + 1;
   const newStatus = newWorkersFound >= (vac?.workers_needed ?? 999) ? 'closed' : 'open';
   await Promise.all([
     dbInsertMessage(chatId, 'system', matchMsg),
     dbInsertMessage(chatId, 'system_safety', safetyMsg),
     vac
-      ? sb().from('jm_vacancies').update({ workers_found: newWorkersFound, status: newStatus }).eq('id', vacancyId)
+      ? withTimeout(supabase.from('jm_vacancies').update({ workers_found: newWorkersFound, status: newStatus }).eq('id', vacancyId))
       : Promise.resolve(),
   ]);
 
@@ -594,38 +579,46 @@ function rowToPermVacancy(r: any): PermVacancy {
 }
 
 export async function dbGetPermVacancies(): Promise<PermVacancy[]> {
-  const { data, error } = await sb().from('jm_perm_vacancies').select('*').eq('status', 'open').order('created_at', { ascending: false });
+  const { data, error } = await withTimeout(
+    supabase.from('jm_perm_vacancies').select('*').eq('status', 'open').order('created_at', { ascending: false })
+  );
   if (error) throwOnError('dbGetPermVacancies', error);
   return (data ?? []).map(rowToPermVacancy);
 }
 
 export async function dbGetPermVacanciesByEmployer(employerId: string): Promise<PermVacancy[]> {
-  const { data, error } = await sb().from('jm_perm_vacancies').select('*').eq('employer_id', employerId).order('created_at', { ascending: false });
+  const { data, error } = await withTimeout(
+    supabase.from('jm_perm_vacancies').select('*').eq('employer_id', employerId).order('created_at', { ascending: false })
+  );
   if (error) throwOnError('dbGetPermVacanciesByEmployer', error);
   return (data ?? []).map(rowToPermVacancy);
 }
 
 export async function dbUpsertPermVacancy(v: PermVacancy): Promise<void> {
-  const { error } = await sb().from('jm_perm_vacancies').upsert({
-    id: v.id,
-    employer_id: v.employerId,
-    company: v.company,
-    title: v.title,
-    work_type: v.workType ?? null,
-    metro_line_id: v.metroLineId ?? null,
-    metro_station: v.metroStation ?? null,
-    address: v.address ?? null,
-    salary: v.salary,
-    schedule: v.schedule,
-    description: v.description ?? null,
-    status: v.status,
-    created_at: v.createdAt,
-  }, { onConflict: 'id' });
+  const { error } = await withTimeout(
+    supabase.from('jm_perm_vacancies').upsert({
+      id: v.id,
+      employer_id: v.employerId,
+      company: v.company,
+      title: v.title,
+      work_type: v.workType ?? null,
+      metro_line_id: v.metroLineId ?? null,
+      metro_station: v.metroStation ?? null,
+      address: v.address ?? null,
+      salary: v.salary,
+      schedule: v.schedule,
+      description: v.description ?? null,
+      status: v.status,
+      created_at: v.createdAt,
+    }, { onConflict: 'id' })
+  );
   if (error) throwOnError('dbUpsertPermVacancy', error);
 }
 
 export async function dbClosePermVacancy(id: string): Promise<void> {
-  const { error } = await sb().from('jm_perm_vacancies').update({ status: 'closed' }).eq('id', id);
+  const { error } = await withTimeout(
+    supabase.from('jm_perm_vacancies').update({ status: 'closed' }).eq('id', id)
+  );
   if (error) throwOnError('dbClosePermVacancy', error);
 }
 
@@ -644,56 +637,67 @@ function rowToPermApp(r: any): PermApplication {
 
 export async function dbGetPermApplications(userId: string, role: 'worker' | 'employer'): Promise<PermApplication[]> {
   const field = role === 'worker' ? 'worker_id' : 'employer_id';
-  const { data, error } = await sb().from('jm_perm_applications').select('*').eq(field, userId).order('created_at', { ascending: false });
+  const { data, error } = await withTimeout(
+    supabase.from('jm_perm_applications').select('*').eq(field, userId).order('created_at', { ascending: false })
+  );
   if (error) throwOnError('dbGetPermApplications', error);
   return (data ?? []).map(rowToPermApp);
 }
 
 export async function dbGetPermApplicationsForVacancy(vacancyId: string): Promise<PermApplication[]> {
-  const { data, error } = await sb().from('jm_perm_applications').select('*').eq('vacancy_id', vacancyId).order('created_at', { ascending: false });
+  const { data, error } = await withTimeout(
+    supabase.from('jm_perm_applications').select('*').eq('vacancy_id', vacancyId).order('created_at', { ascending: false })
+  );
   if (error) throwOnError('dbGetPermApplicationsForVacancy', error);
   return (data ?? []).map(rowToPermApp);
 }
 
 export async function dbApplyPermVacancy(vacancyId: string, workerId: string, employerId: string): Promise<void> {
-  const { error } = await sb().from('jm_perm_applications').upsert({
-    id: uid(),
-    vacancy_id: vacancyId,
-    worker_id: workerId,
-    employer_id: employerId,
-    status: 'pending',
-    created_at: nowISO(),
-  }, { onConflict: 'vacancy_id,worker_id' });
+  const { error } = await withTimeout(
+    supabase.from('jm_perm_applications').upsert({
+      id: uid(),
+      vacancy_id: vacancyId,
+      worker_id: workerId,
+      employer_id: employerId,
+      status: 'pending',
+      created_at: nowISO(),
+    }, { onConflict: 'vacancy_id,worker_id' })
+  );
   if (error) throwOnError('dbApplyPermVacancy', error);
 }
 
-export async function dbSetPermApplicationStatus(
-  appId: string,
-  status: PermApplicationStatus,
-): Promise<void> {
-  const { error } = await sb().from('jm_perm_applications').update({ status }).eq('id', appId);
+export async function dbSetPermApplicationStatus(appId: string, status: PermApplicationStatus): Promise<void> {
+  const { error } = await withTimeout(
+    supabase.from('jm_perm_applications').update({ status }).eq('id', appId)
+  );
   if (error) throwOnError('dbSetPermApplicationStatus', error);
 }
 
 // ─── Permanent saved ──────────────────────────────────────────────────────────
 
 export async function dbGetPermSaved(userId: string): Promise<string[]> {
-  const { data, error } = await sb().from('jm_perm_saved').select('vacancy_id').eq('user_id', userId);
+  const { data, error } = await withTimeout(
+    supabase.from('jm_perm_saved').select('vacancy_id').eq('user_id', userId)
+  );
   if (error) throwOnError('dbGetPermSaved', error);
   return (data ?? []).map((r: any) => r.vacancy_id);
 }
 
 export async function dbAddPermSaved(userId: string, vacancyId: string): Promise<void> {
-  const { error } = await sb().from('jm_perm_saved').upsert({ user_id: userId, vacancy_id: vacancyId });
+  const { error } = await withTimeout(
+    supabase.from('jm_perm_saved').upsert({ user_id: userId, vacancy_id: vacancyId })
+  );
   if (error) throwOnError('dbAddPermSaved', error);
 }
 
 export async function dbRemovePermSaved(userId: string, vacancyId: string): Promise<void> {
-  const { error } = await sb().from('jm_perm_saved').delete().eq('user_id', userId).eq('vacancy_id', vacancyId);
+  const { error } = await withTimeout(
+    supabase.from('jm_perm_saved').delete().eq('user_id', userId).eq('vacancy_id', vacancyId)
+  );
   if (error) throwOnError('dbRemovePermSaved', error);
 }
 
-// ─── Ratings for user ────────────────────────────────────────────────────────
+// ─── Ratings ──────────────────────────────────────────────────────────────────
 
 export interface UserRating {
   id: string;
@@ -706,11 +710,9 @@ export interface UserRating {
 }
 
 export async function dbGetRatingsForUser(toUserId: string): Promise<UserRating[]> {
-  const { data, error } = await sb()
-    .from('jm_ratings')
-    .select('*')
-    .eq('to_user_id', toUserId)
-    .order('created_at', { ascending: false });
+  const { data, error } = await withTimeout(
+    supabase.from('jm_ratings').select('*').eq('to_user_id', toUserId).order('created_at', { ascending: false })
+  );
   if (error) throwOnError('dbGetRatingsForUser', error);
   return (data ?? []).map((r: any) => ({
     id: r.id,
@@ -725,16 +727,14 @@ export async function dbGetRatingsForUser(toUserId: string): Promise<UserRating[
 
 // ─── Shift confirmation ───────────────────────────────────────────────────────
 
-export async function dbConfirmShift(
-  likeId: string,
-  role: 'employer'
-): Promise<{ bothConfirmed: boolean }> {
-  await sb().from('jm_likes').update({
-    employer_confirmed: true,
-    worker_confirmed: true,
-    shift_completed: true,
-  }).eq('id', likeId);
-
+export async function dbConfirmShift(likeId: string, _role: 'employer'): Promise<{ bothConfirmed: boolean }> {
+  await withTimeout(
+    supabase.from('jm_likes').update({
+      employer_confirmed: true,
+      worker_confirmed: true,
+      shift_completed: true,
+    }).eq('id', likeId)
+  );
   return { bothConfirmed: true };
 }
 
@@ -751,60 +751,64 @@ export async function dbSubmitRatingAndMaybeDelete(params: {
 }): Promise<{ bothRated: boolean }> {
   const { likeId, fromUserId, toUserId, vacancyId, rating, role, reviewText } = params;
 
-  await sb().from('jm_ratings').insert({
-    id: uid(),
-    from_user_id: fromUserId,
-    to_user_id: toUserId,
-    vacancy_id: vacancyId,
-    like_id: likeId,
-    rating,
-    role,
-    review_text: reviewText ?? null,
-    created_at: nowISO(),
-  });
+  await withTimeout(
+    supabase.from('jm_ratings').insert({
+      id: uid(),
+      from_user_id: fromUserId,
+      to_user_id: toUserId,
+      vacancy_id: vacancyId,
+      like_id: likeId,
+      rating,
+      role,
+      review_text: reviewText ?? null,
+      created_at: nowISO(),
+    })
+  );
 
   const ratedField = role === 'worker' ? 'worker_rated' : 'employer_rated';
-  await sb().from('jm_likes').update({ [ratedField]: true }).eq('id', likeId);
+  await withTimeout(supabase.from('jm_likes').update({ [ratedField]: true }).eq('id', likeId));
 
-  const { data: allRatings } = await sb()
-    .from('jm_ratings')
-    .select('rating')
-    .eq('to_user_id', toUserId);
+  const { data: allRatings } = await withTimeout(
+    supabase.from('jm_ratings').select('rating').eq('to_user_id', toUserId)
+  );
   if (allRatings && allRatings.length > 0) {
     const avg = allRatings.reduce((s: number, r: any) => s + r.rating, 0) / allRatings.length;
-    await sb().from('jm_users').update({
-      avg_rating: Math.round(avg * 100) / 100,
-      rating_count: allRatings.length,
-    }).eq('id', toUserId);
+    await withTimeout(
+      supabase.from('jm_users').update({
+        avg_rating: Math.round(avg * 100) / 100,
+        rating_count: allRatings.length,
+      }).eq('id', toUserId)
+    );
   }
 
-  const { data: likeRow } = await sb()
-    .from('jm_likes')
-    .select('worker_rated,employer_rated')
-    .eq('id', likeId)
-    .maybeSingle();
+  const { data: likeRow } = await withTimeout(
+    supabase.from('jm_likes').select('worker_rated,employer_rated').eq('id', likeId).maybeSingle()
+  );
 
-  const bothRated = !!(likeRow?.worker_rated && likeRow?.employer_rated);
-  return { bothRated };
+  return { bothRated: !!(likeRow?.worker_rated && likeRow?.employer_rated) };
 }
 
 // ─── Push tokens ──────────────────────────────────────────────────────────────
 
 export async function dbSavePushToken(userId: string, token: string): Promise<void> {
-  await sb().from('jm_users').update({ push_token: token }).eq('id', userId);
+  await withTimeout(supabase.from('jm_users').update({ push_token: token }).eq('id', userId));
 }
 
 export async function dbGetPushToken(userId: string): Promise<string | null> {
-  const { data } = await sb().from('jm_users').select('push_token').eq('id', userId).maybeSingle();
+  const { data } = await withTimeout(
+    supabase.from('jm_users').select('push_token').eq('id', userId).maybeSingle()
+  );
   return data?.push_token ?? null;
 }
 
 export async function dbGetWorkerTokensByMetro(metroStation: string): Promise<{ id: string; push_token: string }[]> {
-  const { data } = await sb()
-    .from('jm_users')
-    .select('id, push_token')
-    .eq('role', 'worker')
-    .eq('metro_station', metroStation)
-    .not('push_token', 'is', null);
+  const { data } = await withTimeout(
+    supabase
+      .from('jm_users')
+      .select('id, push_token')
+      .eq('role', 'worker')
+      .eq('metro_station', metroStation)
+      .not('push_token', 'is', null)
+  );
   return (data ?? []) as { id: string; push_token: string }[];
 }

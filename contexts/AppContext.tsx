@@ -1,5 +1,5 @@
 import React, { createContext, useState, useEffect, useRef, useCallback, ReactNode } from 'react';
-import { getSupabaseClient } from '@/template';
+import { supabase } from '@/lib/supabase';
 import { User, Vacancy, Like, Chat, PermVacancy, PermApplication } from '@/constants/types';
 import {
   getSessionUser,
@@ -86,14 +86,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setToast({ message, type });
     toastTimer.current = setTimeout(() => setToast(null), 3000);
   }, []);
+
   const [users, setUsers] = useState<User[]>([]);
   const [vacancies, setVacancies] = useState<Vacancy[]>([]);
   const [likes, setLikes] = useState<Like[]>([]);
   const [chats, setChats] = useState<Chat[]>([]);
   const [permVacancies, setPermVacancies] = useState<PermVacancy[]>([]);
   const [permApplications, setPermApplications] = useState<PermApplication[]>([]);
-  const [savedWorkers, setSavedWorkers] = useState<User[]>([]);
-  const [permSavedWorkers, setPermSavedWorkers] = useState<User[]>([]);
+  const [savedWorkers] = useState<User[]>([]);
+  const [permSavedWorkers] = useState<User[]>([]);
   const [savedIds, setSavedIds] = useState<string[]>([]);
   const [permSavedIds, setPermSavedIds] = useState<string[]>([]);
 
@@ -103,14 +104,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const optimisticRemoveSaved = useCallback((vacancyId: string) => {
     setSavedIds(prev => prev.filter(id => id !== vacancyId));
   }, []);
-
   const optimisticAddPermSaved = useCallback((vacancyId: string) => {
     setPermSavedIds(prev => prev.includes(vacancyId) ? prev : [...prev, vacancyId]);
   }, []);
   const optimisticRemovePermSaved = useCallback((vacancyId: string) => {
     setPermSavedIds(prev => prev.filter(id => id !== vacancyId));
   }, []);
-
   const optimisticAddVacancy = useCallback((v: Vacancy) => {
     setVacancies(prev => [v, ...prev.filter(x => x.id !== v.id)]);
   }, []);
@@ -136,25 +135,25 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setLikes(prev => prev.map(x => x.id === l.id ? l : x));
   }, []);
 
-  // Boot
-  useEffect(() => {
-    let settled = false;
-    const finish = () => { if (!settled) { settled = true; setLoading(false); } };
-    // Safety timeout — prevents infinite loading on devices with slow AsyncStorage
-    const timer = setTimeout(finish, 5000);
-    // Minimum splash display so the loading bar is always visible (parity with web).
-    const MIN_SPLASH_MS = 1200;
+  // ─── Boot ──────────────────────────────────────────────────────────────────
 
-    (async () => {
+  useEffect(() => {
+    let cancelled = false;
+
+    const boot = async () => {
       try {
+        // Show splash for at least 1 second, then check session
         const [sessionUser] = await Promise.all([
           getSessionUser().catch(() => null),
-          new Promise<void>(r => setTimeout(r, MIN_SPLASH_MS)),
+          new Promise<void>(r => setTimeout(r, 1000)),
         ]);
+
+        if (cancelled) return;
+
         if (sessionUser) {
           _setCurrentUser(sessionUser);
 
-          // Load all caches in parallel — AsyncStorage reads < 50ms total
+          // Restore cached data instantly
           const [cachedVac, cachedLikes, cachedChats, cachedPermVac, cachedPermApps] = await Promise.all([
             loadCache<Vacancy[]>(CACHE_KEYS.vacancies),
             loadCache<Like[]>(CACHE_KEYS.likes(sessionUser.id)),
@@ -163,98 +162,91 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             loadCache<PermApplication[]>(CACHE_KEYS.permApps(sessionUser.id)),
           ]);
 
-          // Show cached data instantly — user sees their screen right away
+          if (cancelled) return;
           if (cachedVac) setVacancies(cachedVac);
           if (cachedLikes) setLikes(cachedLikes);
           if (cachedChats) setChats(cachedChats);
           if (cachedPermVac) setPermVacancies(cachedPermVac);
           if (cachedPermApps) setPermApplications(cachedPermApps);
 
-          // Refresh from Supabase in background — silently updates UI when done.
-          (async () => {
-            dbUpsertUser(sessionUser).catch(() => {});
-            try {
-              await Promise.all([
-                refreshUsers(),
-                refreshVacancies(),
-                refreshLikes(sessionUser),
-                refreshChats(sessionUser),
-                refreshSaved(sessionUser),
-                refreshPermVacancies(sessionUser),
-                refreshPermApplications(sessionUser),
-                refreshPermSaved(sessionUser),
-              ]);
-            } catch {}
-          })();
+          // Refresh from Supabase in background — don't block loading
+          setTimeout(() => {
+            if (cancelled) return;
+            Promise.all([
+              refreshUsers(),
+              refreshVacancies(),
+              refreshLikes(sessionUser),
+              refreshChats(sessionUser),
+              refreshSaved(sessionUser),
+              refreshPermVacancies(sessionUser),
+              refreshPermApplications(sessionUser),
+              refreshPermSaved(sessionUser),
+            ]).catch(() => {});
+          }, 100);
         }
       } catch (e) {
         console.warn('[AppContext] boot error', e);
       } finally {
-        clearTimeout(timer);
-        finish();
+        if (!cancelled) setLoading(false);
       }
-    })();
-    return () => { settled = true; clearTimeout(timer); };
+    };
+
+    // Safety timeout — always unblock UI after 6 seconds
+    const safetyTimer = setTimeout(() => {
+      if (!cancelled) setLoading(false);
+    }, 6000);
+
+    boot().finally(() => clearTimeout(safetyTimer));
+
+    return () => { cancelled = true; clearTimeout(safetyTimer); };
   }, []);
 
-  // Keep Supabase warm while app is open — ping every 4 minutes
+  // ─── Keep connection alive ─────────────────────────────────────────────────
+
   useEffect(() => {
-    const sb = getSupabaseClient();
     const interval = setInterval(() => {
-      Promise.resolve(sb.from('jm_users').select('id').limit(1)).then(() => {}).catch(() => {});
+      Promise.resolve(supabase.from('jm_users').select('id').limit(1)).catch(() => {});
     }, 4 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
 
-  // Real-time subscriptions
+  // ─── Realtime subscriptions ────────────────────────────────────────────────
+
   useEffect(() => {
-    const sb = getSupabaseClient();
-    const usersSub    = sb.channel('jm_users_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_users' }, () => refreshUsers()).subscribe();
-    const vacSub      = sb.channel('jm_vacancies_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_vacancies' }, () => refreshVacancies()).subscribe();
-    const likesSub    = sb.channel('jm_likes_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_likes' }, () => { if (currentUser) refreshLikes(currentUser); }).subscribe();
-    const chatsSub    = sb.channel('jm_chats_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_chats' }, () => { if (currentUser) refreshChats(currentUser); }).subscribe();
-    const permVacSub  = sb.channel('jm_perm_vacancies_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_vacancies' }, () => { if (currentUser) refreshPermVacancies(currentUser); }).subscribe();
-    const permAppSub  = sb.channel('jm_perm_applications_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_applications' }, () => { if (currentUser) refreshPermApplications(currentUser); }).subscribe();
-    // New message in any chat → refresh chats list (preview + unread badge)
-    const msgSub      = sb.channel('jm_messages_changes').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'jm_messages' }, () => { if (currentUser) refreshChats(currentUser); }).subscribe();
-    // Saved vacancies
-    const savedSub    = sb.channel('jm_saved_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_saved' }, () => { if (currentUser) refreshSaved(currentUser); }).subscribe();
-    const permSavedSub = sb.channel('jm_perm_saved_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_saved' }, () => { if (currentUser) refreshPermSaved(currentUser); }).subscribe();
-    // New rating → also covered by jm_users update, but this fires first so stars update sooner
-    const ratingsSub  = sb.channel('jm_ratings_changes').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'jm_ratings' }, () => refreshUsers()).subscribe();
-    return () => {
-      usersSub.unsubscribe();
-      vacSub.unsubscribe();
-      likesSub.unsubscribe();
-      chatsSub.unsubscribe();
-      permVacSub.unsubscribe();
-      permAppSub.unsubscribe();
-      msgSub.unsubscribe();
-      savedSub.unsubscribe();
-      permSavedSub.unsubscribe();
-      ratingsSub.unsubscribe();
-    };
+    const subs = [
+      supabase.channel('rt_users').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_users' }, () => refreshUsers()).subscribe(),
+      supabase.channel('rt_vacancies').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_vacancies' }, () => refreshVacancies()).subscribe(),
+      supabase.channel('rt_likes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_likes' }, () => { if (currentUser) refreshLikes(currentUser); }).subscribe(),
+      supabase.channel('rt_chats').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_chats' }, () => { if (currentUser) refreshChats(currentUser); }).subscribe(),
+      supabase.channel('rt_perm_vac').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_vacancies' }, () => { if (currentUser) refreshPermVacancies(currentUser); }).subscribe(),
+      supabase.channel('rt_perm_apps').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_applications' }, () => { if (currentUser) refreshPermApplications(currentUser); }).subscribe(),
+      supabase.channel('rt_messages').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'jm_messages' }, () => { if (currentUser) refreshChats(currentUser); }).subscribe(),
+      supabase.channel('rt_saved').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_saved' }, () => { if (currentUser) refreshSaved(currentUser); }).subscribe(),
+      supabase.channel('rt_perm_saved').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_saved' }, () => { if (currentUser) refreshPermSaved(currentUser); }).subscribe(),
+      supabase.channel('rt_ratings').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'jm_ratings' }, () => refreshUsers()).subscribe(),
+    ];
+    return () => { subs.forEach(s => s.unsubscribe()); };
   }, [currentUser?.id]);
 
-  const registerUser = async (u: User) => {
-    // Write to DB first — if it fails the user cannot log in later from another device.
-    await dbUpsertUser(u);
+  // ─── Auth actions ──────────────────────────────────────────────────────────
 
+  const registerUser = async (u: User) => {
+    await dbUpsertUser(u);
     _setCurrentUser(u);
     await saveSessionUser(u);
-    setLoading(false);
     registerForPushNotifications(u.id).catch(() => {});
-
     setTimeout(() => {
-      refreshUsers().catch(() => {});
-      refreshVacancies().catch(() => {});
-      refreshLikes(u).catch(() => {});
-      refreshChats(u).catch(() => {});
-      refreshSaved(u).catch(() => {});
-      refreshPermVacancies(u).catch(() => {});
-      refreshPermApplications(u).catch(() => {});
-      refreshPermSaved(u).catch(() => {});
-    }, 500);
+      Promise.all([
+        refreshUsers(),
+        refreshVacancies(),
+        refreshLikes(u),
+        refreshChats(u),
+        refreshSaved(u),
+        refreshPermVacancies(u),
+        refreshPermApplications(u),
+        refreshPermSaved(u),
+      ]).catch(() => {});
+    }, 300);
   };
 
   const loginUser = async (phone: string, password: string): Promise<User | null> => {
@@ -263,16 +255,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (!found || found.password !== password) return null;
     _setCurrentUser(found);
     await saveSessionUser(found);
-    setLoading(false);
     registerForPushNotifications(found.id).catch(() => {});
-    refreshUsers().catch(() => {});
-    refreshVacancies().catch(() => {});
-    refreshLikes(found).catch(() => {});
-    refreshChats(found).catch(() => {});
-    refreshSaved(found).catch(() => {});
-    refreshPermVacancies(found).catch(() => {});
-    refreshPermApplications(found).catch(() => {});
-    refreshPermSaved(found).catch(() => {});
+    setTimeout(() => {
+      Promise.all([
+        refreshUsers(),
+        refreshVacancies(),
+        refreshLikes(found),
+        refreshChats(found),
+        refreshSaved(found),
+        refreshPermVacancies(found),
+        refreshPermApplications(found),
+        refreshPermSaved(found),
+      ]).catch(() => {});
+    }, 300);
     return found;
   };
 
@@ -285,8 +280,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setChats([]);
     setPermVacancies([]);
     setPermApplications([]);
-    setSavedWorkers([]);
-    setPermSavedWorkers([]);
     setSavedIds([]);
     setPermSavedIds([]);
   };
@@ -297,6 +290,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     await dbUpsertUser(u);
     await refreshUsers();
   };
+
+  // ─── Refresh helpers ───────────────────────────────────────────────────────
 
   const refreshUsers = async () => {
     const data = await dbGetUsers();
@@ -356,10 +351,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const refreshSaved = async (u?: User) => {
     const user = u ?? currentUser;
     if (!user) return;
-    if (user.role === 'worker') {
-      const ids = await dbGetSaved(user.id);
-      setSavedIds(ids);
-    }
+    const ids = await dbGetSaved(user.id);
+    setSavedIds(ids);
   };
 
   const refreshPermVacancies = async (u?: User) => {
@@ -383,13 +376,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const refreshPermSaved = async (u?: User) => {
     const user = u ?? currentUser;
     if (!user) return;
-    if (user.role === 'worker') {
-      const ids = await dbGetPermSaved(user.id);
-      setPermSavedIds(ids);
-    } else {
-      const ids = await dbGetPermSaved(user.id);
-      setPermSavedIds(ids);
-    }
+    const ids = await dbGetPermSaved(user.id);
+    setPermSavedIds(ids);
   };
 
   const unreadCount = chats.reduce((sum, c) => {
