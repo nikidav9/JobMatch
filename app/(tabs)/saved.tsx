@@ -36,7 +36,7 @@ export default function SavedScreen() {
 
   if (savedVacancies.length === 0) {
     return (
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
         <View style={styles.header}>
           <Text style={styles.title}>Избранное</Text>
         </View>
@@ -50,7 +50,7 @@ export default function SavedScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <Text style={styles.title}>Избранное</Text>
         <View style={styles.countBadge}>
