@@ -1,3 +1,4 @@
+import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -29,10 +30,6 @@ export const supabase = createClient(
       autoRefreshToken: false,
       persistSession: false,
       detectSessionInUrl: false,
-    },
-    global: {
-      // @ts-ignore — type mismatch between React Native and browser fetch
-      fetch: (...args: any[]) => fetch(...args),
     },
   }
 );

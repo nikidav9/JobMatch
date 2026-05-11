@@ -8,7 +8,7 @@
     "icon": "./assets/images/jt-logo.png",
     "scheme": "onspaceapp",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "ios": {
       "supportsTablet": true
     },
