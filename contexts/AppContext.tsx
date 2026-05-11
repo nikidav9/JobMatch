@@ -237,12 +237,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [currentUser?.id]);
 
   const registerUser = async (u: User) => {
+    // Write to DB first — if it fails the user cannot log in later from another device.
+    await dbUpsertUser(u);
+
     _setCurrentUser(u);
     await saveSessionUser(u);
     setLoading(false);
     registerForPushNotifications(u.id).catch(() => {});
-
-    dbUpsertUser(u).catch(e => console.warn('[registerUser] db write failed', e));
 
     setTimeout(() => {
       refreshUsers().catch(() => {});
