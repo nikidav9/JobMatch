@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Colors, Radius, Shadow } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
 import { formatDate } from '@/services/storage';
@@ -14,6 +15,7 @@ import { Vacancy } from '@/constants/types';
 export default function SavedScreen() {
   const { currentUser, vacancies, savedIds, optimisticRemoveSaved, refreshSaved, refreshVacancies, showToast } = useApp();
   const [refreshing, setRefreshing] = useState(false);
+  const tabBarHeight = useBottomTabBarHeight();
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -61,7 +63,7 @@ export default function SavedScreen() {
       <FlatList
         data={savedVacancies}
         keyExtractor={v => v.id}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={[styles.list, { paddingBottom: tabBarHeight + 16 }]}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -131,7 +133,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 22, fontWeight: '800', color: Colors.textPrimary, flex: 1 },
   countBadge: { backgroundColor: Colors.primary, borderRadius: 100, paddingHorizontal: 10, paddingVertical: 3 },
   countTxt: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  list: { padding: 16, gap: 12, paddingBottom: 100 },
+  list: { padding: 16, gap: 12 },
   card: { backgroundColor: Colors.bg, borderRadius: Radius.lg, padding: 16, ...Shadow.card, gap: 10 },
   cardTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   avatarWrap: { width: 38, height: 38, borderRadius: 19, backgroundColor: Colors.primaryLight, alignItems: 'center', justifyContent: 'center' },

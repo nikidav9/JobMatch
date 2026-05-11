@@ -4,6 +4,7 @@ import {
   TouchableOpacity, ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Colors, Radius, Shadow } from '@/constants/theme';
@@ -106,6 +107,7 @@ function WorkerMatches() {
   const [refreshing, setRefreshing] = useState(false);
   const [detailVacancy, setDetailVacancy] = useState<Vacancy | null>(null);
   const [tab, setTab] = useState<'active' | 'rejected' | 'completed'>('active');
+  const tabBarHeight = useBottomTabBarHeight();
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -257,7 +259,7 @@ function WorkerMatches() {
         <FlatList
           data={shownItems}
           keyExtractor={l => l.id}
-          contentContainerStyle={s.list}
+          contentContainerStyle={[s.list, { paddingBottom: tabBarHeight + 16 }]}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
@@ -289,6 +291,7 @@ function EmployerMatches() {
   const [actionLoading, setLoading] = useState<string | null>(null);
   const [tab, setTab] = useState<'pending' | 'matched' | 'completed'>('pending');
   const [refreshing, setRefreshing] = useState(false);
+  const tabBarHeight = useBottomTabBarHeight();
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -602,7 +605,7 @@ function EmployerMatches() {
         <FlatList
           data={shown}
           keyExtractor={l => l.id}
-          contentContainerStyle={s.list}
+          contentContainerStyle={[s.list, { paddingBottom: tabBarHeight + 16 }]}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
@@ -647,7 +650,7 @@ const s = StyleSheet.create({
     position: 'absolute', bottom: 0, left: '20%', right: '20%',
     height: 2, backgroundColor: Colors.primary, borderRadius: 1,
   },
-  list: { padding: 16, gap: 12, paddingBottom: 100 },
+  list: { padding: 16, gap: 12 },
   card: { backgroundColor: Colors.bg, borderRadius: Radius.lg, padding: 16, ...Shadow.card, gap: 10 },
   matchedCard: { borderWidth: 1.5, borderColor: Colors.green },
   completedCard: { borderWidth: 1.5, borderColor: Colors.blue, opacity: 0.8 },

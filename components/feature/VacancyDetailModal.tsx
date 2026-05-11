@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, Modal, ScrollView,
   TouchableOpacity, SafeAreaView,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Radius, Shadow } from '@/constants/theme';
 import { Vacancy } from '@/constants/types';
 import { Chip } from '@/components/ui/Chip';
@@ -17,12 +18,13 @@ interface Props {
 }
 
 export function VacancyDetailModal({ vacancy, visible, onClose, actions }: Props) {
+  const insets = useSafeAreaInsets();
   if (!vacancy) return null;
 
   return (
     <Modal visible={visible} animationType="slide" transparent statusBarTranslucent>
       <View style={styles.overlay}>
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, { paddingBottom: insets.bottom }]}>
           {/* Handle */}
           <View style={styles.handle} />
 
@@ -116,7 +118,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface, alignItems: 'center', justifyContent: 'center',
   },
   closeTxt: { fontSize: 15, color: Colors.textMuted, fontWeight: '600' },
-  body: { padding: 20, paddingTop: 8, gap: 10, paddingBottom: 32 },
+  body: { padding: 20, paddingTop: 8, gap: 10, paddingBottom: 24 },
   companyRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 6 },
   avatar: {
     width: 44, height: 44, borderRadius: 22,

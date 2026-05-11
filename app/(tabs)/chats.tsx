@@ -4,6 +4,7 @@ import {
   TextInput, Animated, PanResponder, Dimensions, Alert, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Colors, Radius, Shadow } from '@/constants/theme';
@@ -135,6 +136,7 @@ export default function ChatsScreen() {
   const { currentUser, chats, users, refreshChats, refreshAll, showToast } = useApp();
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const tabBarHeight = useBottomTabBarHeight();
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -195,6 +197,7 @@ export default function ChatsScreen() {
           data={filtered}
           keyExtractor={c => c.id}
           showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: tabBarHeight + 8 }}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}

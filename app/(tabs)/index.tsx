@@ -5,6 +5,7 @@ import {
   TextInput, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useRouter } from 'expo-router';
 import { Colors, Radius, Shadow } from '@/constants/theme';
 import { useApp } from '@/hooks/useApp';
@@ -643,8 +644,9 @@ function WorkerFeed() {
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 8,
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, g) =>
+        Math.abs(g.dx) > Math.abs(g.dy) * 1.2 && Math.abs(g.dx) > 8,
       onPanResponderGrant: () => {
         pan.setOffset({ x: (pan.x as any)._value, y: (pan.y as any)._value });
         pan.setValue({ x: 0, y: 0 });
@@ -754,7 +756,12 @@ function WorkerFeed() {
                   <Text style={styles.skipText}>НЕТ ✕</Text>
                 </Animated.View>
 
-                <View style={styles.cardTapArea}>
+                <ScrollView
+                  style={{ flex: 1 }}
+                  showsVerticalScrollIndicator={false}
+                  bounces={false}
+                  overScrollMode="never"
+                >
                   <View style={styles.cardTop}>
                     <View style={styles.companyRow}>
                       {currentEmployer?.avatarUrl ? (
@@ -812,16 +819,16 @@ function WorkerFeed() {
                       <View style={[styles.progressFill, { width: `${Math.min(100, (currentCard.workersFound / currentCard.workersNeeded) * 100)}%` }]} />
                     </View>
                   </View>
+                </ScrollView>
 
-                  <TouchableOpacity
-                    style={styles.detailHintRow}
-                    activeOpacity={0.7}
-                    onPress={() => setDetailVacancy(currentCard)}
-                  >
-                    <Text style={styles.detailHintText}>Подробности и нормативы</Text>
-                    <Text style={styles.detailHintArrow}>→</Text>
-                  </TouchableOpacity>
-                </View>
+                <TouchableOpacity
+                  style={styles.detailHintRow}
+                  activeOpacity={0.7}
+                  onPress={() => setDetailVacancy(currentCard)}
+                >
+                  <Text style={styles.detailHintText}>Подробности и нормативы</Text>
+                  <Text style={styles.detailHintArrow}>→</Text>
+                </TouchableOpacity>
               </View>
             </Animated.View>
 
@@ -949,6 +956,7 @@ function WorkerPermMode() {
     refreshPermVacancies, refreshPermApplications, refreshPermSaved,
     showToast,
   } = useApp();
+  const tabBarHeight = useBottomTabBarHeight();
 
   const [tab, setTab] = useState<PermTab>('open');
   const [refreshing, setRefreshing] = useState(false);
@@ -1205,7 +1213,7 @@ function WorkerPermMode() {
         <FlatList
           data={shownVacancies}
           keyExtractor={v => v.id}
-          contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 100 }}
+          contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: tabBarHeight + 16 }}
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} colors={[Colors.primary]} />}
           renderItem={renderPerm}
@@ -1258,6 +1266,7 @@ function getTodayISO() {
 function EmployerHome() {
   const router = useRouter();
   const { currentUser, vacancies, likes, permVacancies, permApplications, refreshVacancies, refreshPermVacancies, refreshPermApplications, refreshAll, showToast } = useApp();
+  const tabBarHeight = useBottomTabBarHeight();
   const [mode, setMode] = useState<AppMode>('shift');
   const [tab, setTab] = useState<'active' | 'closed'>('active');
   const [confirmClose, setConfirmClose] = useState<string | null>(null);
@@ -1362,7 +1371,7 @@ function EmployerHome() {
       </View>
 
       <ScrollView
-        contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 100 }}
+        contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: tabBarHeight + 16 }}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} colors={[Colors.primary]} />
@@ -1690,7 +1699,6 @@ const styles = StyleSheet.create({
   wantText: { color: '#fff', fontSize: 20, fontWeight: '800' },
   skipOverlay: { position: 'absolute', top: 20, right: 20, zIndex: 10, backgroundColor: Colors.red, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8, transform: [{ rotate: '10deg' }] },
   skipText: { color: '#fff', fontSize: 20, fontWeight: '800' },
-  cardTapArea: { flex: 1, flexDirection: 'column' },
   cardTop: { padding: 20, paddingBottom: 16, gap: 12 },
   companyRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   avatar: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
@@ -1718,7 +1726,6 @@ const styles = StyleSheet.create({
   progressTrack: { height: 5, backgroundColor: Colors.divider, borderRadius: 3, overflow: 'hidden' },
   progressFill: { height: '100%', backgroundColor: Colors.primary, borderRadius: 3 },
   detailHintRow: {
-    marginTop: 'auto' as any,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 6, paddingVertical: 14, paddingHorizontal: 20,
     borderTopWidth: 1, borderTopColor: Colors.divider,
