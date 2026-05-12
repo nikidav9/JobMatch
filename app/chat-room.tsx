@@ -13,6 +13,7 @@ import { Message, Chat } from '@/constants/types';
 import { nameColorFromString, getInitials, formatDate, uid, nowISO } from '@/services/storage';
 import { dbGetMessages, dbInsertMessage, dbMarkRead, dbIncrementUnread, dbGetLikeByVacancyWorker, dbUpsertLike, dbCheckAndCreateMatch, dbGetLikes, dbGetChatById } from '@/services/db';
 import { notifyWorkerGotMatch, notifyWorkerNewMessage, notifyEmployerNewMessage } from '@/services/notifications';
+import { useIsFocused } from '@react-navigation/native';
 import { getSupabaseClient } from '@/template';
 
 const POLL_INTERVAL = 8000;
@@ -21,6 +22,9 @@ export default function ChatRoom() {
   const router = useRouter();
   const { chatId } = useLocalSearchParams<{ chatId: string }>();
   const { currentUser, users, chats, vacancies, refreshChats, refreshLikes, likes, optimisticUpdateLike } = useApp();
+  // Track whether this chat screen is currently visible — used to suppress
+  // push notifications when the user is already reading the conversation.
+  const isFocused = useIsFocused();
 
   const chatRef = useRef(chats.find(c => c.id === chatId));
   const foundChat = chats.find(c => c.id === chatId);
@@ -256,10 +260,12 @@ export default function ChatRoom() {
       const forRole = currentUser.role === 'worker' ? 'employer' : 'worker';
       dbIncrementUnread(chat.id, forRole).catch(() => {});
       const senderName = `${currentUser.firstName} ${currentUser.lastName}`;
+      // Always notify the recipient — they are on a different device.
+      // chatId is passed so the notification tap navigates directly to this chat.
       if (currentUser.role === 'worker') {
-        notifyEmployerNewMessage(chat.employerId, senderName, text).catch(() => {});
+        notifyEmployerNewMessage(chat.employerId, senderName, text, chat.id).catch(() => {});
       } else {
-        notifyWorkerNewMessage(chat.workerId, senderName, text).catch(() => {});
+        notifyWorkerNewMessage(chat.workerId, senderName, text, chat.id).catch(() => {});
       }
       refreshChats().catch(() => {});
       setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);

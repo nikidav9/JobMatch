@@ -1,6 +1,7 @@
 import React, { createContext, useState, useEffect, useRef, useCallback, ReactNode } from 'react';
-import { Platform } from 'react-native';
+import { Platform, AppState, AppStateStatus } from 'react-native';
 import { supabase } from '@/lib/supabase';
+import { getSupabaseClient } from '@/template';
 import { User, Vacancy, Like, Chat, PermVacancy, PermApplication } from '@/constants/types';
 import {
   getSessionUser,
@@ -26,6 +27,9 @@ import {
   dbGetPermSaved,
 } from '@/services/db';
 import { registerForPushNotifications } from '@/services/notifications';
+
+// Polling interval for native (Realtime is primary, polling is fallback)
+const NATIVE_POLL_INTERVAL = 15_000;
 
 export interface ToastMessage { message: string; type: 'success' | 'error' | 'info' }
 
@@ -212,23 +216,92 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return () => clearInterval(interval);
   }, []);
 
-  // ─── Realtime subscriptions (web only — native uses API proxy) ────────────
+  // ─── Realtime subscriptions ────────────────────────────────────────────────
+  // Web: uses supabase-js directly.
+  // Native: uses the singleton Supabase client from template/core/client.ts
+  //         which has a stable WebSocket connection (bypasses the API proxy).
 
   useEffect(() => {
-    if (Platform.OS !== 'web') return;
+    if (!currentUser) return;
+
+    const sb = Platform.OS === 'web' ? supabase : getSupabaseClient();
+    const user = currentUser;
+
     const subs = [
-      supabase.channel('rt_users').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_users' }, () => refreshUsers()).subscribe(),
-      supabase.channel('rt_vacancies').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_vacancies' }, () => refreshVacancies()).subscribe(),
-      supabase.channel('rt_likes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_likes' }, () => { if (currentUser) refreshLikes(currentUser); }).subscribe(),
-      supabase.channel('rt_chats').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_chats' }, () => { if (currentUser) refreshChats(currentUser); }).subscribe(),
-      supabase.channel('rt_perm_vac').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_vacancies' }, () => { if (currentUser) refreshPermVacancies(currentUser); }).subscribe(),
-      supabase.channel('rt_perm_apps').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_applications' }, () => { if (currentUser) refreshPermApplications(currentUser); }).subscribe(),
-      supabase.channel('rt_messages').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'jm_messages' }, () => { if (currentUser) refreshChats(currentUser); }).subscribe(),
-      supabase.channel('rt_saved').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_saved' }, () => { if (currentUser) refreshSaved(currentUser); }).subscribe(),
-      supabase.channel('rt_perm_saved').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_saved' }, () => { if (currentUser) refreshPermSaved(currentUser); }).subscribe(),
-      supabase.channel('rt_ratings').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'jm_ratings' }, () => refreshUsers()).subscribe(),
+      sb.channel('rt_vacancies')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'jm_vacancies' }, () => refreshVacancies())
+        .subscribe(),
+
+      sb.channel('rt_chats')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'jm_chats' }, () => refreshChats(user))
+        .subscribe(),
+
+      sb.channel('rt_messages_global')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'jm_messages' }, () => refreshChats(user))
+        .subscribe(),
+
+      sb.channel('rt_likes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'jm_likes' }, () => refreshLikes(user))
+        .subscribe(),
+
+      sb.channel('rt_perm_vac')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_vacancies' }, () => refreshPermVacancies(user))
+        .subscribe(),
+
+      sb.channel('rt_perm_apps')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_applications' }, () => refreshPermApplications(user))
+        .subscribe(),
+
+      // Web-only channels (supabase-js handles these fine on web)
+      ...(Platform.OS === 'web' ? [
+        supabase.channel('rt_users')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'jm_users' }, () => refreshUsers())
+          .subscribe(),
+        supabase.channel('rt_saved')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'jm_saved' }, () => refreshSaved(user))
+          .subscribe(),
+        supabase.channel('rt_perm_saved')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_saved' }, () => refreshPermSaved(user))
+          .subscribe(),
+        supabase.channel('rt_ratings')
+          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'jm_ratings' }, () => refreshUsers())
+          .subscribe(),
+      ] : []),
     ];
+
     return () => { subs.forEach(s => s.unsubscribe()); };
+  }, [currentUser?.id]);
+
+  // ─── Polling fallback for native (fires when app comes to foreground) ──────
+  // Realtime covers live updates; polling ensures consistency after reconnect.
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    if (!currentUser) return;
+
+    const user = currentUser;
+
+    const poll = () => {
+      Promise.all([
+        refreshChats(user),
+        refreshVacancies(),
+        refreshLikes(user),
+      ]).catch(() => {});
+    };
+
+    // Poll on interval
+    const interval = setInterval(poll, NATIVE_POLL_INTERVAL);
+
+    // Also poll immediately when app returns to foreground
+    const handleAppState = (state: AppStateStatus) => {
+      if (state === 'active') poll();
+    };
+    const sub = AppState.addEventListener('change', handleAppState);
+
+    return () => {
+      clearInterval(interval);
+      sub.remove();
+    };
   }, [currentUser?.id]);
 
   // ─── Auth actions ──────────────────────────────────────────────────────────

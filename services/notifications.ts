@@ -3,15 +3,48 @@ import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import { dbSavePushToken, dbGetPushToken, dbGetWorkerTokensByMetro } from '@/services/db';
 
+// Show alerts and play sound for foreground notifications
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
     shouldPlaySound: true,
-    shouldSetBadge: false,
+    shouldSetBadge: true,
     shouldShowBanner: true,
     shouldShowList: true,
   }),
 });
+
+// ─── Android notification channels ───────────────────────────────────────────
+
+export async function setupAndroidChannels(): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  await Promise.all([
+    Notifications.setNotificationChannelAsync('messages', {
+      name: 'Сообщения',
+      importance: Notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#FF231F7C',
+      sound: 'default',
+    }),
+    Notifications.setNotificationChannelAsync('matches', {
+      name: 'Мэтчи',
+      importance: Notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 250, 250, 250],
+      sound: 'default',
+    }),
+    Notifications.setNotificationChannelAsync('vacancies', {
+      name: 'Новые вакансии',
+      importance: Notifications.AndroidImportance.DEFAULT,
+      sound: 'default',
+    }),
+    Notifications.setNotificationChannelAsync('default', {
+      name: 'Общие',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 250, 250, 250],
+      sound: 'default',
+    }),
+  ]);
+}
 
 // ─── Token registration ───────────────────────────────────────────────────────
 
@@ -35,13 +68,7 @@ export async function registerForPushNotifications(userId: string): Promise<void
   }
   if (finalStatus !== 'granted') return;
 
-  if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('default', {
-      name: 'default',
-      importance: Notifications.AndroidImportance.MAX,
-      vibrationPattern: [0, 250, 250, 250],
-    });
-  }
+  await setupAndroidChannels();
 
   try {
     const token = (await Notifications.getExpoPushTokenAsync({
@@ -55,14 +82,30 @@ export async function registerForPushNotifications(userId: string): Promise<void
 
 // ─── Internal helper ──────────────────────────────────────────────────────────
 
-async function pushTo(recipientUserId: string, title: string, body: string, type: string): Promise<void> {
+async function pushTo(
+  recipientUserId: string,
+  title: string,
+  body: string,
+  type: string,
+  channelId = 'default',
+  data: Record<string, unknown> = {},
+): Promise<void> {
   try {
     const token = await dbGetPushToken(recipientUserId);
     if (!token) return;
     await fetch('https://exp.host/--/api/v2/push/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ to: token, title, body, sound: 'default', data: { type } }),
+      body: JSON.stringify({
+        to: token,
+        title,
+        body,
+        sound: 'default',
+        channelId,
+        data: { type, ...data },
+        priority: 'high',
+        ...(channelId === 'messages' ? { ttl: 60 } : {}),
+      }),
     });
   } catch {
     // Never crash the app due to a notification failure
@@ -71,30 +114,94 @@ async function pushTo(recipientUserId: string, title: string, body: string, type
 
 // ─── Employer notifications ───────────────────────────────────────────────────
 
-export async function notifyEmployerNewApplicant(employerId: string, workerName: string, vacancyTitle: string): Promise<void> {
-  await pushTo(employerId, '📥 Новый отклик!', `${workerName} хочет выйти на смену «${vacancyTitle}». Посмотрите кандидата!`, 'new_applicant');
+export async function notifyEmployerNewApplicant(
+  employerId: string,
+  workerName: string,
+  vacancyTitle: string,
+): Promise<void> {
+  await pushTo(
+    employerId,
+    '📥 Новый отклик!',
+    `${workerName} хочет выйти на смену «${vacancyTitle}». Посмотрите кандидата!`,
+    'new_applicant',
+    'matches',
+  );
 }
 
-export async function notifyEmployerGotMatch(employerId: string, workerName: string, vacancyTitle: string): Promise<void> {
-  await pushTo(employerId, '🎉 Мэтч!', `${workerName} готов выйти на смену «${vacancyTitle}». Откройте чат!`, 'match_employer');
+export async function notifyEmployerGotMatch(
+  employerId: string,
+  workerName: string,
+  vacancyTitle: string,
+): Promise<void> {
+  await pushTo(
+    employerId,
+    '🎉 Мэтч!',
+    `${workerName} готов выйти на смену «${vacancyTitle}». Откройте чат!`,
+    'match_employer',
+    'matches',
+  );
 }
 
-export async function notifyEmployerNewMessage(employerId: string, senderName: string, preview: string): Promise<void> {
-  await pushTo(employerId, `💬 ${senderName}`, preview.slice(0, 100), 'message');
+export async function notifyEmployerNewMessage(
+  employerId: string,
+  senderName: string,
+  preview: string,
+  chatId?: string,
+): Promise<void> {
+  await pushTo(
+    employerId,
+    `💬 ${senderName}`,
+    preview.slice(0, 100),
+    'message',
+    'messages',
+    chatId ? { chatId } : {},
+  );
 }
 
 // ─── Worker notifications ─────────────────────────────────────────────────────
 
-export async function notifyWorkerGotMatch(workerId: string, companyName: string, vacancyTitle: string): Promise<void> {
-  await pushTo(workerId, '🎉 Мэтч! Вас хотят взять!', `${companyName} подтвердили ваш отклик на «${vacancyTitle}». Откройте чат!`, 'match_worker');
+export async function notifyWorkerGotMatch(
+  workerId: string,
+  companyName: string,
+  vacancyTitle: string,
+): Promise<void> {
+  await pushTo(
+    workerId,
+    '🎉 Мэтч! Вас хотят взять!',
+    `${companyName} подтвердили ваш отклик на «${vacancyTitle}». Откройте чат!`,
+    'match_worker',
+    'matches',
+  );
 }
 
-export async function notifyWorkerShiftConfirmedByEmployer(workerId: string, companyName: string, vacancyTitle: string): Promise<void> {
-  await pushTo(workerId, '✅ Смена подтверждена работодателем', `${companyName} подтвердил смену «${vacancyTitle}». Хотите оставить отзыв?`, 'shift_confirmed_by_employer');
+export async function notifyWorkerShiftConfirmedByEmployer(
+  workerId: string,
+  companyName: string,
+  vacancyTitle: string,
+): Promise<void> {
+  await pushTo(
+    workerId,
+    '✅ Смена подтверждена работодателем',
+    `${companyName} подтвердил смену «${vacancyTitle}». Хотите оставить отзыв?`,
+    'shift_confirmed_by_employer',
+    'default',
+  );
 }
 
-export async function notifyWorkerNewMessage(workerId: string, senderName: string, preview: string): Promise<void> {
-  await pushTo(workerId, `💬 ${senderName}`, preview.slice(0, 100), 'message');
+export async function notifyWorkerNewMessage(
+  workerId: string,
+  senderName: string,
+  preview: string,
+  chatId?: string,
+): Promise<void> {
+  await pushTo(
+    workerId,
+    `💬 ${senderName}`,
+    preview.slice(0, 100),
+    'message',
+    'messages',
+    chatId ? { chatId } : {},
+  );
 }
 
 // ─── Nearby vacancy broadcast ─────────────────────────────────────────────────
@@ -120,6 +227,8 @@ export async function notifyWorkersNearVacancy(params: {
       title: notifTitle,
       body,
       sound: 'default',
+      channelId: 'vacancies',
+      priority: 'normal',
       data: { type: type === 'permanent' ? 'nearby_perm' : 'nearby_shift' },
     }));
 
