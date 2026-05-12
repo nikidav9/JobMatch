@@ -13,19 +13,20 @@
       "supportsTablet": true
     },
     "android": {
-      "googleServicesFile": "./google-services.json",
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/images/jt-logo.png",
-        "backgroundColor": "#ffffff"
-      },
-      "edgeToEdgeEnabled": true,
-      "package": "com.nikidav23.onspaceapp",
-      "blockedPermissions": [
-        "android.permission.ACTIVITY_RECOGNITION",
-        "android.permission.READ_MEDIA_AUDIO",
-        "android.permission.READ_MEDIA_VIDEO"
-      ]
-    },
+  "googleServicesFile": "./google-services.json",
+  "adaptiveIcon": {
+    "foregroundImage": "./assets/images/jt-logo.png",
+    "backgroundColor": "#ffffff"
+  },
+  "edgeToEdgeEnabled": true,
+  "package": "com.nikidav23.onspaceapp",
+  "versionCode": 2,
+  "blockedPermissions": [
+    "android.permission.ACTIVITY_RECOGNITION",
+    "android.permission.READ_MEDIA_AUDIO",
+    "android.permission.READ_MEDIA_VIDEO"
+  ]
+}
     "web": {
       "bundler": "metro",
       "output": "static",
