@@ -43,8 +43,8 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/images/jt-logo.png",
-          "color": "#000000",
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#FF6B1A",
           "defaultChannel": "default"
         }
       ],

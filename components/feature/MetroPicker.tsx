@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal } from 'react-native';
 import { Colors, Radius, Shadow } from '@/constants/theme';
 import { METRO_LINES } from '@/constants/metro';
@@ -12,9 +12,14 @@ interface Props {
 }
 
 export function MetroPicker({ visible, onClose, onSelect, selectedLineId, selectedStation }: Props) {
-  const [selectedLine, setSelectedLine] = useState<typeof METRO_LINES[0] | null>(
-    selectedLineId ? METRO_LINES.find(l => l.id === selectedLineId) ?? null : null
-  );
+  const [selectedLine, setSelectedLine] = useState<typeof METRO_LINES[0] | null>(null);
+
+  // Сбрасываем выбранную линию каждый раз когда модал открывается
+  useEffect(() => {
+    if (visible) {
+      setSelectedLine(selectedLineId ? METRO_LINES.find(l => l.id === selectedLineId) ?? null : null);
+    }
+  }, [visible]);
 
   const handleLineTap = (line: typeof METRO_LINES[0]) => setSelectedLine(line);
 

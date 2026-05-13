@@ -310,7 +310,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     await dbUpsertUser(u);
     _setCurrentUser(u);
     await saveSessionUser(u);
-    registerForPushNotifications(u.id).catch(() => {});
+    // Задержка нужна чтобы система успела обработать разрешения на уведомления
+    setTimeout(() => { registerForPushNotifications(u.id).catch(() => {}); }, 2000);
     setTimeout(() => {
       Promise.all([
         refreshUsers(),
