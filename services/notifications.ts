@@ -2,6 +2,7 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
+import * as Application from 'expo-application';
 import { dbSavePushToken, dbGetPushToken, dbGetWorkerTokensByMetro } from '@/services/db';
 
 // Show alerts and play sound for foreground notifications
@@ -65,6 +66,39 @@ function getExpoProjectId(): string | undefined {
   );
 }
 
+function getPushRegistrationHint(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (message.includes('FIS_AUTH_ERROR')) {
+    return [
+      'Firebase Installations rejected the Android app while fetching the native FCM token.',
+      'Check that google-services.json belongs to the same Firebase Android app/package as this build,',
+      'that the Firebase API key includes Firebase Installations API and FCM Registration API if restricted,',
+      'and that Android app restrictions include the signing SHA-1/SHA-256 for the installed build.',
+      'After changing Firebase/EAS credentials, rebuild and reinstall the app.',
+    ].join(' ');
+  }
+
+  if (message.includes('SERVICE_NOT_AVAILABLE')) {
+    return 'FCM service is temporarily unavailable on the device/network. Retry later and verify Google Play services/network access.';
+  }
+
+  return 'Verify Android FCM V1 credentials in EAS, google-services.json, the EAS projectId, and notification permission.';
+}
+
+let didLogPushConfig = false;
+
+function logPushRegistrationConfig(projectId: string): void {
+  if (didLogPushConfig) return;
+  didLogPushConfig = true;
+
+  console.info('[push] Registration config:', {
+    platform: Platform.OS,
+    applicationId: Application.applicationId ?? 'unknown',
+    projectId,
+  });
+}
+
 export async function registerForPushNotifications(userId: string): Promise<void> {
   if (Platform.OS === 'web') return;
   if (!Device.isDevice) {
@@ -91,12 +125,15 @@ export async function registerForPushNotifications(userId: string): Promise<void
     return;
   }
 
+  logPushRegistrationConfig(projectId);
+
   try {
     const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
     await dbSavePushToken(userId, token);
     console.info('[push] Expo push token saved for user:', userId);
   } catch (error) {
     console.warn('[push] Failed to register Expo push token:', error);
+    console.warn('[push] Registration hint:', getPushRegistrationHint(error));
   }
 }
 
@@ -288,7 +325,7 @@ export async function notifyWorkersNearVacancy(params: {
       : '⚡ Новая подработка рядом!';
     const body = `${company} ищет сотрудника на «${title}» — м. ${metroStation}`;
 
-    const messages = workers.map(w => ({
+    const messages: ExpoPushMessage[] = workers.map(w => ({
       to: w.push_token,
       title: notifTitle,
       body,
