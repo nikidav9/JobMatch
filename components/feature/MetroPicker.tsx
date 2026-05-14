@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Modal } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Modal, Platform } from 'react-native';
 import { Colors, Radius } from '@/constants/theme';
 import { METRO_LINES } from '@/constants/metro';
 
@@ -30,8 +30,8 @@ export function MetroPicker({ visible, onClose, onSelect, selectedLineId, select
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent>
-      <View style={styles.overlay}>
+    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent>
+      <View style={styles.overlay} onStartShouldSetResponder={() => true}>
         <View style={styles.sheet}>
           <View style={styles.handle} />
 
@@ -50,6 +50,7 @@ export function MetroPicker({ visible, onClose, onSelect, selectedLineId, select
                 )}
                 showsVerticalScrollIndicator={false}
                 style={styles.list}
+                nestedScrollEnabled
               />
             </>
           ) : (
@@ -79,6 +80,7 @@ export function MetroPicker({ visible, onClose, onSelect, selectedLineId, select
                 showsVerticalScrollIndicator={false}
                 style={styles.list}
                 contentContainerStyle={{ paddingBottom: 8 }}
+                nestedScrollEnabled
               />
             </>
           )}
