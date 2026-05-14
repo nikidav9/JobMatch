@@ -30,7 +30,7 @@ export function MetroPicker({ visible, onClose, onSelect, selectedLineId, select
   };
 
   return (
-    <Modal visible={visible} animationType="slide" transparent statusBarTranslucent>
+    <Modal visible={visible} animationType="none" transparent statusBarTranslucent>
       <View style={styles.overlay} onStartShouldSetResponder={() => true}>
         <View style={styles.sheet}>
           <View style={styles.handle} />
