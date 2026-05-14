@@ -6,18 +6,32 @@ interface Props {
 
 export default function LiveBadge({ lastUpdated, pulse, onRefresh }: Props) {
   return (
-    <div className="flex items-center gap-3">
-      {lastUpdated && (
-        <div className="flex items-center gap-1.5">
-          <span className={`w-2 h-2 rounded-full transition-all ${pulse ? 'bg-green-400 scale-125' : 'bg-green-500'}`} />
-          <span className="text-xs text-slate-400">обновлено {lastUpdated}</span>
-        </div>
-      )}
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--ink-3)' }}>
+        <span style={{
+          width: 6, height: 6, borderRadius: '50%',
+          background: 'var(--positive)',
+          display: 'inline-block',
+          animation: pulse ? 'none' : 'livepulse 1.6s infinite',
+          opacity: pulse ? 1 : undefined,
+        }} />
+        <style>{`@keyframes livepulse { 0%,100%{opacity:1} 50%{opacity:.35} }`}</style>
+        <span className="mono">{lastUpdated ? `обновлено ${lastUpdated}` : 'Realtime'}</span>
+      </div>
       <button
         onClick={onRefresh}
-        className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition shadow-sm"
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+          height: 30, padding: '0 11px', borderRadius: 7,
+          border: '1px solid var(--line)', background: 'var(--bg-elev)',
+          color: 'var(--ink)', font: 'inherit', fontSize: 12.5, fontWeight: 500,
+          cursor: 'pointer',
+        }}
       >
-        ↺ Обновить
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round">
+          <path d="M13.5 8a5.5 5.5 0 1 1-2-4.2M13.5 2.5V5H11"/>
+        </svg>
+        Обновить
       </button>
     </div>
   )

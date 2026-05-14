@@ -4,19 +4,53 @@ interface Props {
   children: React.ReactNode
   className?: string
   action?: React.ReactNode
+  chip?: { label: string; tone?: 'pos' | 'neg' | 'acc' | 'default' }
 }
 
-export default function ChartCard({ title, sub, children, className = '', action }: Props) {
+export default function ChartCard({ title, sub, children, action, chip }: Props) {
+  const chipStyle = chip ? {
+    pos: { color: 'var(--positive)', bg: 'rgba(46,125,84,.08)', border: 'rgba(46,125,84,.18)' },
+    neg: { color: 'var(--negative)', bg: 'rgba(179,60,42,.08)', border: 'rgba(179,60,42,.18)' },
+    acc: { color: 'var(--accent)', bg: 'var(--accent-soft)', border: 'var(--accent-line)' },
+    default: { color: 'var(--ink-2)', bg: 'var(--bg-sunken)', border: 'var(--line)' },
+  }[chip.tone ?? 'default'] : null
+
   return (
-    <div className={`bg-white rounded-xl shadow-sm border border-slate-100 p-5 flex flex-col gap-4 ${className}`}>
-      <div className="flex items-start justify-between gap-2">
+    <div style={{
+      background: 'var(--bg-elev)',
+      border: '1px solid var(--line)',
+      borderRadius: 'var(--radius)',
+      boxShadow: 'var(--shadow-sm)',
+      overflow: 'hidden',
+      display: 'flex',
+      flexDirection: 'column',
+    }}>
+      {/* Header */}
+      <div style={{
+        padding: '14px 16px 10px',
+        display: 'flex', alignItems: 'flex-start', gap: 10,
+      }}>
         <div>
-          <h3 className="text-sm font-semibold text-slate-700">{title}</h3>
-          {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
+          <div style={{ fontWeight: 550, fontSize: 13.5, letterSpacing: '-0.005em', color: 'var(--ink)' }}>{title}</div>
+          {sub && <div style={{ fontSize: 11.5, color: 'var(--ink-3)', marginTop: 2 }}>{sub}</div>}
         </div>
-        {action}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+          {chip && chipStyle && (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '2px 8px', borderRadius: 999, fontSize: 11,
+              color: chipStyle.color, background: chipStyle.bg,
+              border: `1px solid ${chipStyle.border}`,
+            }}>{chip.label}</span>
+          )}
+          {action}
+        </div>
       </div>
-      {children}
+
+      {/* Body */}
+      <div style={{ padding: '0 16px 16px' }}>
+        {children}
+      </div>
     </div>
   )
 }

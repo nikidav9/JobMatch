@@ -4,11 +4,14 @@ import { fetchQuality, PALETTE } from '@/lib/queries'
 import { useRealtime } from '@/lib/useRealtime'
 import KpiCard from '@/components/KpiCard'
 import ChartCard from '@/components/ChartCard'
-import LiveBadge from '@/components/LiveBadge'
+import PageHeader from '@/components/PageHeader'
 import {
   BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine,
 } from 'recharts'
+
+const TT = { borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg-elev)', color: 'var(--ink)', fontSize: 12, boxShadow: 'var(--shadow-md)' }
+const AXIS = { fontSize: 10, fill: '#9A9690', fontFamily: 'Geist Mono, monospace' }
 
 export default function QualityPage() {
   const fetcher = useCallback(() => fetchQuality(), [])
@@ -23,143 +26,162 @@ export default function QualityPage() {
   const ratingColor = ratingNum >= 4 ? PALETTE.green : ratingNum >= 3 ? PALETTE.amber : PALETTE.red
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Качество</h1>
-          <p className="text-sm text-slate-400 mt-0.5">Realtime · обновление каждые 60 сек</p>
+    <div>
+      <PageHeader title="Качество" intervalSec={60} lastUpdated={lastUpdated} pulse={pulse} onRefresh={refresh} />
+
+      <div style={{ padding: '16px 24px 40px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
+          <KpiCard label="Средний рейтинг" value={d.kpi.avgRating} sub="Все оценки" sparkColor={ratingColor} />
+          <KpiCard label="Рейтинг работников" value={d.kpi.avgWorkerRating} sparkColor={PALETTE.orange} />
+          <KpiCard label="Рейтинг работодат." value={d.kpi.avgEmployerRating} sparkColor={PALETTE.blue} />
+          <KpiCard label="Всего оценок" value={d.kpi.totalRatings} sparkColor={PALETTE.purple} />
+          <KpiCard label="Жалоб всего" value={d.kpi.totalComplaints}
+            sub={`${d.kpi.workerComplaints} рабочих · ${d.kpi.employerComplaints} работодат.`}
+            sparkColor={PALETTE.red} />
         </div>
-        <LiveBadge lastUpdated={lastUpdated} pulse={pulse} onRefresh={refresh} />
-      </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
-        <KpiCard icon="⭐" label="Средний рейтинг" value={d.kpi.avgRating} color={ratingColor} sub="Все оценки" />
-        <KpiCard icon="👷" label="Рейтинг работников" value={d.kpi.avgWorkerRating} color={PALETTE.orange} />
-        <KpiCard icon="🏢" label="Рейтинг работодат." value={d.kpi.avgEmployerRating} color={PALETTE.blue} />
-        <KpiCard icon="📝" label="Всего оценок" value={d.kpi.totalRatings} color={PALETTE.purple} />
-        <KpiCard icon="🚨" label="Жалоб всего" value={d.kpi.totalComplaints} color={PALETTE.red} sub={`${d.kpi.workerComplaints} рабочих · ${d.kpi.employerComplaints} работодат.`} />
-      </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+          <KpiCard label="Заявок (пост.)" value={d.kpi.totalApplications} sparkColor={PALETTE.cyan} />
+          <KpiCard label="Ожидает" value={d.kpi.pendingApplications} sparkColor={PALETTE.amber} />
+          <KpiCard label="Одобрено" value={d.appStatus.find(a => a.name === 'Одобрено')?.value ?? 0} sparkColor={PALETTE.green} />
+        </div>
 
-      <div className="grid grid-cols-3 gap-4">
-        <KpiCard icon="📋" label="Заявок (пост.)" value={d.kpi.totalApplications} color={PALETTE.cyan} />
-        <KpiCard icon="⏳" label="Ожидает" value={d.kpi.pendingApplications} color={PALETTE.amber} />
-        <KpiCard icon="✅" label="Одобрено" value={d.appStatus.find(a => a.name === 'Одобрено')?.value ?? 0} color={PALETTE.green} />
-      </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <ChartCard title="Распределение оценок" sub="Работники и работодатели">
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={d.ratingDist} margin={{ top: 4, right: 8, left: -24, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E8E6DF" vertical={false} />
+                <XAxis dataKey="name" tick={AXIS} tickLine={false} axisLine={false} />
+                <YAxis tick={AXIS} tickLine={false} axisLine={false} allowDecimals={false} />
+                <Tooltip contentStyle={TT} />
+                <Legend iconType="square" iconSize={8} wrapperStyle={{ fontSize: 12, color: '#6B6760' }} />
+                <Bar dataKey="workers" name="Работники" fill={PALETTE.orange} stackId="a" />
+                <Bar dataKey="employers" name="Работодатели" fill={PALETTE.blue} stackId="a" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartCard>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        <ChartCard title="Распределение оценок" sub="Работники и работодатели">
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={d.ratingDist} margin={{ top: 0, right: 8, left: -20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
-              <XAxis dataKey="name" tick={{ fontSize: 14, fill: '#64748B' }} tickLine={false} axisLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: '#94A3B8' }} tickLine={false} axisLine={false} allowDecimals={false} />
-              <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #E2E8F0', fontSize: 12 }} />
-              <Legend iconType="square" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="workers" name="Работники" fill={PALETTE.orange} stackId="a" />
-              <Bar dataKey="employers" name="Работодатели" fill={PALETTE.blue} stackId="a" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
+          <ChartCard title="Средний рейтинг по дням" sub="30 дней">
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={d.ratingTrend} margin={{ top: 4, right: 8, left: -24, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E8E6DF" vertical={false} />
+                <XAxis dataKey="date" tick={AXIS} tickLine={false} axisLine={false} interval={4} />
+                <YAxis domain={[0, 5]} tick={AXIS} tickLine={false} axisLine={false} />
+                <Tooltip contentStyle={TT} formatter={(v: any) => [v ? Number(v).toFixed(2) : '—', 'Рейтинг']} />
+                <ReferenceLine y={4} stroke={PALETTE.green} strokeDasharray="4 2" label={{ value: '4.0', fill: PALETTE.green, fontSize: 10 }} />
+                <ReferenceLine y={3} stroke={PALETTE.amber} strokeDasharray="4 2" label={{ value: '3.0', fill: PALETTE.amber, fontSize: 10 }} />
+                <Line type="monotone" dataKey="avg" name="Ср. рейтинг" stroke={ratingColor} strokeWidth={2} dot={{ r: 2.5, fill: ratingColor }} connectNulls={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </ChartCard>
+        </div>
 
-        <ChartCard title="Средний рейтинг по дням" sub="30 дней">
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={d.ratingTrend} margin={{ top: 0, right: 8, left: -20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
-              <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#94A3B8' }} tickLine={false} axisLine={false} interval={4} />
-              <YAxis domain={[0, 5]} tick={{ fontSize: 11, fill: '#94A3B8' }} tickLine={false} axisLine={false} />
-              <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #E2E8F0', fontSize: 12 }} formatter={(v: any) => [v ? Number(v).toFixed(2) : '—', 'Рейтинг']} />
-              <ReferenceLine y={4} stroke={PALETTE.green} strokeDasharray="4 2" label={{ value: '4.0', fill: PALETTE.green, fontSize: 11 }} />
-              <ReferenceLine y={3} stroke={PALETTE.amber} strokeDasharray="4 2" label={{ value: '3.0', fill: PALETTE.amber, fontSize: 11 }} />
-              <Line type="monotone" dataKey="avg" name="Ср. рейтинг" stroke={ratingColor} strokeWidth={2.5} dot={{ r: 3, fill: ratingColor }} connectNulls={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        </ChartCard>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <ChartCard title="Жалобы" sub="По типу">
-          <ResponsiveContainer width="100%" height={180}>
-            <PieChart>
-              <Pie data={d.complaintSplit} cx="50%" cy="50%" innerRadius={48} outerRadius={70} dataKey="value" paddingAngle={4}>
-                {d.complaintSplit.map((e, i) => <Cell key={i} fill={e.fill} />)}
-              </Pie>
-              <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #E2E8F0', fontSize: 12 }} />
-              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="flex justify-center gap-4">
-            <div className="text-center"><p className="text-xl font-bold" style={{ color: PALETTE.orange }}>{d.kpi.workerComplaints}</p><p className="text-xs text-slate-400">На работников</p></div>
-            <div className="text-center"><p className="text-xl font-bold" style={{ color: PALETTE.blue }}>{d.kpi.employerComplaints}</p><p className="text-xs text-slate-400">На работодателей</p></div>
-          </div>
-        </ChartCard>
-
-        <ChartCard title="Жалобы по дням" sub="30 дней">
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={d.complaintTrend} margin={{ top: 0, right: 8, left: -20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
-              <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#94A3B8' }} tickLine={false} axisLine={false} interval={4} />
-              <YAxis tick={{ fontSize: 11, fill: '#94A3B8' }} tickLine={false} axisLine={false} allowDecimals={false} />
-              <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #E2E8F0', fontSize: 12 }} />
-              <Bar dataKey="count" name="Жалобы" fill={PALETTE.red} opacity={0.8} radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
-
-        <ChartCard title="Заявки (пост. вакансии)" sub="По статусу">
-          <ResponsiveContainer width="100%" height={180}>
-            <PieChart>
-              <Pie data={d.appStatus} cx="50%" cy="50%" innerRadius={48} outerRadius={70} dataKey="value" paddingAngle={4}>
-                {d.appStatus.map((e, i) => <Cell key={i} fill={e.fill} />)}
-              </Pie>
-              <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #E2E8F0', fontSize: 12 }} />
-              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="flex justify-center gap-3 flex-wrap">
-            {d.appStatus.map(a => (
-              <div key={a.name} className="text-center">
-                <p className="text-lg font-bold" style={{ color: a.fill }}>{a.value}</p>
-                <p className="text-xs text-slate-400">{a.name}</p>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+          <ChartCard title="Жалобы" sub="По типу">
+            <ResponsiveContainer width="100%" height={160}>
+              <PieChart>
+                <Pie data={d.complaintSplit} cx="50%" cy="50%" innerRadius={44} outerRadius={64} dataKey="value" paddingAngle={4}>
+                  {d.complaintSplit.map((e, i) => <Cell key={i} fill={e.fill} />)}
+                </Pie>
+                <Tooltip contentStyle={TT} />
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: '#6B6760' }} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 24, marginTop: 6 }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 22, fontWeight: 500, color: PALETTE.orange }}>{d.kpi.workerComplaints}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>На работников</div>
               </div>
-            ))}
-          </div>
-        </ChartCard>
-      </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 22, fontWeight: 500, color: PALETTE.blue }}>{d.kpi.employerComplaints}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>На работодат.</div>
+              </div>
+            </div>
+          </ChartCard>
 
-      {d.recentComplaints.length > 0 && (
-        <ChartCard title="Последние жалобы" sub={`${d.kpi.totalComplaints} всего`}>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-100">
-                  {['Тип', 'От кого', 'На кого', 'Описание', 'Дата'].map(h => (
-                    <th key={h} className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide pb-3 pr-4">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {d.recentComplaints.map((c, i) => (
-                  <tr key={i} className="hover:bg-slate-50">
-                    <td className="py-2.5 pr-4">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${c.type === 'worker' ? 'bg-orange-50 text-orange-700' : 'bg-blue-50 text-blue-700'}`}>
-                        {c.type === 'worker' ? '👷 Работник' : '🏢 Работодат.'}
-                      </span>
-                    </td>
-                    <td className="py-2.5 pr-4 text-slate-500 font-mono text-xs">{c.reporter}</td>
-                    <td className="py-2.5 pr-4 text-slate-500 font-mono text-xs">{c.target}</td>
-                    <td className="py-2.5 pr-4 text-slate-600 text-xs max-w-xs truncate">{c.desc}</td>
-                    <td className="py-2.5 text-slate-400 text-xs">{c.date}</td>
+          <ChartCard title="Жалобы по дням" sub="30 дней">
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={d.complaintTrend} margin={{ top: 4, right: 8, left: -24, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E8E6DF" vertical={false} />
+                <XAxis dataKey="date" tick={AXIS} tickLine={false} axisLine={false} interval={4} />
+                <YAxis tick={AXIS} tickLine={false} axisLine={false} allowDecimals={false} />
+                <Tooltip contentStyle={TT} />
+                <Bar dataKey="count" name="Жалобы" fill={PALETTE.red} opacity={0.8} radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartCard>
+
+          <ChartCard title="Заявки (пост. вакансии)" sub="По статусу">
+            <ResponsiveContainer width="100%" height={160}>
+              <PieChart>
+                <Pie data={d.appStatus} cx="50%" cy="50%" innerRadius={44} outerRadius={64} dataKey="value" paddingAngle={4}>
+                  {d.appStatus.map((e, i) => <Cell key={i} fill={e.fill} />)}
+                </Pie>
+                <Tooltip contentStyle={TT} />
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: '#6B6760' }} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 16, flexWrap: 'wrap', marginTop: 6 }}>
+              {d.appStatus.map(a => (
+                <div key={a.name} style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 18, fontWeight: 500, color: a.fill }}>{a.value}</div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>{a.name}</div>
+                </div>
+              ))}
+            </div>
+          </ChartCard>
+        </div>
+
+        {d.recentComplaints.length > 0 && (
+          <ChartCard title="Последние жалобы" sub={`${d.kpi.totalComplaints} всего`}>
+            <div style={{ overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                <thead>
+                  <tr>
+                    {['Тип', 'От кого', 'На кого', 'Описание', 'Дата'].map(h => (
+                      <th key={h} style={{
+                        textAlign: 'left', fontSize: 10.5, textTransform: 'uppercase',
+                        letterSpacing: '0.06em', color: 'var(--ink-3)', fontWeight: 500,
+                        padding: '8px 16px', borderBottom: '1px solid var(--line)',
+                        background: 'var(--bg)',
+                      }}>{h}</th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </ChartCard>
-      )}
+                </thead>
+                <tbody>
+                  {d.recentComplaints.map((c, i) => (
+                    <tr key={i} style={{ borderBottom: '1px solid var(--line)' }}>
+                      <td style={{ padding: '10px 16px' }}>
+                        <span style={{
+                          padding: '2px 7px', borderRadius: 5, fontSize: 11,
+                          color: c.type === 'worker' ? 'var(--accent)' : 'var(--info)',
+                          background: c.type === 'worker' ? 'var(--accent-soft)' : 'rgba(59,91,181,.08)',
+                        }}>
+                          {c.type === 'worker' ? 'Работник' : 'Работодат.'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px 16px', color: 'var(--ink-3)', fontFamily: 'Geist Mono, monospace', fontSize: 11.5 }}>{c.reporter}</td>
+                      <td style={{ padding: '10px 16px', color: 'var(--ink-3)', fontFamily: 'Geist Mono, monospace', fontSize: 11.5 }}>{c.target}</td>
+                      <td style={{ padding: '10px 16px', color: 'var(--ink-2)', fontSize: 12, maxWidth: 240 }}>{c.desc}</td>
+                      <td style={{ padding: '10px 16px', color: 'var(--ink-4)', fontFamily: 'Geist Mono, monospace', fontSize: 11.5 }}>{c.date}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </ChartCard>
+        )}
+      </div>
     </div>
   )
 }
 
 function Loader() {
-  return <div className="p-6 space-y-4">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-32 bg-slate-200 rounded-xl animate-pulse" />)}</div>
+  return (
+    <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {Array.from({ length: 3 }).map((_, i) => (
+        <div key={i} style={{ height: 120, background: 'var(--bg-sunken)', borderRadius: 10 }} />
+      ))}
+    </div>
+  )
 }

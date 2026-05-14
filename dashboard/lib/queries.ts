@@ -11,15 +11,15 @@ export const WORK_TYPE_LABELS: Record<string, string> = {
 }
 
 export const PALETTE = {
-  orange: '#FF6B1A',
-  blue: '#2563EB',
-  purple: '#7C3AED',
-  green: '#16A34A',
-  red: '#DC2626',
-  amber: '#D97706',
-  cyan: '#0891B2',
-  pink: '#DB2777',
-  gray: '#6B7280',
+  orange: '#C8501E',
+  blue: '#3B5BB5',
+  purple: '#5F4BB6',
+  green: '#2E7D54',
+  red: '#B33C2A',
+  amber: '#A87020',
+  cyan: '#0E7490',
+  pink: '#9D2060',
+  gray: '#6B6760',
 }
 
 export const CHART_COLORS = Object.values(PALETTE)

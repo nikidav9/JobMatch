@@ -4,11 +4,14 @@ import { fetchVacancies, PALETTE } from '@/lib/queries'
 import { useRealtime } from '@/lib/useRealtime'
 import KpiCard from '@/components/KpiCard'
 import ChartCard from '@/components/ChartCard'
-import LiveBadge from '@/components/LiveBadge'
+import PageHeader from '@/components/PageHeader'
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
+
+const TT = { borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg-elev)', color: 'var(--ink)', fontSize: 12, boxShadow: 'var(--shadow-md)' }
+const AXIS = { fontSize: 10, fill: '#9A9690', fontFamily: 'Geist Mono, monospace' }
 
 export default function VacanciesPage() {
   const fetcher = useCallback(() => fetchVacancies(), [])
@@ -20,139 +23,151 @@ export default function VacanciesPage() {
   if (loading || !d) return <Loader />
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Вакансии</h1>
-          <p className="text-sm text-slate-400 mt-0.5">Realtime · обновление каждые 30 сек</p>
+    <div>
+      <PageHeader title="Вакансии" intervalSec={30} lastUpdated={lastUpdated} pulse={pulse} onRefresh={refresh} />
+
+      <div style={{ padding: '16px 24px 40px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+          <KpiCard label="Врем. вакансий" value={d.kpi.totalTemp} sub={`${d.kpi.openTemp} открыто`} sparkColor={PALETTE.orange} />
+          <KpiCard label="Пост. вакансий" value={d.kpi.totalPerm} sub={`${d.kpi.openPerm} открыто`} sparkColor={PALETTE.blue} />
+          <KpiCard label="Срочных" value={d.kpi.urgentTemp} sparkColor={PALETTE.red} />
+          <KpiCard label="Новых за месяц" value={d.kpi.newMonth} deltaTone="pos" delta={`+${d.kpi.newMonth}`} />
         </div>
-        <LiveBadge lastUpdated={lastUpdated} pulse={pulse} onRefresh={refresh} />
-      </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-4">
-        <KpiCard icon="⚡" label="Врем. вакансий" value={d.kpi.totalTemp} color={PALETTE.orange} />
-        <KpiCard icon="💼" label="Пост. вакансий" value={d.kpi.totalPerm} color={PALETTE.blue} />
-        <KpiCard icon="✅" label="Открыто (врем.)" value={d.kpi.openTemp} color={PALETTE.green} />
-        <KpiCard icon="✅" label="Открыто (пост.)" value={d.kpi.openPerm} color={PALETTE.green} />
-        <KpiCard icon="🔒" label="Закрыто (врем.)" value={d.kpi.closedTemp} color={PALETTE.gray} />
-        <KpiCard icon="🔒" label="Закрыто (пост.)" value={d.kpi.closedPerm} color={PALETTE.gray} />
-        <KpiCard icon="🚨" label="Срочных" value={d.kpi.urgentTemp} color={PALETTE.red} />
-        <KpiCard icon="📅" label="Новых за месяц" value={d.kpi.newMonth} color={PALETTE.purple} />
-      </div>
-
-      <ChartCard title="Публикация вакансий" sub="Временные и постоянные по дням (90 дней)">
-        <ResponsiveContainer width="100%" height={240}>
-          <AreaChart data={d.daily90} margin={{ top: 0, right: 8, left: -20, bottom: 0 }}>
-            <defs>
-              <linearGradient id="gT" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor={PALETTE.orange} stopOpacity={0.3} /><stop offset="95%" stopColor={PALETTE.orange} stopOpacity={0} />
-              </linearGradient>
-              <linearGradient id="gP" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor={PALETTE.blue} stopOpacity={0.3} /><stop offset="95%" stopColor={PALETTE.blue} stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
-            <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#94A3B8' }} tickLine={false} axisLine={false} interval={8} />
-            <YAxis tick={{ fontSize: 11, fill: '#94A3B8' }} tickLine={false} axisLine={false} allowDecimals={false} />
-            <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #E2E8F0', fontSize: 12 }} />
-            <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
-            <Area type="monotone" dataKey="temp" name="Временные" stroke={PALETTE.orange} fill="url(#gT)" strokeWidth={2} dot={false} />
-            <Area type="monotone" dataKey="perm" name="Постоянные" stroke={PALETTE.blue} fill="url(#gP)" strokeWidth={2} dot={false} />
-          </AreaChart>
-        </ResponsiveContainer>
-      </ChartCard>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <ChartCard title="Типы работ" sub="Временные вакансии">
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={d.workTypeDist} layout="vertical" margin={{ left: 0, right: 16, top: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: 11, fill: '#94A3B8' }} tickLine={false} axisLine={false} allowDecimals={false} />
-              <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#64748B' }} tickLine={false} axisLine={false} width={80} />
-              <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #E2E8F0', fontSize: 12 }} />
-              <Bar dataKey="value" name="Вакансий" radius={[0, 4, 4, 0]}>
-                {d.workTypeDist.map((_, i) => <Cell key={i} fill={Object.values(PALETTE)[i]} />)}
-              </Bar>
-            </BarChart>
+        <ChartCard title="Публикация вакансий" sub="Временные и постоянные по дням · 90 дней">
+          <ResponsiveContainer width="100%" height={240}>
+            <AreaChart data={d.daily90} margin={{ top: 4, right: 8, left: -24, bottom: 0 }}>
+              <defs>
+                <linearGradient id="gT" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={PALETTE.orange} stopOpacity={0.2} /><stop offset="95%" stopColor={PALETTE.orange} stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="gP" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={PALETTE.blue} stopOpacity={0.2} /><stop offset="95%" stopColor={PALETTE.blue} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#E8E6DF" vertical={false} />
+              <XAxis dataKey="date" tick={AXIS} tickLine={false} axisLine={false} interval={8} />
+              <YAxis tick={AXIS} tickLine={false} axisLine={false} allowDecimals={false} />
+              <Tooltip contentStyle={TT} />
+              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: '#6B6760' }} />
+              <Area type="monotone" dataKey="temp" name="Временные" stroke={PALETTE.orange} fill="url(#gT)" strokeWidth={1.7} dot={false} />
+              <Area type="monotone" dataKey="perm" name="Постоянные" stroke={PALETTE.blue} fill="url(#gP)" strokeWidth={1.7} dot={false} />
+            </AreaChart>
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="Статус (врем.)" sub="Открыто / закрыто">
-          <ResponsiveContainer width="100%" height={160}>
-            <PieChart>
-              <Pie data={d.tempStatus} cx="50%" cy="50%" innerRadius={45} outerRadius={68} dataKey="value" paddingAngle={4}>
-                {d.tempStatus.map((e, i) => <Cell key={i} fill={e.fill} />)}
-              </Pie>
-              <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #E2E8F0', fontSize: 12 }} />
-              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="flex justify-center gap-6">
-            <div className="text-center"><p className="text-xl font-bold" style={{ color: PALETTE.green }}>{d.kpi.openTemp}</p><p className="text-xs text-slate-400">Открыто</p></div>
-            <div className="text-center"><p className="text-xl font-bold" style={{ color: PALETTE.gray }}>{d.kpi.closedTemp}</p><p className="text-xs text-slate-400">Закрыто</p></div>
-          </div>
-        </ChartCard>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+          <ChartCard title="Типы работ" sub="Временные вакансии">
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={d.workTypeDist} layout="vertical" margin={{ left: 0, right: 16, top: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E8E6DF" horizontal={false} />
+                <XAxis type="number" tick={AXIS} tickLine={false} axisLine={false} allowDecimals={false} />
+                <YAxis type="category" dataKey="name" tick={{ ...AXIS, fill: '#3D3A33' }} tickLine={false} axisLine={false} width={80} />
+                <Tooltip contentStyle={TT} />
+                <Bar dataKey="value" name="Вакансий" radius={[0, 4, 4, 0]}>
+                  {d.workTypeDist.map((_, i) => <Cell key={i} fill={Object.values(PALETTE)[i]} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartCard>
 
-        <ChartCard title="Статус (пост.)" sub="Открыто / закрыто">
-          <ResponsiveContainer width="100%" height={160}>
-            <PieChart>
-              <Pie data={d.permStatus} cx="50%" cy="50%" innerRadius={45} outerRadius={68} dataKey="value" paddingAngle={4}>
-                {d.permStatus.map((e, i) => <Cell key={i} fill={e.fill} />)}
-              </Pie>
-              <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #E2E8F0', fontSize: 12 }} />
-              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="flex justify-center gap-6">
-            <div className="text-center"><p className="text-xl font-bold" style={{ color: PALETTE.green }}>{d.kpi.openPerm}</p><p className="text-xs text-slate-400">Открыто</p></div>
-            <div className="text-center"><p className="text-xl font-bold" style={{ color: PALETTE.gray }}>{d.kpi.closedPerm}</p><p className="text-xs text-slate-400">Закрыто</p></div>
-          </div>
-        </ChartCard>
-      </div>
+          <ChartCard title="Статус врем." sub="Открыто / закрыто">
+            <ResponsiveContainer width="100%" height={150}>
+              <PieChart>
+                <Pie data={d.tempStatus} cx="50%" cy="50%" innerRadius={42} outerRadius={62} dataKey="value" paddingAngle={4}>
+                  {d.tempStatus.map((e, i) => <Cell key={i} fill={e.fill} />)}
+                </Pie>
+                <Tooltip contentStyle={TT} />
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: '#6B6760' }} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 24, marginTop: 4 }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 22, fontWeight: 500, color: PALETTE.green }}>{d.kpi.openTemp}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>Открыто</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 22, fontWeight: 500, color: PALETTE.gray }}>{d.kpi.closedTemp}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>Закрыто</div>
+              </div>
+            </div>
+          </ChartCard>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        <ChartCard title="Зарплатные диапазоны" sub="Постоянные вакансии">
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={d.salaryDist} margin={{ top: 0, right: 8, left: -20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
-              <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748B' }} tickLine={false} axisLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: '#94A3B8' }} tickLine={false} axisLine={false} allowDecimals={false} />
-              <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #E2E8F0', fontSize: 12 }} />
-              <Bar dataKey="value" name="Вакансий" radius={[4, 4, 0, 0]}>
-                {d.salaryDist.map((_, i) => <Cell key={i} fill={PALETTE.blue} opacity={0.6 + i * 0.08} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
+          <ChartCard title="Статус пост." sub="Открыто / закрыто">
+            <ResponsiveContainer width="100%" height={150}>
+              <PieChart>
+                <Pie data={d.permStatus} cx="50%" cy="50%" innerRadius={42} outerRadius={62} dataKey="value" paddingAngle={4}>
+                  {d.permStatus.map((e, i) => <Cell key={i} fill={e.fill} />)}
+                </Pie>
+                <Tooltip contentStyle={TT} />
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: '#6B6760' }} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 24, marginTop: 4 }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 22, fontWeight: 500, color: PALETTE.green }}>{d.kpi.openPerm}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>Открыто</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 22, fontWeight: 500, color: PALETTE.gray }}>{d.kpi.closedPerm}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>Закрыто</div>
+              </div>
+            </div>
+          </ChartCard>
+        </div>
 
-        <ChartCard title="Топ работодателей" sub="По количеству вакансий">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <ChartCard title="Зарплатные диапазоны" sub="Постоянные вакансии">
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={d.salaryDist} margin={{ top: 4, right: 8, left: -24, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E8E6DF" vertical={false} />
+                <XAxis dataKey="name" tick={AXIS} tickLine={false} axisLine={false} />
+                <YAxis tick={AXIS} tickLine={false} axisLine={false} allowDecimals={false} />
+                <Tooltip contentStyle={TT} />
+                <Bar dataKey="value" name="Вакансий" radius={[4, 4, 0, 0]}>
+                  {d.salaryDist.map((_, i) => <Cell key={i} fill={PALETTE.blue} opacity={0.5 + i * 0.1} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartCard>
+
+          <ChartCard title="Топ работодателей" sub="По количеству вакансий">
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
               <thead>
-                <tr className="border-b border-slate-100">
+                <tr>
                   {['Компания', 'Смены', 'Пост.', 'Всего'].map(h => (
-                    <th key={h} className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide pb-3 pr-4">{h}</th>
+                    <th key={h} style={{
+                      textAlign: 'left', fontSize: 10.5, textTransform: 'uppercase',
+                      letterSpacing: '0.06em', color: 'var(--ink-3)', fontWeight: 500,
+                      padding: '0 16px 10px 0', borderBottom: '1px solid var(--line)',
+                    }}>{h}</th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50">
+              <tbody>
                 {d.topEmployers.map((e, i) => (
-                  <tr key={i} className="hover:bg-slate-50">
-                    <td className="py-2 pr-4 font-medium text-slate-700 text-sm">{e.name}</td>
-                    <td className="py-2 pr-4 text-slate-500">{e.temp}</td>
-                    <td className="py-2 pr-4 text-slate-500">{e.perm}</td>
-                    <td className="py-2 font-bold" style={{ color: PALETTE.orange }}>{e.total}</td>
+                  <tr key={i} style={{ borderBottom: '1px solid var(--line)' }}>
+                    <td style={{ padding: '9px 16px 9px 0', fontWeight: 500, color: 'var(--ink)' }}>{e.name}</td>
+                    <td style={{ padding: '9px 16px 9px 0', color: 'var(--ink-2)' }}>{e.temp}</td>
+                    <td style={{ padding: '9px 16px 9px 0', color: 'var(--ink-2)' }}>{e.perm}</td>
+                    <td style={{ padding: '9px 0', fontWeight: 600, color: 'var(--accent)' }}>{e.total}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
-        </ChartCard>
+          </ChartCard>
+        </div>
       </div>
     </div>
   )
 }
 
 function Loader() {
-  return <div className="p-6 space-y-4">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-32 bg-slate-200 rounded-xl animate-pulse" />)}</div>
+  return (
+    <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {Array.from({ length: 3 }).map((_, i) => (
+        <div key={i} style={{ height: 120, background: 'var(--bg-sunken)', borderRadius: 10 }} />
+      ))}
+    </div>
+  )
 }
