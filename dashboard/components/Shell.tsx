@@ -8,26 +8,32 @@ import { isAuthed } from './AuthGuard'
 export default function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname()
   const router = useRouter()
-  const [ready, setReady] = useState(false)
+  // null = still checking, true/false = result
+  const [authed, setAuthed] = useState<boolean | null>(null)
 
   useEffect(() => {
-    if (path === '/login') {
-      setReady(true)
-      return
-    }
-    if (!isAuthed()) {
+    const ok = isAuthed()
+    setAuthed(ok)
+    if (!ok && path !== '/login') {
       router.replace('/login')
-    } else {
-      setReady(true)
     }
-  }, [path, router])
+  }, []) // only on mount
 
-  if (!ready) return null
+  // Login page — always show immediately, no auth check needed
+  if (path === '/login') {
+    return <>{children}</>
+  }
 
-  // Login page: no shell
-  if (path === '/login') return <>{children}</>
+  // Still checking — show warm background (no white flash)
+  if (authed === null) {
+    return <div style={{ minHeight: '100vh', background: 'var(--bg)' }} />
+  }
 
-  // Dashboard: full shell with sidebar + topbar
+  // Not authed — redirect in progress
+  if (!authed) {
+    return <div style={{ minHeight: '100vh', background: 'var(--bg)' }} />
+  }
+
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'var(--sidebar-w) 1fr', minHeight: '100vh' }}>
       <Sidebar />
