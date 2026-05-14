@@ -20,7 +20,7 @@
   },
   "edgeToEdgeEnabled": true,
   "package": "com.nikidav23.onspaceapp",
-  "versionCode": 2,
+  "versionCode": 3,
   "blockedPermissions": [
     "android.permission.ACTIVITY_RECOGNITION",
     "android.permission.READ_MEDIA_AUDIO",
