@@ -3,35 +3,40 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import Sidebar from './Sidebar'
 import Topbar from './Topbar'
-import { isAuthed } from './AuthGuard'
+
+const SESSION_KEY = 'jm_session'
+
+function getAuthed() {
+  if (typeof window === 'undefined') return false
+  return sessionStorage.getItem(SESSION_KEY) === '1'
+}
 
 export default function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname()
   const router = useRouter()
-  // null = still checking, true/false = result
-  const [authed, setAuthed] = useState<boolean | null>(null)
+  const [state, setState] = useState<'loading' | 'ok' | 'no'>('loading')
 
+  // Re-check auth every time path changes (e.g. after login → redirect to /)
   useEffect(() => {
-    const ok = isAuthed()
-    setAuthed(ok)
-    if (!ok && path !== '/login') {
+    if (path === '/login') {
+      setState('loading') // reset so next nav rechecks
+      return
+    }
+    const ok = getAuthed()
+    if (ok) {
+      setState('ok')
+    } else {
+      setState('no')
       router.replace('/login')
     }
-  }, []) // only on mount
+  }, [path, router])
 
-  // Login page — always show immediately, no auth check needed
-  if (path === '/login') {
-    return <>{children}</>
-  }
+  // Login page — render without shell, no auth check
+  if (path === '/login') return <>{children}</>
 
-  // Still checking — show warm background (no white flash)
-  if (authed === null) {
-    return <div style={{ minHeight: '100vh', background: 'var(--bg)' }} />
-  }
-
-  // Not authed — redirect in progress
-  if (!authed) {
-    return <div style={{ minHeight: '100vh', background: 'var(--bg)' }} />
+  // Warm cream bg while checking (no white flash)
+  if (state !== 'ok') {
+    return <div style={{ minHeight: '100vh', background: '#FAFAF7' }} />
   }
 
   return (
