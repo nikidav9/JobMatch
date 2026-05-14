@@ -1,18 +1,16 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 import { setAuth, isAuthed } from '@/components/AuthGuard'
 
 export default function LoginPage() {
-  const router = useRouter()
   const [login, setLogin] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    if (isAuthed()) router.replace('/')
-  }, [router])
+    if (isAuthed()) window.location.replace('/')
+  }, [])
 
   function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -21,7 +19,7 @@ export default function LoginPage() {
     setTimeout(() => {
       if (login === 'nikidav23' && password === 'Nikita02102001') {
         setAuth()
-        router.replace('/')
+        window.location.replace('/')
       } else {
         setError('Неверный логин или пароль')
         setLoading(false)

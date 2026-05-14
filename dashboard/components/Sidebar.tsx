@@ -1,6 +1,6 @@
 'use client'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { clearAuth } from './AuthGuard'
 
 const NAV = [
@@ -14,11 +14,10 @@ const NAV = [
 
 export default function Sidebar() {
   const path = usePathname()
-  const router = useRouter()
 
   function logout() {
     clearAuth()
-    router.replace('/login')
+    window.location.replace('/login')
   }
   return (
     <aside style={{

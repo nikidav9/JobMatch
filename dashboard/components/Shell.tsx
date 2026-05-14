@@ -1,41 +1,44 @@
 'use client'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import Sidebar from './Sidebar'
 import Topbar from './Topbar'
 
 const SESSION_KEY = 'jm_session'
 
-function getAuthed() {
+function isAuthed() {
   if (typeof window === 'undefined') return false
   return sessionStorage.getItem(SESSION_KEY) === '1'
 }
 
 export default function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname()
-  const router = useRouter()
-  const [state, setState] = useState<'loading' | 'ok' | 'no'>('loading')
+  const [ready, setReady] = useState(false)
+  const [authed, setAuthed] = useState(false)
 
-  // Re-check auth every time path changes (e.g. after login → redirect to /)
   useEffect(() => {
+    // Login page — no auth check needed
     if (path === '/login') {
-      setState('loading') // reset so next nav rechecks
+      setReady(true)
       return
     }
-    const ok = getAuthed()
+    const ok = isAuthed()
     if (ok) {
-      setState('ok')
+      setAuthed(true)
+      setReady(true)
     } else {
-      setState('no')
-      router.replace('/login')
+      // Full-page redirect — works reliably in static exports
+      window.location.replace('/login')
     }
-  }, [path, router])
+  }, [path])
 
-  // Login page — render without shell, no auth check
-  if (path === '/login') return <>{children}</>
+  // Login page — render without shell
+  if (path === '/login') {
+    return <>{children}</>
+  }
 
-  // Warm cream bg while checking (no white flash)
-  if (state !== 'ok') {
+  // Warm background while checking auth / redirecting
+  if (!ready || !authed) {
     return <div style={{ minHeight: '100vh', background: '#FAFAF7' }} />
   }
 
