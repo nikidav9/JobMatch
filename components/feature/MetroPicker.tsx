@@ -35,43 +35,45 @@ export function MetroPicker({ visible, onClose, onSelect, selectedLineId, select
       <View style={styles.overlay}>
         <View style={styles.sheet}>
           <View style={styles.handle} />
-          {!selectedLine ? (
-            <>
-              <Text style={styles.title}>Выберите линию</Text>
-              <ScrollView showsVerticalScrollIndicator={false}>
-                {METRO_LINES.map(line => (
-                  <TouchableOpacity key={line.id} style={styles.lineRow} onPress={() => handleLineTap(line)} activeOpacity={0.7}>
-                    <View style={[styles.lineDot, { backgroundColor: line.color }]} />
-                    <Text style={styles.lineName}>{line.name}</Text>
-                    <Text style={styles.arrow}>›</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </>
-          ) : (
-            <>
-              <TouchableOpacity style={styles.backRow} onPress={() => setSelectedLine(null)}>
-                <View style={[styles.lineDotSm, { backgroundColor: selectedLine.color }]} />
-                <Text style={styles.backLabel}>← {selectedLine.name}</Text>
-              </TouchableOpacity>
-              <Text style={styles.title}>Выберите станцию</Text>
-              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.stationsGrid}>
-                {selectedLine.stations.map(st => {
-                  const isSelected = st === selectedStation && selectedLine.id === selectedLineId;
-                  return (
-                    <TouchableOpacity
-                      key={st}
-                      style={[styles.stationChip, isSelected && styles.stationChipActive]}
-                      onPress={() => handleStationTap(st)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={[styles.stationText, isSelected && styles.stationTextActive]}>{st}</Text>
+          <View style={styles.content}>
+            {!selectedLine ? (
+              <>
+                <Text style={styles.title}>Выберите линию</Text>
+                <ScrollView showsVerticalScrollIndicator={false} style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+                  {METRO_LINES.map(line => (
+                    <TouchableOpacity key={line.id} style={styles.lineRow} onPress={() => handleLineTap(line)} activeOpacity={0.7}>
+                      <View style={[styles.lineDot, { backgroundColor: line.color }]} />
+                      <Text style={styles.lineName}>{line.name}</Text>
+                      <Text style={styles.arrow}>›</Text>
                     </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            </>
-          )}
+                  ))}
+                </ScrollView>
+              </>
+            ) : (
+              <>
+                <TouchableOpacity style={styles.backRow} onPress={() => setSelectedLine(null)}>
+                  <View style={[styles.lineDotSm, { backgroundColor: selectedLine.color }]} />
+                  <Text style={styles.backLabel}>← {selectedLine.name}</Text>
+                </TouchableOpacity>
+                <Text style={styles.title}>Выберите станцию</Text>
+                <ScrollView showsVerticalScrollIndicator={false} style={styles.scroll} contentContainerStyle={styles.stationsGrid}>
+                  {selectedLine.stations.map(st => {
+                    const isSelected = st === selectedStation && selectedLine.id === selectedLineId;
+                    return (
+                      <TouchableOpacity
+                        key={st}
+                        style={[styles.stationChip, isSelected && styles.stationChipActive]}
+                        onPress={() => handleStationTap(st)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.stationText, isSelected && styles.stationTextActive]}>{st}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </>
+            )}
+          </View>
           <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
             <Text style={styles.closeBtnText}>Закрыть</Text>
           </TouchableOpacity>
@@ -90,6 +92,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 32,
     maxHeight: '85%',
+    flex: 0,
+  },
+  content: {
+    flexShrink: 1,
+  },
+  scroll: {
+    flexGrow: 0,
+  },
+  scrollContent: {
+    flexGrow: 0,
   },
   handle: { width: 36, height: 4, backgroundColor: Colors.inputBorder, borderRadius: 2, alignSelf: 'center', marginVertical: 12 },
   title: { fontSize: 18, fontWeight: '700', color: Colors.textPrimary, marginBottom: 16 },
