@@ -12,7 +12,9 @@ function isAuthed() {
 }
 
 export default function Shell({ children }: { children: React.ReactNode }) {
-  const path = usePathname()
+  const rawPath = usePathname()
+  // Normalize: strip trailing slash so '/login/' === '/login'
+  const path = rawPath.replace(/\/$/, '') || '/'
   const [ready, setReady] = useState(false)
   const [authed, setAuthed] = useState(false)
 
@@ -33,7 +35,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   }, [path])
 
   // Login page — render without shell
-  if (path === '/login') {
+  if (path === '/login' || rawPath === '/login/') {
     return <>{children}</>
   }
 
