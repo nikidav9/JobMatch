@@ -1,24 +1,33 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useCallback } from 'react'
 import { fetchVacancies, PALETTE } from '@/lib/queries'
+import { useRealtime } from '@/lib/useRealtime'
 import KpiCard from '@/components/KpiCard'
 import ChartCard from '@/components/ChartCard'
+import LiveBadge from '@/components/LiveBadge'
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
 
 export default function VacanciesPage() {
-  const [d, setD] = useState<Awaited<ReturnType<typeof fetchVacancies>> | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => { fetchVacancies().then(r => { setD(r); setLoading(false) }) }, [])
+  const fetcher = useCallback(() => fetchVacancies(), [])
+  const { data: d, loading, lastUpdated, pulse, refresh } = useRealtime(fetcher, {
+    tables: ['jm_vacancies', 'jm_perm_vacancies'],
+    intervalSec: 30,
+  })
 
   if (loading || !d) return <Loader />
 
   return (
     <div className="p-6 space-y-6">
-      <Header title="Вакансии" onRefresh={() => { setLoading(true); fetchVacancies().then(r => { setD(r); setLoading(false) }) }} />
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Вакансии</h1>
+          <p className="text-sm text-slate-400 mt-0.5">Realtime · обновление каждые 30 сек</p>
+        </div>
+        <LiveBadge lastUpdated={lastUpdated} pulse={pulse} onRefresh={refresh} />
+      </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-4">
         <KpiCard icon="⚡" label="Врем. вакансий" value={d.kpi.totalTemp} color={PALETTE.orange} />
@@ -31,7 +40,6 @@ export default function VacanciesPage() {
         <KpiCard icon="📅" label="Новых за месяц" value={d.kpi.newMonth} color={PALETTE.purple} />
       </div>
 
-      {/* Daily creation chart */}
       <ChartCard title="Публикация вакансий" sub="Временные и постоянные по дням (90 дней)">
         <ResponsiveContainer width="100%" height={240}>
           <AreaChart data={d.daily90} margin={{ top: 0, right: 8, left: -20, bottom: 0 }}>
@@ -55,7 +63,6 @@ export default function VacanciesPage() {
       </ChartCard>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Work type */}
         <ChartCard title="Типы работ" sub="Временные вакансии">
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={d.workTypeDist} layout="vertical" margin={{ left: 0, right: 16, top: 0, bottom: 0 }}>
@@ -70,7 +77,6 @@ export default function VacanciesPage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        {/* Temp status */}
         <ChartCard title="Статус (врем.)" sub="Открыто / закрыто">
           <ResponsiveContainer width="100%" height={160}>
             <PieChart>
@@ -82,12 +88,11 @@ export default function VacanciesPage() {
             </PieChart>
           </ResponsiveContainer>
           <div className="flex justify-center gap-6">
-            <MiniStat label="Открыто" value={d.kpi.openTemp} color={PALETTE.green} />
-            <MiniStat label="Закрыто" value={d.kpi.closedTemp} color={PALETTE.gray} />
+            <div className="text-center"><p className="text-xl font-bold" style={{ color: PALETTE.green }}>{d.kpi.openTemp}</p><p className="text-xs text-slate-400">Открыто</p></div>
+            <div className="text-center"><p className="text-xl font-bold" style={{ color: PALETTE.gray }}>{d.kpi.closedTemp}</p><p className="text-xs text-slate-400">Закрыто</p></div>
           </div>
         </ChartCard>
 
-        {/* Perm status */}
         <ChartCard title="Статус (пост.)" sub="Открыто / закрыто">
           <ResponsiveContainer width="100%" height={160}>
             <PieChart>
@@ -99,13 +104,12 @@ export default function VacanciesPage() {
             </PieChart>
           </ResponsiveContainer>
           <div className="flex justify-center gap-6">
-            <MiniStat label="Открыто" value={d.kpi.openPerm} color={PALETTE.green} />
-            <MiniStat label="Закрыто" value={d.kpi.closedPerm} color={PALETTE.gray} />
+            <div className="text-center"><p className="text-xl font-bold" style={{ color: PALETTE.green }}>{d.kpi.openPerm}</p><p className="text-xs text-slate-400">Открыто</p></div>
+            <div className="text-center"><p className="text-xl font-bold" style={{ color: PALETTE.gray }}>{d.kpi.closedPerm}</p><p className="text-xs text-slate-400">Закрыто</p></div>
           </div>
         </ChartCard>
       </div>
 
-      {/* Salary + Top employers */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <ChartCard title="Зарплатные диапазоны" sub="Постоянные вакансии">
           <ResponsiveContainer width="100%" height={200}>
@@ -149,24 +153,6 @@ export default function VacanciesPage() {
   )
 }
 
-function MiniStat({ label, value, color }: { label: string; value: number; color: string }) {
-  return (
-    <div className="text-center">
-      <p className="text-xl font-bold" style={{ color }}>{value}</p>
-      <p className="text-xs text-slate-400">{label}</p>
-    </div>
-  )
-}
-
 function Loader() {
   return <div className="p-6 space-y-4">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-32 bg-slate-200 rounded-xl animate-pulse" />)}</div>
-}
-
-function Header({ title, onRefresh }: { title: string; onRefresh: () => void }) {
-  return (
-    <div className="flex items-center justify-between">
-      <h1 className="text-2xl font-bold text-slate-800">{title}</h1>
-      <button onClick={onRefresh} className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition shadow-sm">↺ Обновить</button>
-    </div>
-  )
 }

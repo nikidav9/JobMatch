@@ -1,26 +1,34 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useCallback } from 'react'
 import { fetchUsers, PALETTE } from '@/lib/queries'
+import { useRealtime } from '@/lib/useRealtime'
 import KpiCard from '@/components/KpiCard'
 import ChartCard from '@/components/ChartCard'
+import LiveBadge from '@/components/LiveBadge'
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
 
 export default function UsersPage() {
-  const [d, setD] = useState<Awaited<ReturnType<typeof fetchUsers>> | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => { fetchUsers().then(r => { setD(r); setLoading(false) }) }, [])
+  const fetcher = useCallback(() => fetchUsers(), [])
+  const { data: d, loading, lastUpdated, pulse, refresh } = useRealtime(fetcher, {
+    tables: ['jm_users'],
+    intervalSec: 30,
+  })
 
   if (loading || !d) return <Loader />
 
   return (
     <div className="p-6 space-y-6">
-      <Header title="Пользователи" onRefresh={() => { setLoading(true); fetchUsers().then(r => { setD(r); setLoading(false) }) }} />
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Пользователи</h1>
+          <p className="text-sm text-slate-400 mt-0.5">Realtime · обновление каждые 30 сек</p>
+        </div>
+        <LiveBadge lastUpdated={lastUpdated} pulse={pulse} onRefresh={refresh} />
+      </div>
 
-      {/* KPI */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
         <KpiCard icon="👥" label="Всего" value={d.kpi.total} color={PALETTE.orange} />
         <KpiCard icon="👷" label="Работники" value={d.kpi.workers} sub={`${d.kpi.workerPct}%`} color={PALETTE.orange} />
@@ -30,7 +38,6 @@ export default function UsersPage() {
         <KpiCard icon="📅" label="Новых за 30 дней" value={d.kpi.newMonth} color={PALETTE.green} />
       </div>
 
-      {/* Growth charts */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <ChartCard title="Новые регистрации" sub="Работники vs работодатели (90 дней)">
           <ResponsiveContainer width="100%" height={220}>
@@ -75,7 +82,6 @@ export default function UsersPage() {
         </ChartCard>
       </div>
 
-      {/* Metro + pie */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <ChartCard title="Топ станций метро" sub="Работники и работодатели" className="md:col-span-2">
           <ResponsiveContainer width="100%" height={240}>
@@ -85,7 +91,7 @@ export default function UsersPage() {
               <YAxis type="category" dataKey="station" tick={{ fontSize: 11, fill: '#64748B' }} tickLine={false} axisLine={false} width={110} />
               <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #E2E8F0', fontSize: 12 }} />
               <Legend iconType="square" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="workers" name="Работники" fill={PALETTE.orange} stackId="a" radius={[0, 0, 0, 0]} />
+              <Bar dataKey="workers" name="Работники" fill={PALETTE.orange} stackId="a" />
               <Bar dataKey="employers" name="Работодатели" fill={PALETTE.blue} stackId="a" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -102,13 +108,12 @@ export default function UsersPage() {
             </PieChart>
           </ResponsiveContainer>
           <div className="flex gap-4 justify-center">
-            <Stat label="Работники" value={`${d.kpi.workerPct}%`} color={PALETTE.orange} />
-            <Stat label="Работодатели" value={`${100 - Number(d.kpi.workerPct)}%`} color={PALETTE.blue} />
+            <div className="text-center"><p className="text-lg font-bold" style={{ color: PALETTE.orange }}>{d.kpi.workerPct}%</p><p className="text-xs text-slate-400">Работники</p></div>
+            <div className="text-center"><p className="text-lg font-bold" style={{ color: PALETTE.blue }}>{100 - Number(d.kpi.workerPct)}%</p><p className="text-xs text-slate-400">Работодатели</p></div>
           </div>
         </ChartCard>
       </div>
 
-      {/* Recent users table */}
       <ChartCard title="Последние регистрации" sub="20 новых пользователей">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -125,9 +130,9 @@ export default function UsersPage() {
                   <td className="py-2.5 pr-4 font-medium text-slate-700">{u.name || '—'}</td>
                   <td className="py-2.5 pr-4 text-slate-500 font-mono text-xs">{u.phone}</td>
                   <td className="py-2.5 pr-4">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                      u.role === 'worker' ? 'bg-orange-50 text-orange-700' : 'bg-blue-50 text-blue-700'
-                    }`}>{u.role === 'worker' ? 'Работник' : 'Работодатель'}</span>
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${u.role === 'worker' ? 'bg-orange-50 text-orange-700' : 'bg-blue-50 text-blue-700'}`}>
+                      {u.role === 'worker' ? 'Работник' : 'Работодатель'}
+                    </span>
                   </td>
                   <td className="py-2.5 pr-4 text-slate-500 text-xs">{u.metro}</td>
                   <td className="py-2.5 text-slate-400 text-xs">{u.date}</td>
@@ -141,24 +146,6 @@ export default function UsersPage() {
   )
 }
 
-function Stat({ label, value, color }: { label: string; value: string; color: string }) {
-  return (
-    <div className="text-center">
-      <p className="text-lg font-bold" style={{ color }}>{value}</p>
-      <p className="text-xs text-slate-400">{label}</p>
-    </div>
-  )
-}
-
 function Loader() {
   return <div className="p-6 space-y-4">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-32 bg-slate-200 rounded-xl animate-pulse" />)}</div>
-}
-
-function Header({ title, onRefresh }: { title: string; onRefresh: () => void }) {
-  return (
-    <div className="flex items-center justify-between">
-      <h1 className="text-2xl font-bold text-slate-800">{title}</h1>
-      <button onClick={onRefresh} className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition shadow-sm">↺ Обновить</button>
-    </div>
-  )
 }

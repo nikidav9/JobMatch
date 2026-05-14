@@ -1,24 +1,33 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useCallback } from 'react'
 import { fetchEngagement, PALETTE } from '@/lib/queries'
+import { useRealtime } from '@/lib/useRealtime'
 import KpiCard from '@/components/KpiCard'
 import ChartCard from '@/components/ChartCard'
+import LiveBadge from '@/components/LiveBadge'
 import {
   AreaChart, Area, BarChart, Bar, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
 
 export default function EngagementPage() {
-  const [d, setD] = useState<Awaited<ReturnType<typeof fetchEngagement>> | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => { fetchEngagement().then(r => { setD(r); setLoading(false) }) }, [])
+  const fetcher = useCallback(() => fetchEngagement(), [])
+  const { data: d, loading, lastUpdated, pulse, refresh } = useRealtime(fetcher, {
+    tables: ['jm_chats', 'jm_messages'],
+    intervalSec: 30,
+  })
 
   if (loading || !d) return <Loader />
 
   return (
     <div className="p-6 space-y-6">
-      <Header title="Активность" onRefresh={() => { setLoading(true); fetchEngagement().then(r => { setD(r); setLoading(false) }) }} />
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Активность</h1>
+          <p className="text-sm text-slate-400 mt-0.5">Realtime · обновление каждые 30 сек</p>
+        </div>
+        <LiveBadge lastUpdated={lastUpdated} pulse={pulse} onRefresh={refresh} />
+      </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
         <KpiCard icon="💬" label="Всего чатов" value={d.kpi.totalChats} color={PALETTE.cyan} />
@@ -29,7 +38,6 @@ export default function EngagementPage() {
         <KpiCard icon="🔔" label="Непрочит. (работод.)" value={d.kpi.unreadEmployer} color={PALETTE.blue} />
       </div>
 
-      {/* Messages + chats area */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <ChartCard title="Сообщения по дням" sub="90 дней">
           <ResponsiveContainer width="100%" height={220}>
@@ -66,7 +74,6 @@ export default function EngagementPage() {
         </ChartCard>
       </div>
 
-      {/* Msg distribution */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <ChartCard title="Распределение сообщений в чатах" sub="Сколько сообщений в каждом чате">
           <ResponsiveContainer width="100%" height={220}>
@@ -82,8 +89,7 @@ export default function EngagementPage() {
           </ResponsiveContainer>
         </ChartCard>
 
-        {/* Combined messages+chats last 30 */}
-        <ChartCard title="Сообщения и чаты" sub="Последние 30 дней — комбинированный">
+        <ChartCard title="Сообщения и чаты" sub="Последние 30 дней">
           <ResponsiveContainer width="100%" height={220}>
             <AreaChart data={d.daily90.slice(-30)} margin={{ top: 0, right: 8, left: -20, bottom: 0 }}>
               <defs>
@@ -111,13 +117,4 @@ export default function EngagementPage() {
 
 function Loader() {
   return <div className="p-6 space-y-4">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-32 bg-slate-200 rounded-xl animate-pulse" />)}</div>
-}
-
-function Header({ title, onRefresh }: { title: string; onRefresh: () => void }) {
-  return (
-    <div className="flex items-center justify-between">
-      <h1 className="text-2xl font-bold text-slate-800">{title}</h1>
-      <button onClick={onRefresh} className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition shadow-sm">↺ Обновить</button>
-    </div>
-  )
 }

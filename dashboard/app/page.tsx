@@ -1,31 +1,33 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useCallback } from 'react'
 import { fetchOverview, PALETTE } from '@/lib/queries'
+import { useRealtime } from '@/lib/useRealtime'
 import KpiCard from '@/components/KpiCard'
 import ChartCard from '@/components/ChartCard'
+import LiveBadge from '@/components/LiveBadge'
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
 
 export default function OverviewPage() {
-  const [d, setD] = useState<Awaited<ReturnType<typeof fetchOverview>> | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [updated, setUpdated] = useState('')
-
-  useEffect(() => {
-    fetchOverview().then(r => {
-      setD(r)
-      setLoading(false)
-      setUpdated(new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }))
-    })
-  }, [])
+  const fetcher = useCallback(() => fetchOverview(), [])
+  const { data: d, loading, lastUpdated, pulse, refresh } = useRealtime(fetcher, {
+    tables: ['jm_users', 'jm_vacancies', 'jm_perm_vacancies', 'jm_likes'],
+    intervalSec: 30,
+  })
 
   if (loading || !d) return <PageLoader />
 
   return (
     <div className="p-6 space-y-6">
-      <PageHeader title="Обзор" sub={`Обновлено в ${updated}`} onRefresh={() => { setLoading(true); fetchOverview().then(r => { setD(r); setLoading(false) }) }} />
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Обзор</h1>
+          <p className="text-sm text-slate-400 mt-0.5">Realtime · обновление каждые 30 сек</p>
+        </div>
+        <LiveBadge lastUpdated={lastUpdated} pulse={pulse} onRefresh={refresh} />
+      </div>
 
       {/* KPI row 1 */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
@@ -112,7 +114,7 @@ export default function OverviewPage() {
                   </div>
                   <div className="h-6 bg-slate-100 rounded-lg overflow-hidden">
                     <div
-                      className="h-full rounded-lg flex items-center pl-2 transition-all"
+                      className="h-full rounded-lg transition-all"
                       style={{
                         width: `${Math.max(pct, 4)}%`,
                         backgroundColor: [PALETTE.blue, PALETTE.cyan, PALETTE.purple, PALETTE.orange, PALETTE.green][i],
@@ -164,30 +166,12 @@ function PageLoader() {
     <div className="p-6 space-y-6">
       <div className="h-10 w-48 bg-slate-200 rounded-lg animate-pulse" />
       <div className="grid grid-cols-6 gap-4">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="h-24 bg-slate-200 rounded-xl animate-pulse" />
-        ))}
+        {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-24 bg-slate-200 rounded-xl animate-pulse" />)}
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div className="h-64 bg-slate-200 rounded-xl animate-pulse" />
         <div className="h-64 bg-slate-200 rounded-xl animate-pulse" />
       </div>
-    </div>
-  )
-}
-
-function PageHeader({ title, sub, onRefresh }: { title: string; sub?: string; onRefresh?: () => void }) {
-  return (
-    <div className="flex items-center justify-between">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">{title}</h1>
-        {sub && <p className="text-sm text-slate-400 mt-0.5">{sub}</p>}
-      </div>
-      {onRefresh && (
-        <button onClick={onRefresh} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition shadow-sm">
-          ↺ Обновить
-        </button>
-      )}
     </div>
   )
 }
