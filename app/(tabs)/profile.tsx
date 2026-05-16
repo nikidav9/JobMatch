@@ -73,12 +73,19 @@ function RatingsModal({ userId, users, onClose }: { userId: string; users: any[]
 
   // Real-time: new rating arrives while modal is open → refresh instantly
   useEffect(() => {
-    const sb = getSupabaseClient();
-    const channel = sb
-      .channel(`ratings_modal:${userId}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'jm_ratings', filter: `to_user_id=eq.${userId}` }, fetchRatings)
-      .subscribe();
-    return () => { channel.unsubscribe(); };
+    let channel: ReturnType<ReturnType<typeof getSupabaseClient>['channel']> | null = null;
+    try {
+      const sb = getSupabaseClient();
+      channel = sb
+        .channel(`ratings_modal:${userId}`)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'jm_ratings', filter: `to_user_id=eq.${userId}` }, fetchRatings)
+        .subscribe();
+    } catch (e) {
+      console.warn('[RatingsModal] realtime subscription failed:', e);
+    }
+    return () => {
+      try { channel?.unsubscribe(); } catch {}
+    };
   }, [userId]);
 
   const avg = ratings.length > 0
@@ -835,3 +842,25 @@ const photoSrcS = StyleSheet.create({
   icon: { fontSize: 22, width: 30, textAlign: 'center' },
   label: { fontSize: 16, fontWeight: '600', color: Colors.textPrimary },
 });
+
+export function ErrorBoundary({ error, retry }: { error: Error; retry: () => void }) {
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: Colors.bg }} edges={['top', 'left', 'right']}>
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <Text style={{ fontSize: 40, marginBottom: 12 }}>😕</Text>
+        <Text style={{ fontSize: 16, fontWeight: '700', color: Colors.textPrimary, textAlign: 'center', marginBottom: 8 }}>
+          Не удалось загрузить профиль
+        </Text>
+        <Text style={{ fontSize: 13, color: Colors.textMuted, textAlign: 'center', marginBottom: 24 }}>
+          {error.message}
+        </Text>
+        <TouchableOpacity
+          onPress={retry}
+          style={{ backgroundColor: Colors.primary, borderRadius: 100, paddingHorizontal: 24, paddingVertical: 12 }}
+        >
+          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Попробовать снова</Text>
+        </TouchableOpacity>
+      </View>
+    </SafeAreaView>
+  );
+}
