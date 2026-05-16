@@ -226,50 +226,34 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     const sb = Platform.OS === 'web' ? supabase : getSupabaseClient();
     const user = currentUser;
+    const subs: ReturnType<typeof sb.channel>[] = [];
 
-    const subs = [
-      sb.channel('rt_vacancies')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'jm_vacancies' }, () => refreshVacancies())
-        .subscribe(),
+    const safeSub = (ch: ReturnType<typeof sb.channel>) => {
+      try {
+        subs.push(ch.subscribe());
+      } catch (e) {
+        console.warn('[AppContext] realtime subscription failed:', e);
+      }
+    };
 
-      sb.channel('rt_chats')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'jm_chats' }, () => refreshChats(user))
-        .subscribe(),
+    safeSub(sb.channel('rt_vacancies').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_vacancies' }, () => refreshVacancies()));
+    safeSub(sb.channel('rt_chats').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_chats' }, () => refreshChats(user)));
+    safeSub(sb.channel('rt_messages_global').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'jm_messages' }, () => refreshChats(user)));
+    safeSub(sb.channel('rt_likes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_likes' }, () => refreshLikes(user)));
+    safeSub(sb.channel('rt_perm_vac').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_vacancies' }, () => refreshPermVacancies(user)));
+    safeSub(sb.channel('rt_perm_apps').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_applications' }, () => refreshPermApplications(user)));
 
-      sb.channel('rt_messages_global')
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'jm_messages' }, () => refreshChats(user))
-        .subscribe(),
+    // Web-only channels (supabase-js handles these fine on web)
+    if (Platform.OS === 'web') {
+      safeSub(supabase.channel('rt_users').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_users' }, () => refreshUsers()));
+      safeSub(supabase.channel('rt_saved').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_saved' }, () => refreshSaved(user)));
+      safeSub(supabase.channel('rt_perm_saved').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_saved' }, () => refreshPermSaved(user)));
+      safeSub(supabase.channel('rt_ratings').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'jm_ratings' }, () => refreshUsers()));
+    }
 
-      sb.channel('rt_likes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'jm_likes' }, () => refreshLikes(user))
-        .subscribe(),
-
-      sb.channel('rt_perm_vac')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_vacancies' }, () => refreshPermVacancies(user))
-        .subscribe(),
-
-      sb.channel('rt_perm_apps')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_applications' }, () => refreshPermApplications(user))
-        .subscribe(),
-
-      // Web-only channels (supabase-js handles these fine on web)
-      ...(Platform.OS === 'web' ? [
-        supabase.channel('rt_users')
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'jm_users' }, () => refreshUsers())
-          .subscribe(),
-        supabase.channel('rt_saved')
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'jm_saved' }, () => refreshSaved(user))
-          .subscribe(),
-        supabase.channel('rt_perm_saved')
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_saved' }, () => refreshPermSaved(user))
-          .subscribe(),
-        supabase.channel('rt_ratings')
-          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'jm_ratings' }, () => refreshUsers())
-          .subscribe(),
-      ] : []),
-    ];
-
-    return () => { subs.forEach(s => s.unsubscribe()); };
+    return () => {
+      subs.forEach(s => { try { s.unsubscribe(); } catch {} });
+    };
   }, [currentUser?.id]);
 
   // ─── Polling fallback for native (fires when app comes to foreground) ──────
