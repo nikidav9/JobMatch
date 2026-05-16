@@ -222,13 +222,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   //         which has a stable WebSocket connection (bypasses the API proxy).
 
   useEffect(() => {
+    if (Platform.OS !== 'web') return;
     if (!currentUser) return;
 
-    const sb = Platform.OS === 'web' ? supabase : getSupabaseClient();
     const user = currentUser;
-    const subs: ReturnType<typeof sb.channel>[] = [];
+    const subs: ReturnType<typeof supabase.channel>[] = [];
 
-    const safeSub = (ch: ReturnType<typeof sb.channel>) => {
+    const safeSub = (ch: ReturnType<typeof supabase.channel>) => {
       try {
         subs.push(ch.subscribe());
       } catch (e) {
@@ -236,20 +236,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     };
 
-    safeSub(sb.channel('rt_vacancies').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_vacancies' }, () => refreshVacancies()));
-    safeSub(sb.channel('rt_chats').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_chats' }, () => refreshChats(user)));
-    safeSub(sb.channel('rt_messages_global').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'jm_messages' }, () => refreshChats(user)));
-    safeSub(sb.channel('rt_likes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_likes' }, () => refreshLikes(user)));
-    safeSub(sb.channel('rt_perm_vac').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_vacancies' }, () => refreshPermVacancies(user)));
-    safeSub(sb.channel('rt_perm_apps').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_applications' }, () => refreshPermApplications(user)));
-
-    // Web-only channels (supabase-js handles these fine on web)
-    if (Platform.OS === 'web') {
-      safeSub(supabase.channel('rt_users').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_users' }, () => refreshUsers()));
-      safeSub(supabase.channel('rt_saved').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_saved' }, () => refreshSaved(user)));
-      safeSub(supabase.channel('rt_perm_saved').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_saved' }, () => refreshPermSaved(user)));
-      safeSub(supabase.channel('rt_ratings').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'jm_ratings' }, () => refreshUsers()));
-    }
+    safeSub(supabase.channel('rt_vacancies').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_vacancies' }, () => refreshVacancies()));
+    safeSub(supabase.channel('rt_chats').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_chats' }, () => refreshChats(user)));
+    safeSub(supabase.channel('rt_messages_global').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'jm_messages' }, () => refreshChats(user)));
+    safeSub(supabase.channel('rt_likes').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_likes' }, () => refreshLikes(user)));
+    safeSub(supabase.channel('rt_perm_vac').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_vacancies' }, () => refreshPermVacancies(user)));
+    safeSub(supabase.channel('rt_perm_apps').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_applications' }, () => refreshPermApplications(user)));
+    safeSub(supabase.channel('rt_users').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_users' }, () => refreshUsers()));
+    safeSub(supabase.channel('rt_saved').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_saved' }, () => refreshSaved(user)));
+    safeSub(supabase.channel('rt_perm_saved').on('postgres_changes', { event: '*', schema: 'public', table: 'jm_perm_saved' }, () => refreshPermSaved(user)));
+    safeSub(supabase.channel('rt_ratings').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'jm_ratings' }, () => refreshUsers()));
 
     return () => {
       subs.forEach(s => { try { s.unsubscribe(); } catch {} });

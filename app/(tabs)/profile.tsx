@@ -71,8 +71,9 @@ function RatingsModal({ userId, users, onClose }: { userId: string; users: any[]
 
   useEffect(() => { fetchRatings(); }, [userId]);
 
-  // Real-time: new rating arrives while modal is open → refresh instantly
+  // Real-time: new rating arrives while modal is open → refresh instantly (web only)
   useEffect(() => {
+    if (Platform.OS !== 'web') return;
     let channel: ReturnType<ReturnType<typeof getSupabaseClient>['channel']> | null = null;
     try {
       const sb = getSupabaseClient();

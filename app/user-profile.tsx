@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   View, Text, StyleSheet, ScrollView,
-  TouchableOpacity, ActivityIndicator,
+  TouchableOpacity, ActivityIndicator, Platform,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -82,9 +82,10 @@ export default function UserProfileScreen() {
     fetchRatings(userId);
   }, [userId]);
 
-  // Real-time: refresh ratings list when a new rating is submitted for this user
+  // Real-time: refresh ratings list when a new rating is submitted for this user (web only)
   useEffect(() => {
     if (!userId) return;
+    if (Platform.OS !== 'web') return;
     let channel: ReturnType<ReturnType<typeof getSupabaseClient>['channel']> | null = null;
     try {
       const sb = getSupabaseClient();
